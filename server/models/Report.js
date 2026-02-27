@@ -11,11 +11,8 @@ const reportSchema = new mongoose.Schema({
     enum: [
       'patient-visits',
       'staff-utilization',
-      'revenue-analysis',
       'appointment-analytics',
       'doctor-performance',
-      'payment-summary',
-      'refund-analysis',
       'peak-hours',
       'department-wise',
       'monthly-summary',
@@ -42,13 +39,11 @@ const reportSchema = new mongoose.Schema({
       ref: 'User'
     },
     appointmentStatus: [String],
-    paymentStatus: [String],
     customFilters: mongoose.Schema.Types.Mixed
   },
   data: {
     summary: {
       totalRecords: Number,
-      totalRevenue: Number,
       averageValue: Number,
       growthPercentage: Number
     },
@@ -208,9 +203,8 @@ reportSchema.methods.hasAccess = function(userId, userRole) {
 reportSchema.statics.generateReportData = async function(reportType, parameters) {
   const Appointment = require('./Appointment');
   const User = require('./User');
-  const Payment = require('./Payment');
-  const Refund = require('./Refund');
   
+
   const { startDate, endDate, department, doctorId } = parameters;
   
   let dateFilter = {};
@@ -227,9 +221,6 @@ reportSchema.statics.generateReportData = async function(reportType, parameters)
     
     case 'staff-utilization':
       return await this.generateStaffUtilizationReport(dateFilter, parameters);
-    
-    case 'revenue-analysis':
-      return await this.generateRevenueAnalysisReport(dateFilter, parameters);
     
     case 'appointment-analytics':
       return await this.generateAppointmentAnalyticsReport(dateFilter, parameters);
@@ -271,8 +262,6 @@ reportSchema.statics.generatePatientVisitsReport = async function(dateFilter, pa
   return {
     summary: {
       totalRecords: totalVisits,
-      totalRevenue: appointments.reduce((sum, a) => sum + (a.consultationFee || 0), 0),
-      averageValue: totalVisits > 0 ? appointments.reduce((sum, a) => sum + (a.consultationFee || 0), 0) / totalVisits : 0,
       uniquePatients
     },
     charts: [
@@ -312,11 +301,6 @@ reportSchema.statics.generatePatientVisitsReport = async function(dateFilter, pa
         name: 'Unique Patients',
         value: uniquePatients,
         unit: 'patients'
-      },
-      {
-        name: 'Average Revenue per Visit',
-        value: totalVisits > 0 ? Math.round(appointments.reduce((sum, a) => sum + (a.consultationFee || 0), 0) / totalVisits) : 0,
-        unit: 'USD'
       }
     ]
   };
@@ -340,7 +324,6 @@ reportSchema.statics.generateStaffUtilizationReport = async function(dateFilter,
     
     const totalAppointments = doctorAppointments.length;
     const completedAppointments = doctorAppointments.filter(a => a.status === 'completed').length;
-    const revenue = doctorAppointments.reduce((sum, a) => sum + (a.consultationFee || 0), 0);
     
     return {
       doctor: `${doctor.firstName} ${doctor.lastName}`,
@@ -348,7 +331,6 @@ reportSchema.statics.generateStaffUtilizationReport = async function(dateFilter,
       totalAppointments,
       completedAppointments,
       completionRate: totalAppointments > 0 ? Math.round((completedAppointments / totalAppointments) * 100) : 0,
-      revenue,
       utilization: Math.min(100, Math.round((totalAppointments / 40) * 100)) // Assuming 40 appointments per period is 100%
     };
   });
@@ -356,8 +338,7 @@ reportSchema.statics.generateStaffUtilizationReport = async function(dateFilter,
   return {
     summary: {
       totalRecords: doctors.length,
-      averageUtilization: doctorStats.reduce((sum, d) => sum + d.utilization, 0) / doctors.length,
-      totalRevenue: doctorStats.reduce((sum, d) => sum + d.revenue, 0)
+      averageUtilization: doctorStats.reduce((sum, d) => sum + d.utilization, 0) / doctors.length
     },
     charts: [
       {
@@ -370,14 +351,13 @@ reportSchema.statics.generateStaffUtilizationReport = async function(dateFilter,
     tables: [
       {
         title: 'Staff Performance',
-        headers: ['Doctor', 'Department', 'Total Appointments', 'Completed', 'Completion Rate', 'Revenue', 'Utilization'],
+        headers: ['Doctor', 'Department', 'Total Appointments', 'Completed', 'Completion Rate', 'Utilization'],
         rows: doctorStats.map(d => [
           d.doctor,
           d.department,
           d.totalAppointments,
           d.completedAppointments,
           `${d.completionRate}%`,
-          `$${d.revenue}`,
           `${d.utilization}%`
         ])
       }

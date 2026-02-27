@@ -8,7 +8,6 @@ const BaseController = require('../core/BaseController');
 const ManagerService = require('../services/ManagerService');
 const UserRepository = require('../repositories/UserRepository');
 const AppointmentRepository = require('../repositories/AppointmentRepository');
-const PaymentRepository = require('../repositories/PaymentRepository');
 const ValidationHelper = require('../utils/ValidationHelper');
 const Logger = require('../utils/Logger');
 
@@ -24,13 +23,11 @@ class ManagerController extends BaseController {
     // Initialize repositories
     const userRepository = new UserRepository();
     const appointmentRepository = new AppointmentRepository();
-    const paymentRepository = new PaymentRepository();
     
     // Initialize service with dependency injection
     const managerService = new ManagerService(
       userRepository,
-      appointmentRepository,
-      paymentRepository
+      appointmentRepository
     );
     
     super(managerService, Logger.getLogger('ManagerController'));

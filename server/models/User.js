@@ -36,7 +36,7 @@ const userSchema = new mongoose.Schema({
   // Role and Status
   role: {
     type: String,
-    enum: ['patient', 'doctor', 'staff', 'manager', 'receptionist'],
+    enum: ['patient', 'doctor', 'staff', 'manager', 'receptionist', 'admin'],
     default: 'patient'
   },
   isActive: {
@@ -51,21 +51,17 @@ const userSchema = new mongoose.Schema({
   // Contact Information
   phone: {
     type: String,
-    required: [true, 'Phone number is required'],
-    match: [/^\+?[\d\s-()]+$/, 'Please provide a valid phone number']
+    required: false, // Allow users to add this later
+    match: [/^[\d\s+()-]+$/, 'Please provide a valid phone number']
   },
   dateOfBirth: {
     type: Date,
-    required: function() {
-      return this.role === 'patient';
-    }
+    required: false // Allow patients to add this later
   },
   gender: {
     type: String,
     enum: ['male', 'female', 'other', 'prefer-not-to-say'],
-    required: function() {
-      return this.role === 'patient';
-    }
+    required: false // Allow patients to add this later
   },
   
   // Address
@@ -138,10 +134,6 @@ const userSchema = new mongoose.Schema({
   qualification: {
     type: String,
     required: false
-  },
-  consultationFee: {
-    type: Number,
-    required: false // Allow completion during profile setup
   },
   // Doctor Schedule
   schedule: {

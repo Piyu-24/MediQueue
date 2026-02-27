@@ -17,13 +17,11 @@ class ManagerService extends BaseService {
    * Creates an instance of ManagerService
    * @param {Object} userRepository - User repository instance
    * @param {Object} appointmentRepository - Appointment repository instance
-   * @param {Object} paymentRepository - Payment repository instance
    */
-  constructor(userRepository, appointmentRepository, paymentRepository) {
+  constructor(userRepository, appointmentRepository) {
     super(null, Logger.getLogger('ManagerService'));
     this.userRepository = userRepository;
     this.appointmentRepository = appointmentRepository;
-    this.paymentRepository = paymentRepository;
   }
 
   /**
@@ -46,9 +44,7 @@ class ManagerService extends BaseService {
         todayAppointments,
         pendingAppointments,
         completedAppointments,
-        recentAppointments,
-        totalRevenue,
-        recentPayments
+        recentAppointments
       ] = await Promise.all([
         this.userRepository.count({ role: 'patient' }),
         this.userRepository.count({ role: 'doctor' }),
@@ -69,15 +65,6 @@ class ManagerService extends BaseService {
               { path: 'doctor', select: 'firstName lastName specialization' }
             ]
           }
-        ),
-        this.calculateTotalRevenue(),
-        this.paymentRepository.findMany(
-          { status: 'completed' },
-          {
-            limit: 5,
-            sort: { createdAt: -1 },
-            populate: [{ path: 'patient', select: 'firstName lastName email' }]
-          }
         )
       ]);
 
@@ -87,9 +74,8 @@ class ManagerService extends BaseService {
         todayAppointments,
         pendingAppointments,
         completedAppointments,
-        totalRevenue,
         recentAppointments: recentAppointments.data,
-        recentPayments: recentPayments.data
+        message: 'Healthcare is now free - no revenue tracking'
       };
 
       this.logger.info('Dashboard overview statistics fetched successfully', {
@@ -246,56 +232,32 @@ class ManagerService extends BaseService {
    */
   async generateFinancialSummaryReport(filters = {}) {
     try {
-      this.logger.info('Generating financial summary report', { filters });
+      this.logger.info('Financial summary report requested - healthcare is free', { filters });
 
-      const { startDate, endDate, paymentMethod, status } = filters;
-
-      // Build query
-      const query = {};
-      if (startDate && endDate) {
-        query.createdAt = {
-          $gte: new Date(startDate),
-          $lte: new Date(endDate)
-        };
-      }
-      if (paymentMethod) query.paymentMethod = paymentMethod;
-      if (status) query.status = status;
-
-      // Fetch payments with populated data
-      const paymentsResult = await this.paymentRepository.findMany(query, {
-        sort: { createdAt: -1 },
-        populate: [
-          { path: 'patient', select: 'firstName lastName email' },
-          { path: 'appointment', select: 'department reasonForVisit' }
-        ]
-      });
-
-      const payments = paymentsResult.data;
-
-      // Generate financial analytics
-      const analytics = this.generateFinancialAnalytics(payments);
+      const { startDate, endDate } = filters;
 
       const reportData = {
-        transactions: payments,
-        analytics,
+        message: 'Healthcare is now free - no financial transactions to report',
+        transactions: [],
+        analytics: {
+          totalRevenue: 0,
+          totalTransactions: 0,
+          message: 'All healthcare services are provided free of charge'
+        },
         summary: {
-          totalRecords: payments.length,
-          totalRevenue: analytics.totalRevenue,
+          totalRecords: 0,
+          totalRevenue: 0,
           dateRange: { startDate, endDate },
-          filters: { paymentMethod, status }
+          note: 'This system operates as a free healthcare service'
         }
       };
 
-      this.logger.info('Financial summary report generated successfully', {
-        totalTransactions: payments.length,
-        totalRevenue: analytics.totalRevenue
-      });
+      this.logger.info('Financial summary report returned - free healthcare system');
 
       // Emit business event
       this.emit('reportGenerated', {
         type: 'financial-summary',
-        transactionCount: payments.length,
-        totalRevenue: analytics.totalRevenue,
+        message: 'Free healthcare - no transactions',
         filters
       });
 
@@ -306,24 +268,7 @@ class ManagerService extends BaseService {
     }
   }
 
-  /**
-   * Calculates total revenue from completed payments
-   * @returns {Promise<number>} Total revenue amount
-   * @private
-   */
-  async calculateTotalRevenue() {
-    try {
-      const result = await this.paymentRepository.aggregate([
-        { $match: { status: 'completed' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
 
-      return result.length > 0 ? result[0].total : 0;
-    } catch (error) {
-      this.logger.error('Error calculating total revenue:', error);
-      return 0;
-    }
-  }
 
   /**
    * Generates analytics for patient visits
@@ -438,49 +383,7 @@ class ManagerService extends BaseService {
    * @returns {Object} Financial analytics
    * @private
    */
-  generateFinancialAnalytics(payments) {
-    const analytics = {
-      totalRevenue: 0,
-      totalTransactions: payments.length,
-      paymentMethodBreakdown: {},
-      dailyRevenue: {},
-      departmentRevenue: {},
-      averageTransaction: 0
-    };
 
-    payments.forEach(payment => {
-      // Total revenue (only completed payments)
-      if (payment.status === 'completed') {
-        analytics.totalRevenue += payment.amount || 0;
-      }
-
-      // Payment method breakdown
-      const method = payment.paymentMethod || 'Unknown';
-      analytics.paymentMethodBreakdown[method] = 
-        (analytics.paymentMethodBreakdown[method] || 0) + (payment.amount || 0);
-
-      // Daily revenue (only completed payments)
-      if (payment.status === 'completed') {
-        const date = payment.createdAt.toISOString().split('T')[0];
-        analytics.dailyRevenue[date] = (analytics.dailyRevenue[date] || 0) + (payment.amount || 0);
-      }
-
-      // Department revenue
-      if (payment.appointment && payment.status === 'completed') {
-        const dept = payment.appointment.department || 'General';
-        analytics.departmentRevenue[dept] = 
-          (analytics.departmentRevenue[dept] || 0) + (payment.amount || 0);
-      }
-    });
-
-    // Calculate average transaction
-    const completedPayments = payments.filter(p => p.status === 'completed');
-    analytics.averageTransaction = completedPayments.length > 0 
-      ? Math.round((analytics.totalRevenue / completedPayments.length) * 100) / 100
-      : 0;
-
-    return analytics;
-  }
 
   /**
    * Gets resource name for base service

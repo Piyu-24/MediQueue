@@ -24,10 +24,8 @@ const reportRoutes = require('./routes/reports');
 const generatedReportRoutes = require('./routes/generatedReports');
 const reportGenerationRoutes = require('./routes/reportGeneration');
 const managerRoutes = require('./routes/manager');
-const paymentRoutes = require('./routes/payments');
 const healthCardRoutes = require('./routes/healthCards');
 const documentRoutes = require('./routes/documents');
-const refundRoutes = require('./routes/refunds');
 const chatbotRoutes = require('./routes/chatbot');
 const doctorRoutes = require('./routes/doctor');
 
@@ -114,7 +112,7 @@ app.use(helmet({
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https://res.cloudinary.com", "http://localhost:5000", "http://localhost:3000"],
       scriptSrc: ["'self'", "'unsafe-inline'"],
-      connectSrc: ["'self'", "https://api.stripe.com", "http://localhost:5000", "http://localhost:3000"]
+      connectSrc: ["'self'", "http://localhost:5000", "http://localhost:3000"]
     }
   }
 }));
@@ -210,10 +208,8 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/generated-reports', generatedReportRoutes);
 app.use('/api/report-generation', reportGenerationRoutes);
 app.use('/api/manager', managerRoutes);
-app.use('/api/payments', paymentRoutes);
 app.use('/api/health-cards', healthCardRoutes);
 app.use('/api/documents', documentRoutes);
-app.use('/api/refunds', refundRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/doctor', doctorRoutes);
 

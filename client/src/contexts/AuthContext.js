@@ -168,9 +168,28 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (error) {
       dispatch({ type: 'AUTH_FAIL' });
+      
+      // Log full error details for debugging
+      console.error('Registration error:', error);
+      console.error('Error response:', error.response?.data);
+      
       const message = error.response?.data?.message || error.message || 'Registration failed';
-      toast.error(message);
-      return { success: false, message };
+      
+      // If there are validation errors, display them
+      if (error.response?.data?.errors) {
+        const errors = error.response.data.errors;
+        console.error('Validation errors:', errors);
+        
+        // Display first validation error
+        const firstError = Array.isArray(errors) 
+          ? errors[0]?.msg || errors[0]
+          : Object.values(errors)[0];
+        toast.error(firstError || message);
+      } else {
+        toast.error(message);
+      }
+      
+      return { success: false, message, errors: error.response?.data?.errors };
     }
   };
 

@@ -1,6 +1,5 @@
 const User = require('../models/User');
 const Appointment = require('../models/Appointment');
-const Payment = require('../models/Payment');
 const GeneratedReport = require('../models/GeneratedReport');
 
 class ReportGenerationController {
@@ -214,113 +213,20 @@ class ReportGenerationController {
     }
   }
   
-  // Generate Financial Summary Report
+  // Financial Summary Report - Removed (Healthcare is now free)
   static async generateFinancialSummaryReport(req, res) {
     try {
-      const { startDate, endDate, paymentMethod, status } = req.query;
-      
-      // Build payment query
-      const paymentQuery = {
-        createdAt: {
-          $gte: new Date(startDate),
-          $lte: new Date(endDate)
-        }
-      };
-      
-      if (paymentMethod) paymentQuery.paymentMethod = paymentMethod;
-      if (status) paymentQuery.status = status;
-      
-      // Fetch payments with populated data
-      const payments = await Payment.find(paymentQuery)
-        .populate('patient', 'firstName lastName email')
-        .populate('appointment', 'department reasonForVisit')
-        .sort({ createdAt: -1 });
-      
-      // Calculate financial metrics
-      const totalRevenue = payments
-        .filter(p => p.status === 'completed')
-        .reduce((sum, p) => sum + (p.amount || 0), 0);
-      
-      const pendingRevenue = payments
-        .filter(p => p.status === 'pending')
-        .reduce((sum, p) => sum + (p.amount || 0), 0);
-      
-      const refundedAmount = payments
-        .filter(p => p.status === 'refunded')
-        .reduce((sum, p) => sum + (p.amount || 0), 0);
-      
-      // Payment method breakdown
-      const paymentMethodBreakdown = {};
-      payments.forEach(payment => {
-        const method = payment.paymentMethod || 'Unknown';
-        if (!paymentMethodBreakdown[method]) {
-          paymentMethodBreakdown[method] = { count: 0, amount: 0 };
-        }
-        paymentMethodBreakdown[method].count++;
-        paymentMethodBreakdown[method].amount += payment.amount || 0;
-      });
-      
-      // Department revenue breakdown
-      const departmentRevenue = {};
-      payments.forEach(payment => {
-        if (payment.appointment && payment.status === 'completed') {
-          const dept = payment.appointment.department || 'General';
-          departmentRevenue[dept] = (departmentRevenue[dept] || 0) + (payment.amount || 0);
-        }
-      });
-      
-      // Daily revenue breakdown
-      const dailyRevenue = {};
-      payments.forEach(payment => {
-        if (payment.status === 'completed') {
-          const date = payment.createdAt.toISOString().split('T')[0];
-          dailyRevenue[date] = (dailyRevenue[date] || 0) + (payment.amount || 0);
-        }
-      });
-      
-      // Outstanding payments (pending for more than 30 days)
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      
-      const outstandingPayments = payments.filter(p => 
-        p.status === 'pending' && p.createdAt < thirtyDaysAgo
-      );
-      
-      const reportData = {
-        reportType: 'financial-summary',
-        generatedAt: new Date(),
-        dateRange: { startDate, endDate },
-        filters: { paymentMethod, status },
-        summary: {
-          totalTransactions: payments.length,
-          totalRevenue: Math.round(totalRevenue * 100) / 100,
-          pendingRevenue: Math.round(pendingRevenue * 100) / 100,
-          refundedAmount: Math.round(refundedAmount * 100) / 100,
-          outstandingPayments: outstandingPayments.length,
-          outstandingAmount: Math.round(outstandingPayments.reduce((sum, p) => sum + (p.amount || 0), 0) * 100) / 100
-        },
-        analytics: {
-          paymentMethodBreakdown,
-          departmentRevenue,
-          dailyRevenue
-        },
-        transactions: payments.map(payment => ({
-          id: payment._id,
-          patientName: payment.patient ? `${payment.patient.firstName} ${payment.patient.lastName}` : 'N/A',
-          amount: payment.amount,
-          paymentMethod: payment.paymentMethod,
-          status: payment.status,
-          date: payment.createdAt,
-          department: payment.appointment?.department || 'N/A',
-          service: payment.appointment?.reasonForVisit || 'N/A'
-        }))
-      };
-      
       res.json({
         success: true,
-        data: reportData
+        message: 'Financial reports are no longer applicable as healthcare services are now provided free of charge',
+        data: {
+          reportType: 'financial-summary',
+          generatedAt: new Date(),
+          summary: {
+            message: 'All healthcare services are provided free of charge to patients'
+          }
+        }
       });
-      
     } catch (error) {
       console.error('Error generating financial summary report:', error);
       res.status(500).json({

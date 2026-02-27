@@ -33,8 +33,8 @@ const appointmentSchema = new mongoose.Schema({
   // Status and Type
   status: {
     type: String,
-    enum: ['pending-payment', 'scheduled', 'confirmed', 'in-progress', 'completed', 'cancelled', 'no-show'],
-    default: 'pending-payment'
+    enum: ['scheduled', 'confirmed', 'in-progress', 'completed', 'cancelled', 'no-show'],
+    default: 'scheduled'
   },
   appointmentType: {
     type: String,
@@ -58,48 +58,6 @@ const appointmentSchema = new mongoose.Schema({
     patient: String,
     doctor: String,
     staff: String
-  },
-  
-  // Payment Information
-  consultationFee: {
-    type: Number,
-    required: [true, 'Consultation fee is required'],
-    min: [0, 'Consultation fee cannot be negative']
-  },
-  paymentStatus: {
-    type: String,
-    enum: ['pending', 'paid', 'pay-at-hospital', 'failed', 'refunded', 'cancelled'],
-    default: 'pending'
-  },
-  paymentMethod: {
-    type: String,
-    enum: ['card', 'cash', 'insurance', 'online', 'upi', 'wallet', 'government-fund', 'pay-later']
-    // Not strictly required - will be set when payment is processed
-  },
-  transactionId: String,
-  paymentDate: Date,
-  paymentDetails: {
-    method: String,
-    transactionId: String,
-    paidAt: Date,
-    amount: Number,
-    processedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    },
-    location: {
-      type: String,
-      enum: ['online', 'hospital']
-    },
-    insuranceDetails: {
-      provider: String,
-      policyNumber: String,
-      claimNumber: String,
-      coverageAmount: Number
-    },
-    governmentFund: Boolean,
-    note: String,
-    dueAt: Date
   },
   
   // Digital Check-in
@@ -180,8 +138,7 @@ const appointmentSchema = new mongoose.Schema({
       ref: 'User'
     },
     cancelledAt: Date,
-    reason: String,
-    refundAmount: Number
+    reason: String
   },
   
   // Notifications

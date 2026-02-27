@@ -123,11 +123,6 @@ class AppointmentService extends BaseService {
         cancellationReason
       );
 
-      // Handle refund if payment was made
-      if (appointment.paymentId) {
-        await this.handleRefund(appointment);
-      }
-
       this.logBusinessEvent('appointment_cancelled', {
         appointmentId,
         cancelledBy,
@@ -291,30 +286,6 @@ class AppointmentService extends BaseService {
 
     if (hoursUntilAppointment < 24) {
       throw new ValidationError('Cannot cancel appointment less than 24 hours before scheduled time');
-    }
-  }
-
-  /**
-   * Handles refund for cancelled appointment
-   * @param {Object} appointment - Appointment object
-   * @private
-   */
-  async handleRefund(appointment) {
-    try {
-      if (this.paymentService && appointment.paymentId) {
-        await this.paymentService.processRefund(
-          appointment.paymentId,
-          appointment.amount,
-          'Appointment cancelled by patient'
-        );
-        this.logger.info('Refund processed for cancelled appointment', {
-          appointmentId: appointment._id,
-          paymentId: appointment.paymentId
-        });
-      }
-    } catch (error) {
-      this.logger.error('Error processing refund:', error);
-      // Don't throw error here - appointment cancellation should still succeed
     }
   }
 

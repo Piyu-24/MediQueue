@@ -18,7 +18,7 @@ import {
   XMarkIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
-import api from '../../services/api';
+import api, { userAPI, medicalRecordsAPI } from '../../services/api';
 import toast from 'react-hot-toast';
 
 const ReceptionistDashboard = () => {
@@ -94,12 +94,15 @@ const ReceptionistDashboard = () => {
   const fetchPatientsForVerification = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/users/patients/verification', {
-        params: { status: filterStatus !== 'all' ? filterStatus : undefined }
-      });
+      const response = await userAPI.searchUsers('');
       
       if (response.data.success) {
-        setPatientsForVerification(response.data.data);
+        // Filter for patients with pending verification
+        const patients = (response.data.data.users || []).filter(u => 
+          u.role === 'patient' && 
+          (filterStatus === 'all' || u.identityVerificationStatus === filterStatus)
+        );
+        setPatientsForVerification(patients);
       }
     } catch (error) {
       console.error('Error fetching patients:', error);
@@ -137,13 +140,12 @@ const ReceptionistDashboard = () => {
 
     try {
       setLoading(true);
-      const response = await api.get('/users/search', {
-        params: { query: searchQuery, role: 'patient' }
-      });
+      const response = await userAPI.searchUsers(searchQuery);
 
       if (response.data.success) {
-        setSearchResults(response.data.data.users || []);
-        if (response.data.data.users.length === 0) {
+        const patients = (response.data.data.users || []).filter(u => u.role === 'patient');
+        setSearchResults(patients);
+        if (patients.length === 0) {
           toast.info('No patients found');
         }
       }
@@ -159,11 +161,11 @@ const ReceptionistDashboard = () => {
   const fetchPatientMedicalHistory = async (patientId) => {
     try {
       console.log('Fetching medical history for patient:', patientId);
-      const response = await api.get(`/medical-records/patient/${patientId}`);
+      const response = await medicalRecordsAPI.getRecords(patientId);
       console.log('Medical history response:', response.data);
       if (response.data.success) {
-        setPatientMedicalHistory(response.data.data.records || []);
-        console.log('Medical records set:', response.data.data.records);
+        setPatientMedicalHistory(response.data.data.records || response.data.data || []);
+        console.log('Medical records set:', response.data.data);
       }
     } catch (error) {
       console.error('Error fetching medical history:', error);
@@ -219,14 +221,9 @@ const ReceptionistDashboard = () => {
         formData.append('documents', file);
       });
 
-      const response = await api.post(
-        `/medical-records/${medicalRecordId}/documents`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        }
+      const response = await medicalRecordsAPI.uploadDocument(
+        medicalRecordId,
+        formData
       );
 
       console.log('Upload response:', response.data);

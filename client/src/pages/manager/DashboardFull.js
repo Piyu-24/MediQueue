@@ -3,7 +3,6 @@ import {
   ChartBarIcon,
   UsersIcon,
   CalendarIcon,
-  CurrencyDollarIcon,
   ArrowUpIcon,
   DocumentTextIcon,
   HomeIcon,
@@ -169,10 +168,6 @@ const ManagerDashboard = () => {
     }
   };
 
-  const formatCurrency = (amount) => {
-    return `LKR ${new Intl.NumberFormat('en-US').format(amount || 0)}`;
-  };
-
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       month: 'short',
@@ -301,7 +296,7 @@ const ManagerDashboard = () => {
         {activeTab === 'overview' && (
           <>
             {/* Key Metrics */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -330,20 +325,6 @@ const ManagerDashboard = () => {
                   <CalendarIcon className="w-12 h-12 text-green-500" />
                 </div>
               </div>
-
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Total Revenue</p>
-                <p className="text-3xl font-bold text-gray-900">{formatCurrency(stats.revenue)}</p>
-                <div className="flex items-center mt-2">
-                  <ArrowUpIcon className="w-4 h-4 text-green-500 mr-1" />
-                  <span className="text-sm text-green-600">8% increase</span>
-                </div>
-              </div>
-              <CurrencyDollarIcon className="w-12 h-12 text-yellow-500" />
-            </div>
-          </div>
 
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between">
@@ -398,51 +379,6 @@ const ManagerDashboard = () => {
                 </div>
               ) : (
                 <p className="text-gray-500 text-center py-4">No recent appointments</p>
-              )}
-            </div>
-          </div>
-
-          {/* Recent Payments */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-xl font-bold text-gray-900">Recent Payments</h2>
-            </div>
-            <div className="p-6">
-              {recentPayments.length > 0 ? (
-                <div className="space-y-4">
-                  {recentPayments.map((payment) => (
-                    <div
-                      key={payment._id}
-                      className="border-b border-gray-100 pb-4 last:border-0"
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-medium text-gray-900">
-                            {payment.patient?.firstName} {payment.patient?.lastName}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            {payment.paymentMethod} • {formatDate(payment.paymentDate || payment.createdAt)}
-                          </p>
-                          <p className="text-sm text-gray-500">
-                            Transaction ID: {payment.transactionId.substring(0, 20)}...
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-bold text-gray-900">{formatCurrency(payment.amount)}</p>
-                          <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
-                            payment.status === 'completed' ? 'bg-green-100 text-green-800' :
-                            payment.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-red-100 text-red-800'
-                          }`}>
-                            {payment.status}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-gray-500 text-center py-4">No recent payments</p>
               )}
             </div>
           </div>

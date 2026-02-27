@@ -28,10 +28,11 @@ router.post('/register', [
   body('password')
     .isLength({ min: 8 })
     .withMessage('Password must be at least 8 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-    .withMessage('Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).*$/)
+    .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number'),
   body('phone')
-    .matches(/^\+?[\d\s-()]+$/)
+    .optional()
+    .matches(/^[\d\s+()-]+$/)
     .withMessage('Please provide a valid phone number'),
   body('role')
     .optional()
@@ -42,6 +43,8 @@ router.post('/register', [
     // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.error('Registration validation errors:', JSON.stringify(errors.array(), null, 2));
+      console.error('Request body:', JSON.stringify(req.body, null, 2));
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
@@ -65,8 +68,7 @@ router.post('/register', [
       department,
       licenseNumber,
       yearsOfExperience,
-      qualification,
-      consultationFee
+      qualification
     } = req.body;
 
     // Check if user already exists
@@ -91,14 +93,9 @@ router.post('/register', [
 
     // Add role-specific fields
     if (role === 'patient') {
-      if (!dateOfBirth || !gender) {
-        return res.status(400).json({
-          success: false,
-          message: 'Date of birth and gender are required for patients'
-        });
-      }
-      userData.dateOfBirth = dateOfBirth;
-      userData.gender = gender;
+      // Allow optional patient details during registration
+      if (dateOfBirth) userData.dateOfBirth = dateOfBirth;
+      if (gender) userData.gender = gender;
       if (bloodType) userData.bloodType = bloodType;
       if (emergencyContact) userData.emergencyContact = emergencyContact;
     }
@@ -110,7 +107,6 @@ router.post('/register', [
       if (licenseNumber) userData.licenseNumber = licenseNumber;
       if (yearsOfExperience) userData.yearsOfExperience = yearsOfExperience;
       if (qualification) userData.qualification = qualification;
-      if (consultationFee) userData.consultationFee = consultationFee;
       
       // Mark profile as incomplete if essential details are missing
       userData.profileComplete = !!(specialization && department && licenseNumber);

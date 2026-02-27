@@ -26,7 +26,8 @@ const Navbar = () => {
       doctor: '/doctor/dashboard',
       staff: '/staff/dashboard',
       manager: '/manager/dashboard',
-      receptionist: '/receptionist/dashboard'
+      receptionist: '/receptionist/dashboard',
+      admin: '/admin/dashboard'
     };
     return routes[role] || '/dashboard';
   };
@@ -67,6 +68,11 @@ const Navbar = () => {
     { name: 'Dashboard', href: '/receptionist/dashboard' },
   ];
 
+  const adminLinks = [
+    { name: 'Home', href: '/' },
+    { name: 'Dashboard', href: '/admin/dashboard' },
+  ];
+
   const getNavigationLinks = () => {
     if (!user) return publicLinks;
     
@@ -76,6 +82,7 @@ const Navbar = () => {
       case 'staff': return staffLinks;
       case 'manager': return managerLinks;
       case 'receptionist': return receptionistLinks;
+      case 'admin': return adminLinks;
       default: return publicLinks;
     }
   };

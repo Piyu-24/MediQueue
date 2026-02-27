@@ -7,7 +7,6 @@ import {
   CheckCircleIcon,
   ArrowRightIcon,
   ArrowLeftIcon,
-  CurrencyDollarIcon
 } from '@heroicons/react/24/outline';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -39,8 +38,6 @@ const AppointmentBooking = () => {
   const [reservedSlot, setReservedSlot] = useState(null);
   const [reservationTimer, setReservationTimer] = useState(null);
   const [slotReservationTime, setSlotReservationTime] = useState(0);
-  const [createdAppointment, setCreatedAppointment] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState('card');
   // eslint-disable-next-line no-unused-vars
   const [_existingAppointment, setExistingAppointment] = useState(null);
 
@@ -327,10 +324,6 @@ const AppointmentBooking = () => {
     setSelectedStep(3);
   };
 
-  const handleContinueToPayment = () => {
-    setSelectedStep(4);
-  };
-
   const handleBookAppointment = async () => {
     try {
       setLoading(true);
@@ -358,20 +351,19 @@ const AppointmentBooking = () => {
       };
 
       console.log('Sending appointment data:', appointmentData);
-      console.log('Stringified data:', JSON.stringify(appointmentData, null, 2));
 
       const response = await appointmentAPI.createAppointment(appointmentData);
       
       if (response.data.success) {
-        setCreatedAppointment(response.data.data.appointment);
-        toast.success('Appointment created! Please proceed to payment.');
-        handleContinueToPayment();
+        toast.success('Appointment scheduled successfully! Healthcare is now free.');
+        
+        setTimeout(() => {
+          navigate('/dashboard?tab=overview', { replace: true });
+        }, 2000);
       }
     } catch (error) {
       console.error('Error booking appointment:', error);
       console.error('Error details:', error.response?.data);
-      console.error('Error message:', error.response?.data?.message);
-      console.error('Error errors:', JSON.stringify(error.response?.data?.errors, null, 2));
       
       // Show validation errors if available
       if (error.response?.data?.errors) {
@@ -380,59 +372,6 @@ const AppointmentBooking = () => {
       } else {
         toast.error(error.response?.data?.message || 'Failed to create appointment');
       }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleProcessPayment = async () => {
-    try {
-      setLoading(true);
-      
-      const paymentData = {
-        paymentMethod,
-        transactionId: `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-      };
-
-      const response = await appointmentAPI.confirmPayment(createdAppointment._id, paymentData);
-      
-      if (response.data.success) {
-        toast.success('Payment successful! Appointment confirmed!');
-        
-        setTimeout(() => {
-          navigate('/dashboard?tab=overview', { replace: true });
-        }, 2000);
-      }
-    } catch (error) {
-      console.error('Error processing payment:', error);
-      console.error('Payment error response:', error.response?.data);
-      
-      const errorMessage = error.response?.data?.message || 
-                          error.response?.data?.error || 
-                          'Payment failed';
-      toast.error(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePayLater = async () => {
-    try {
-      setLoading(true);
-      
-      // Schedule appointment without payment - payment will be done at hospital
-      const response = await appointmentAPI.scheduleWithoutPayment(createdAppointment._id);
-      
-      if (response.data.success) {
-        toast.success('Appointment scheduled! Pay when you arrive at the hospital.');
-        
-        setTimeout(() => {
-          navigate('/dashboard?tab=overview', { replace: true });
-        }, 2000);
-      }
-    } catch (error) {
-      console.error('Error scheduling appointment:', error);
-      toast.error(error.response?.data?.message || 'Failed to schedule appointment');
     } finally {
       setLoading(false);
     }
@@ -476,9 +415,8 @@ const AppointmentBooking = () => {
             {[
               { step: 1, title: 'Choose Doctor', icon: UserIcon },
               { step: 2, title: 'Select Date & Time', icon: CalendarIcon },
-              { step: 3, title: 'Confirm Details', icon: CheckCircleIcon },
-              { step: 4, title: 'Payment', icon: CurrencyDollarIcon }
-            ].map(({ step, title, icon: Icon }) => (
+              { step: 3, title: 'Confirm & Book', icon: CheckCircleIcon }
+            ].map(({ step, title, icon: Icon }, index, array) => (
               <div key={step} className="flex items-center">
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
                   selectedStep >= step 
@@ -490,7 +428,7 @@ const AppointmentBooking = () => {
                 <div className={`ml-3 ${selectedStep >= step ? 'text-blue-600' : 'text-gray-400'}`}>
                   <p className="text-sm font-semibold">{title}</p>
                 </div>
-                {step < 3 && (
+                {step < array.length && (
                   <ArrowRightIcon className="w-5 h-5 ml-8 text-gray-300" />
                 )}
               </div>
@@ -553,12 +491,9 @@ const AppointmentBooking = () => {
                         <p className="text-sm text-gray-600 mt-1">{doctor.experience || 'Experienced'}</p>
                         
                         <div className="mt-3 flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <CurrencyDollarIcon className="w-5 h-5 text-green-600" />
-                            <span className="text-gray-900 font-semibold">
-                              LKR {(doctor.consultationFee || 100).toLocaleString()}
-                            </span>
-                          </div>
+                          <span className="text-green-600 font-semibold">
+                            Free Healthcare Service
+                          </span>
                           <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">
                             Select Doctor
                           </button>
@@ -885,16 +820,6 @@ const AppointmentBooking = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-start space-x-3">
-                    <CurrencyDollarIcon className="w-5 h-5 text-blue-600 mt-1" />
-                    <div>
-                      <p className="text-sm text-gray-600">Consultation Fee</p>
-                      <p className="font-semibold text-gray-900">
-                        LKR {(selectedDoctor.consultationFee || 100).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-
                   <div className="pt-4 border-t border-gray-200">
                     <p className="text-sm text-gray-600 mb-1">Reason for Visit</p>
                     <p className="text-gray-900">{chiefComplaint}</p>
@@ -902,11 +827,11 @@ const AppointmentBooking = () => {
                 </div>
               </div>
 
-              {/* Terms */}
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <p className="text-sm text-yellow-800">
-                  <strong>Note:</strong> Please arrive 15 minutes before your scheduled time. 
-                  Cancellations must be made at least 24 hours in advance.
+              {/* Free Healthcare Note */}
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <p className="text-sm text-green-800">
+                  ✨ <strong>Free Healthcare Service:</strong> This appointment is completely free. 
+                  No payment required at any time.
                 </p>
               </div>
 
@@ -930,284 +855,8 @@ const AppointmentBooking = () => {
                     </>
                   ) : (
                     <>
-                      <ArrowRightIcon className="w-5 h-5" />
-                      <span>Proceed to Payment</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step 4: Payment */}
-        {selectedStep === 4 && createdAppointment && selectedDoctor && (
-          <div className="bg-white rounded-2xl shadow-xl p-8">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">Payment</h2>
-              <button
-                onClick={() => setSelectedStep(3)}
-                className="text-blue-600 hover:text-blue-700 flex items-center space-x-2"
-              >
-                <ArrowLeftIcon className="w-5 h-5" />
-                <span>Back</span>
-              </button>
-            </div>
-
-            {/* Payment Summary */}
-            <div className="space-y-6">
-              <div className="bg-gradient-to-r from-blue-50 to-gray-50 rounded-xl p-6">
-                <h3 className="font-semibold text-gray-900 mb-4">Payment Summary</h3>
-                
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Consultation Fee</span>
-                    <span className="font-semibold text-gray-900">LKR {createdAppointment.consultationFee.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Service Charge</span>
-                    <span className="font-semibold text-gray-900">LKR 0</span>
-                  </div>
-                  <div className="border-t border-gray-300 pt-3 mt-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-lg font-bold text-gray-900">Total Amount</span>
-                      <span className="text-2xl font-bold text-blue-600">LKR {createdAppointment.consultationFee.toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Payment Options Info */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-semibold text-blue-900 mb-2">💡 Payment Options</h4>
-                <ul className="text-sm text-blue-800 space-y-1">
-                  <li>• <strong>Pay Now:</strong> Pay online with Card/UPI/Wallet</li>
-                  <li>• <strong>Pay at Hospital:</strong> Pay when you arrive (Cash/Card/Insurance)</li>
-                </ul>
-              </div>
-
-              {/* Payment Method Selection */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-3">
-                  Select Payment Option
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                  {[
-                    { value: 'card', label: 'Credit/Debit Card', icon: '💳', online: true },
-                    { value: 'upi', label: 'UPI', icon: '📱', online: true },
-                    { value: 'wallet', label: 'Wallet', icon: '💰', online: true },
-                    { value: 'cash', label: 'Cash', icon: '💵', online: false },
-                    { value: 'insurance', label: 'Insurance Coverage', icon: '🛡️', online: false },
-                    { value: 'government', label: 'Government Fund', icon: '🏛️', online: false }
-                  ].map((method) => (
-                    <button
-                      key={method.value}
-                      onClick={() => setPaymentMethod(method.value)}
-                      className={`p-4 rounded-lg border-2 transition-all duration-200 text-center ${
-                        paymentMethod === method.value
-                          ? 'border-blue-600 bg-blue-50'
-                          : 'border-gray-200 hover:border-blue-300'
-                      }`}
-                    >
-                      <div className="text-3xl mb-2">{method.icon}</div>
-                      <div className="font-semibold text-gray-900 text-sm">{method.label}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Cash Payment Info */}
-              {paymentMethod === 'cash' && (
-                <div className="space-y-4 p-6 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex items-start space-x-3">
-                    <div className="text-3xl">💵</div>
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-gray-900 mb-2">Cash Payment</h4>
-                      <p className="text-sm text-gray-700 mb-3">
-                        Your appointment will be scheduled. Please bring exact cash amount when you arrive at the hospital.
-                      </p>
-                      <div className="mt-3 p-3 bg-white rounded border border-green-300">
-                        <p className="text-xs text-gray-600">
-                          💡 <strong>Tip:</strong> Please arrive 15 minutes early to complete payment at the counter.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Insurance Coverage */}
-              {paymentMethod === 'insurance' && (
-                <div className="space-y-4 p-6 bg-blue-50 border border-blue-200 rounded-lg">
-                  <div className="flex items-start space-x-3">
-                    <div className="text-3xl">🛡️</div>
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-gray-900 mb-2">Insurance Coverage</h4>
-                      <p className="text-sm text-gray-700 mb-3">
-                        Please provide your insurance details. Coverage will be verified before your appointment.
-                      </p>
-                      <div className="space-y-3">
-                        <input
-                          type="text"
-                          placeholder="Insurance Provider"
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Policy Number"
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Group Number (if applicable)"
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                      <div className="mt-3 p-3 bg-white rounded border border-blue-300">
-                        <p className="text-xs text-gray-600">
-                          ℹ️ <strong>Note:</strong> Insurance coverage will be verified. Any uncovered amount must be paid at the hospital.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Government Fund */}
-              {paymentMethod === 'government' && (
-                <div className="space-y-4 p-6 bg-teal-50 border border-teal-200 rounded-lg">
-                  <div className="flex items-start space-x-3">
-                    <div className="text-3xl">🏛️</div>
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-gray-900 mb-2">Government Fund</h4>
-                      <p className="text-sm text-gray-700 mb-3">
-                        Please provide your government fund eligibility details for verification.
-                      </p>
-                      <div className="space-y-3">
-                        <select className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                          <option value="">Select Fund Type</option>
-                          <option value="medicaid">Medicaid</option>
-                          <option value="medicare">Medicare</option>
-                          <option value="veterans">Veterans Affairs</option>
-                          <option value="disability">Disability Fund</option>
-                          <option value="low-income">Low Income Support</option>
-                        </select>
-                        <input
-                          type="text"
-                          placeholder="Beneficiary ID"
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Reference Number (if any)"
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                      <div className="mt-3 p-3 bg-white rounded border border-teal-300">
-                        <p className="text-xs text-gray-600">
-                          🔍 <strong>Verification:</strong> Eligibility will be verified before your appointment. Please bring supporting documents.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Pay Later Info */}
-              {paymentMethod === 'pay-later' && (
-                <div className="space-y-4 p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <div className="flex items-start space-x-3">
-                    <div className="text-3xl">🏥</div>
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-gray-900 mb-2">Pay at Hospital</h4>
-                      <p className="text-sm text-gray-700 mb-3">
-                        Your appointment will be scheduled. You can pay when you arrive at the hospital using:
-                      </p>
-                      <ul className="text-sm text-gray-600 space-y-1">
-                        <li>• <strong>Cash</strong> - Pay at the counter</li>
-                        <li>• <strong>Credit/Debit Card</strong> - At the counter</li>
-                        <li>• <strong>Insurance</strong> - If you have coverage</li>
-                        <li>• <strong>Government Fund</strong> - For eligible patients</li>
-                      </ul>
-                      <div className="mt-3 p-3 bg-white rounded border border-yellow-300">
-                        <p className="text-xs text-gray-600">
-                          ⚠️ <strong>Note:</strong> Please arrive 15 minutes early to complete payment before your appointment.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Payment Details */}
-              {paymentMethod === 'card' && (
-                <div className="space-y-4 p-6 bg-gray-50 rounded-lg">
-                  <h4 className="font-semibold text-gray-900">Card Details</h4>
-                  <div className="space-y-3">
-                    <input
-                      type="text"
-                      placeholder="Card Number"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                    <div className="grid grid-cols-2 gap-3">
-                      <input
-                        type="text"
-                        placeholder="MM/YY"
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      />
-                      <input
-                        type="text"
-                        placeholder="CVV"
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="Cardholder Name"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Security Notice */}
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start space-x-3">
-                <CheckCircleIcon className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
-                <div className="flex-1">
-                  <p className="text-sm text-green-800">
-                    <strong>Secure Payment:</strong> Your payment information is encrypted and secure. 
-                    We never store your card details.
-                  </p>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex space-x-4">
-                <button
-                  onClick={() => setSelectedStep(3)}
-                  className="flex-1 py-3 px-6 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-semibold"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={paymentMethod === 'pay-later' ? handlePayLater : handleProcessPayment}
-                  disabled={loading}
-                  className="flex-1 py-3 px-6 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
-                >
-                  {loading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                      <span>Processing...</span>
-                    </>
-                  ) : (
-                    <>
                       <CheckCircleIcon className="w-5 h-5" />
-                      <span>
-                        {paymentMethod === 'pay-later' 
-                          ? 'Confirm Appointment' 
-                          : `Pay LKR ${createdAppointment.consultationFee.toLocaleString()}`
-                        }
-                      </span>
+                      <span>Confirm & Book Appointment</span>
                     </>
                   )}
                 </button>

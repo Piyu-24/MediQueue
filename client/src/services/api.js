@@ -99,9 +99,6 @@ export const appointmentAPI = {
   }),
   updateStatus: (id, status) => api.patch(`/appointments/${id}/status`, { status }),
   checkIn: (id, method) => api.post(`/appointments/${id}/checkin`, { method }),
-  confirmPayment: (id, paymentData) => api.post(`/appointments/${id}/confirm-payment`, paymentData),
-  scheduleWithoutPayment: (id) => api.post(`/appointments/${id}/schedule-pay-later`),
-  processHospitalPayment: (id, paymentData) => api.post(`/appointments/${id}/hospital-payment`, paymentData),
   getDoctorAppointments: (doctorId, params) => api.get(`/appointments/doctor/${doctorId}`, { params }),
   getPatientAppointments: (patientId, params) => api.get(`/appointments/patient/${patientId}`, { params }),
 };
@@ -117,15 +114,6 @@ export const medicalRecordsAPI = {
   }),
   downloadDocument: (recordId, documentId) => api.get(`/medical-records/${recordId}/document/${documentId}`, {
   }),
-};
-
-// Payment API endpoints
-export const paymentAPI = {
-  processPayment: (paymentData) => api.post('/payments/process', paymentData),
-  getPaymentHistory: (patientId) => api.get(`/payments/history/${patientId}`),
-  getPaymentById: (paymentId) => api.get(`/payments/${paymentId}`),
-  refundPayment: (paymentId, refundData) => api.post(`/payments/${paymentId}/refund`, refundData),
-  getInvoice: (paymentId) => api.get(`/payments/invoice/${paymentId}`, { responseType: 'blob' }),
 };
 
 // Health Card API endpoints
@@ -153,22 +141,11 @@ export const documentAPI = {
   getDocumentTypes: () => api.get('/documents/meta/types'),
 };
 
-// Refund API endpoints
-export const refundAPI = {
-  requestRefund: (refundData) => api.post('/refunds/request', refundData),
-  getRefunds: (params) => api.get('/refunds', { params }),
-  getRefund: (refundId) => api.get(`/refunds/${refundId}`),
-  reviewRefund: (refundId, reviewData) => api.put(`/refunds/${refundId}/review`, reviewData),
-  processRefund: (refundId, processData) => api.put(`/refunds/${refundId}/process`, processData),
-  cancelRefund: (refundId, cancelData) => api.put(`/refunds/${refundId}/cancel`, cancelData),
-  getRefundStats: (params) => api.get('/refunds/stats/summary', { params }),
-};
 
 // Report API endpoints
 export const reportAPI = {
   getDashboardStats: () => api.get('/reports/dashboard'),
   getAppointmentReports: (params) => api.get('/reports/appointments', { params }),
-  getRevenueReports: (params) => api.get('/reports/revenue', { params }),
   getUserReports: (params) => api.get('/reports/users', { params }),
   getDepartmentReports: (params) => api.get('/reports/departments', { params }),
   exportReport: (type, params) => api.get(`/reports/export/${type}`, { 

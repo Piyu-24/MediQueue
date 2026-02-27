@@ -12,7 +12,6 @@ import {
 import { useAuth } from '../../hooks/useAuth';
 import { userAPI, reportAPI } from '../../services/api';
 import ReportsDashboard from '../../components/Reports/ReportsDashboard';
-import RefundManager from '../../components/Refunds/RefundManager';
 import toast from 'react-hot-toast';
 
 const AdminDashboard = () => {
@@ -46,7 +45,7 @@ const AdminDashboard = () => {
       setLoading(true);
       
       // Fetch dashboard stats
-      const dashboardRes = await reportAPI.getAppointmentReports();
+      const dashboardRes = await reportAPI.getDashboardStats();
       if (dashboardRes.data.success) {
         setStats(prev => ({
           ...prev,
@@ -561,8 +560,6 @@ const AdminDashboard = () => {
         {/* Reports Tab */}
         {activeTab === 'reports' && <ReportsDashboard />}
 
-        {/* Refunds Tab */}
-        {activeTab === 'refunds' && <RefundManager />}
       </div>
     </div>
   );

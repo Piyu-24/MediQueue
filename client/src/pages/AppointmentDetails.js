@@ -6,7 +6,6 @@ import {
   UserIcon,
   PhoneIcon,
   EnvelopeIcon,
-  CurrencyDollarIcon,
   DocumentTextIcon,
   ExclamationTriangleIcon,
   CheckCircleIcon,
@@ -15,7 +14,7 @@ import {
   PencilIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../hooks/useAuth';
-import { appointmentAPI, refundAPI } from '../services/api';
+import { appointmentAPI } from '../services/api';
 import toast from 'react-hot-toast';
 
 const AppointmentDetails = () => {
@@ -26,10 +25,6 @@ const AppointmentDetails = () => {
   
   const [appointment, setAppointment] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [showRefundModal, setShowRefundModal] = useState(false);
-  const [refundReason, setRefundReason] = useState('');
-  const [refundDescription, setRefundDescription] = useState('');
-  const [submittingRefund, setSubmittingRefund] = useState(false);
 
   useEffect(() => {
     fetchAppointmentDetails();
@@ -66,43 +61,13 @@ const AppointmentDetails = () => {
       
       if (response.data.success) {
         toast.success('Appointment cancelled successfully');
-        fetchAppointmentDetails(); // Refresh data to show refund button
+        fetchAppointmentDetails();
       } else {
         toast.error('Failed to cancel appointment');
       }
     } catch (error) {
       console.error('Error cancelling appointment:', error);
       toast.error(error.response?.data?.message || 'Failed to cancel appointment');
-    }
-  };
-
-  const handleRequestRefund = async () => {
-    if (!refundReason.trim()) {
-      toast.error('Please provide a reason for the refund');
-      return;
-    }
-
-    try {
-      setSubmittingRefund(true);
-      
-      const refundData = {
-        appointmentId: id,
-        refundReason,
-        refundDescription: refundDescription.trim() || refundReason,
-        refundAmount: appointment.consultationFee || 0
-      };
-
-      await refundAPI.requestRefund(refundData);
-      toast.success('Refund request submitted successfully');
-      setShowRefundModal(false);
-      setRefundReason('');
-      setRefundDescription('');
-      fetchAppointmentDetails(); // Refresh to show refund status
-    } catch (error) {
-      console.error('Error requesting refund:', error);
-      toast.error('Failed to submit refund request');
-    } finally {
-      setSubmittingRefund(false);
     }
   };
 
@@ -122,16 +87,6 @@ const AppointmentDetails = () => {
       'in-progress': 'bg-yellow-100 text-yellow-800',
       completed: 'bg-gray-100 text-gray-800',
       cancelled: 'bg-red-100 text-red-800'
-    };
-    return colors[status] || 'bg-gray-100 text-gray-800';
-  };
-
-  const getPaymentStatusColor = (status) => {
-    const colors = {
-      paid: 'bg-green-100 text-green-800',
-      pending: 'bg-yellow-100 text-yellow-800',
-      'pay-at-hospital': 'bg-orange-100 text-orange-800',
-      failed: 'bg-red-100 text-red-800'
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
@@ -187,13 +142,9 @@ const AppointmentDetails = () => {
                 </p>
               </div>
               
-              <div className="flex items-center space-x-2">
+              <div>
                 <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(appointment.status)}`}>
                   {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
-                </span>
-                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getPaymentStatusColor(appointment.paymentStatus)}`}>
-                  {appointment.paymentStatus === 'pay-at-hospital' ? 'Pay at Hospital' : 
-                   appointment.paymentStatus.charAt(0).toUpperCase() + appointment.paymentStatus.slice(1)}
                 </span>
               </div>
             </div>
@@ -207,9 +158,7 @@ const AppointmentDetails = () => {
                 <div className="flex-1">
                   <h3 className="text-red-900 font-semibold mb-1">This appointment has been cancelled</h3>
                   <p className="text-red-700 text-sm">
-                    {appointment.paymentStatus === 'paid' 
-                      ? 'You can request a refund using the button in the Actions section.'
-                      : 'No payment was made for this appointment.'}
+                    This is a free healthcare service. No charges apply.
                   </p>
                 </div>
               </div>
@@ -248,16 +197,6 @@ const AppointmentDetails = () => {
                   <div>
                     <p className="text-sm text-gray-600">Type</p>
                     <p className="font-semibold text-gray-900">{appointment.appointmentType || 'Consultation'}</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center space-x-3">
-                  <CurrencyDollarIcon className="w-6 h-6 text-yellow-500" />
-                  <div>
-                    <p className="text-sm text-gray-600">Fee</p>
-                    <p className="font-semibold text-gray-900">
-                      {appointment.consultationFee ? `LKR ${appointment.consultationFee.toLocaleString()}` : 'N/A'}
-                    </p>
                   </div>
                 </div>
               </div>
@@ -378,18 +317,6 @@ const AppointmentDetails = () => {
                   </button>
                 )}
                 
-                {appointment.paymentStatus === 'paid' && 
-                 ['scheduled', 'confirmed', 'cancelled'].includes(appointment.status) && 
-                 user.role === 'patient' && (
-                  <button
-                    onClick={() => setShowRefundModal(true)}
-                    className="w-full px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
-                  >
-                    <CurrencyDollarIcon className="w-5 h-5 inline mr-2" />
-                    Request Refund
-                  </button>
-                )}
-                
                 {user.role === 'doctor' && appointment.status === 'scheduled' && (
                   <button
                     onClick={() => appointmentAPI.updateAppointment(id, { status: 'confirmed' })}
@@ -409,116 +336,10 @@ const AppointmentDetails = () => {
                 </button>
               </div>
             </div>
-
-            {/* Payment Information */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-4">Payment Details</h3>
-              
-              <div className="bg-gray-50 rounded-xl p-4 border-2 border-gray-200">
-                <div className="space-y-3">
-                  <div className="bg-white rounded-xl p-4 border-2 border-gray-300 shadow-sm">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-700 text-sm font-medium">Consultation Fee</span>
-                      <span className="font-bold text-gray-900 text-lg">
-                        {appointment.consultationFee ? `LKR ${appointment.consultationFee.toLocaleString()}` : 'N/A'}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-white rounded-xl p-4 border-2 border-gray-300 shadow-sm">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-700 text-sm font-medium">Payment Status</span>
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getPaymentStatusColor(appointment.paymentStatus)}`}>
-                        {appointment.paymentStatus === 'pay-at-hospital' ? 'Pay at Hospital' : 
-                         appointment.paymentStatus.charAt(0).toUpperCase() + appointment.paymentStatus.slice(1)}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {appointment.paymentMethod && (
-                    <div className="bg-white rounded-xl p-4 border-2 border-gray-300 shadow-sm">
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-700 text-sm font-medium">Payment Method</span>
-                        <span className="font-bold text-gray-900">{appointment.paymentMethod}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
           </div>
           </div>
         </div>
       </div>
-
-      {/* Refund Modal */}
-      {showRefundModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Request Refund</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Reason for Refund *
-                </label>
-                <select
-                  value={refundReason}
-                  onChange={(e) => setRefundReason(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                >
-                  <option value="">Select a reason</option>
-                  <option value="Doctor unavailable">Doctor unavailable</option>
-                  <option value="Personal emergency">Personal emergency</option>
-                  <option value="Scheduling conflict">Scheduling conflict</option>
-                  <option value="Medical condition improved">Medical condition improved</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Additional Details (Optional)
-                </label>
-                <textarea
-                  value={refundDescription}
-                  onChange={(e) => setRefundDescription(e.target.value)}
-                  rows={3}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Please provide any additional details..."
-                />
-              </div>
-              
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <p className="text-sm text-yellow-800">
-                  <strong>Refund Amount:</strong> LKR {(appointment.consultationFee || 0).toLocaleString()}
-                </p>
-                <p className="text-xs text-yellow-600 mt-1">
-                  Refunds typically take 3-5 business days to process.
-                </p>
-              </div>
-            </div>
-            
-            <div className="flex space-x-3 mt-6">
-              <button
-                onClick={() => setShowRefundModal(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                disabled={submittingRefund}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRequestRefund}
-                disabled={!refundReason.trim() || submittingRefund}
-                className="flex-1 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                {submittingRefund ? 'Submitting...' : 'Submit Refund Request'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

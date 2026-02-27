@@ -43,6 +43,9 @@ import Reports from './pages/manager/Reports';
 // Receptionist Pages
 import ReceptionistDashboard from './pages/receptionist/ReceptionistDashboard';
 
+// Admin Pages
+import AdminDashboard from './pages/admin/DashboardFull';
+
 // Shared Pages
 import AppointmentDetails from './pages/AppointmentDetails';
 
@@ -102,7 +105,8 @@ const PublicRoute = ({ children }) => {
       doctor: '/doctor/dashboard',
       staff: '/staff/dashboard',
       manager: '/manager/dashboard',
-      receptionist: '/receptionist/dashboard'
+      receptionist: '/receptionist/dashboard',
+      admin: '/admin/dashboard'
     };
     return <Navigate to={roleRoutes[user.role] || '/dashboard'} replace />;
   }
@@ -310,6 +314,15 @@ function App() {
                 <ProtectedRoute allowedRoles={['receptionist']}>
                   <Layout>
                     <ReceptionistDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              {/* Admin Routes */}
+              <Route path="/admin/dashboard" element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <Layout showFooter={false}>
+                    <AdminDashboard />
                   </Layout>
                 </ProtectedRoute>
               } />

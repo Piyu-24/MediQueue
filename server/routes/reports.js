@@ -3,7 +3,6 @@ const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
 const User = require('../models/User');
 const Appointment = require('../models/Appointment');
-const Payment = require('../models/Payment');
 const Report = require('../models/Report');
 
 const router = express.Router();
@@ -28,31 +27,13 @@ router.get('/dashboard', auth, authorize('manager'), async (req, res) => {
       appointmentDate: { $gte: today, $lt: tomorrow }
     });
     
-    // Get total revenue from consultation fees (paid appointments)
-    const revenueData = await Appointment.aggregate([
-      { 
-        $match: { 
-          paymentStatus: { $in: ['paid', 'pay-at-hospital'] }
-        } 
-      },
-      { 
-        $group: { 
-          _id: null, 
-          total: { $sum: '$consultationFee' } 
-        } 
-      }
-    ]);
-    
-    const revenue = revenueData.length > 0 ? revenueData[0].total : 0;
-    
     res.json({
       success: true,
       data: {
         totalPatients,
         totalDoctors,
         totalStaff,
-        appointmentsToday,
-        revenue
+        appointmentsToday
       }
     });
   } catch (error) {
@@ -112,55 +93,7 @@ router.get('/appointments', auth, authorize('manager', 'admin'), async (req, res
   }
 });
 
-// @desc    Get revenue reports
-// @route   GET /api/reports/revenue
-// @access  Private (Manager/Admin)
-router.get('/revenue', auth, authorize('manager', 'admin'), async (req, res) => {
-  try {
-    const { startDate, endDate } = req.query;
-    
-    let query = { paymentStatus: { $in: ['paid', 'pay-at-hospital'] } };
-    if (startDate && endDate) {
-      query.appointmentDate = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      };
-    }
-    
-    const appointments = await Appointment.find(query)
-      .populate('patient', 'firstName lastName')
-      .populate('doctor', 'firstName lastName')
-      .sort({ appointmentDate: -1 });
-    
-    // Calculate revenue by payment method
-    const revenueByMethod = appointments.reduce((acc, appointment) => {
-      const method = appointment.paymentMethod || 'not-specified';
-      acc[method] = (acc[method] || 0) + (appointment.consultationFee || 0);
-      return acc;
-    }, {});
-    
-    const totalRevenue = appointments.reduce((sum, appointment) => sum + (appointment.consultationFee || 0), 0);
-    
-    res.json({
-      success: true,
-      data: {
-        appointments,
-        summary: {
-          totalRevenue,
-          totalTransactions: appointments.length,
-          revenueByMethod
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Get revenue reports error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-});
+// Revenue reports removed - Healthcare is now free for all patients
 
 // @desc    Get user reports
 // @route   GET /api/reports/users
@@ -293,15 +226,11 @@ router.get('/generate/:reportType', auth, authorize('manager'), async (req, res)
         break;
 
       case 'financial-summary':
-        // Get financial summary data
-        const financialData = await Payment.find({
-          createdAt: filters.createdAt,
-          status: 'completed'
-        })
-          .populate('patient', 'firstName lastName')
-          .populate('appointment')
-          .select('amount paymentMethod createdAt');
-        data = financialData;
+        // Financial summary removed - Healthcare is now free
+        data = {
+          message: 'Financial tracking removed - Free healthcare service',
+          appointments: []
+        };
         break;
 
       case 'comprehensive':
@@ -329,17 +258,10 @@ router.get('/generate/:reportType', auth, authorize('manager'), async (req, res)
           };
         }));
 
-        const financial = await Payment.find({
-          createdAt: filters.createdAt,
-          status: 'completed'
-        })
-          .populate('patient', 'firstName lastName')
-          .select('amount paymentMethod createdAt');
-
         data = {
           patientVisits,
           staffUtilization,
-          financial
+          message: 'Healthcare service is now free for all patients'
         };
         break;
 
@@ -350,38 +272,18 @@ router.get('/generate/:reportType', auth, authorize('manager'), async (req, res)
           appointmentDate: filters.createdAt
         });
         
-        // Calculate revenue from consultation fees
-        const weeklyRevenueData = await Appointment.aggregate([
-          { 
-            $match: { 
-              appointmentDate: filters.createdAt,
-              paymentStatus: { $in: ['paid', 'pay-at-hospital'] }
-            } 
-          },
-          { 
-            $group: { 
-              _id: null, 
-              total: { $sum: '$consultationFee' } 
-            } 
-          }
-        ]);
-        
         data = {
           appointments: weeklyAppointments,
-          revenue: weeklyRevenueData[0]?.total || 0
+          message: 'Healthcare service is now free'
         };
         break;
 
       case 'monthly-billing':
-        // Legacy monthly billing - redirect to financial-summary
-        const legacyBillingData = await Payment.find({
-          createdAt: filters.createdAt,
-          status: 'completed'
-        })
-          .populate('patient', 'firstName lastName')
-          .populate('appointment')
-          .select('amount paymentMethod createdAt');
-        data = legacyBillingData;
+        // Billing removed - Healthcare is now free
+        data = {
+          message: 'Billing removed - Free healthcare service',
+          appointments: []
+        };
         break;
 
       default:

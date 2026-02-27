@@ -66,7 +66,7 @@ router.get('/', auth, async (req, res) => {
 
     const appointments = await Appointment.find(query)
       .populate('patient', 'firstName lastName email phone digitalHealthCardId')
-      .populate('doctor', 'firstName lastName specialization department consultationFee')
+      .populate('doctor', 'firstName lastName specialization department')
       .sort({ appointmentDate: 1, appointmentTime: 1 });
 
     console.log('Query built:', JSON.stringify(query));
@@ -129,7 +129,7 @@ router.post('/', auth, authorize('patient'), [
       });
     }
 
-    // Create appointment with pending payment status
+    // Create appointment with scheduled status (free healthcare)
     const appointment = await Appointment.create({
       patient: req.user.id,
       doctor,
@@ -139,9 +139,7 @@ router.post('/', auth, authorize('patient'), [
       appointmentType,
       chiefComplaint,
       symptoms: symptoms || [],
-      consultationFee: doctorUser.consultationFee || 100,
-      status: 'pending-payment',
-      paymentStatus: 'pending'
+      status: 'scheduled'
     });
 
     // Populate the appointment
@@ -171,7 +169,7 @@ router.get('/:id', auth, async (req, res) => {
   try {
     const appointment = await Appointment.findById(req.params.id)
       .populate('patient', 'firstName lastName email phone digitalHealthCardId bloodType allergies')
-      .populate('doctor', 'firstName lastName specialization department consultationFee');
+      .populate('doctor', 'firstName lastName specialization department');
 
     if (!appointment) {
       return res.status(404).json({
@@ -377,12 +375,9 @@ router.delete('/:id', auth, async (req, res) => {
 
     await appointment.save();
 
-    // Note: Payment status remains 'paid' if payment was made
-    // User can request refund separately through refund request flow
-
     await appointment.populate([
       { path: 'patient', select: 'firstName lastName email phone digitalHealthCardId' },
-      { path: 'doctor', select: 'firstName lastName specialization department consultationFee' }
+      { path: 'doctor', select: 'firstName lastName specialization department' }
     ]);
 
     res.json({
@@ -464,198 +459,7 @@ router.patch('/:id/status',
   }
 );
 
-// @desc    Confirm payment and schedule appointment
-// @route   POST /api/appointments/:id/confirm-payment
-// @access  Private (Patient)
-router.post('/:id/confirm-payment', auth, authorize('patient'), async (req, res) => {
-  try {
-    const appointment = await Appointment.findById(req.params.id);
-
-    if (!appointment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Appointment not found'
-      });
-    }
-
-    // Check authorization
-    if (appointment.patient.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized'
-      });
-    }
-
-    // Check if already paid
-    if (appointment.paymentStatus === 'paid') {
-      return res.status(400).json({
-        success: false,
-        message: 'Payment already processed'
-      });
-    }
-
-    const { paymentMethod, transactionId } = req.body;
-
-    console.log('Processing payment for appointment:', req.params.id);
-    console.log('Payment method:', paymentMethod);
-    console.log('Transaction ID:', transactionId);
-
-    // Update appointment status
-    appointment.status = 'scheduled';
-    appointment.paymentStatus = 'paid';
-    appointment.paymentMethod = paymentMethod || 'card';
-    appointment.transactionId = transactionId || `TXN-${Date.now()}`;
-    appointment.paymentDate = new Date();
-    appointment.paymentDetails = {
-      method: paymentMethod || 'card',
-      transactionId: transactionId || `TXN-${Date.now()}`,
-      paidAt: new Date(),
-      amount: appointment.consultationFee,
-      location: 'online'
-    };
-
-    console.log('Saving appointment with payment details...');
-    await appointment.save();
-    console.log('Payment saved successfully!');
-
-    await appointment.populate([
-      { path: 'patient', select: 'firstName lastName email phone' },
-      { path: 'doctor', select: 'firstName lastName specialization department' }
-    ]);
-
-    res.json({
-      success: true,
-      message: 'Payment confirmed and appointment scheduled',
-      data: { appointment }
-    });
-  } catch (error) {
-    console.error('Confirm payment error:', error);
-    console.error('Error stack:', error.stack);
-    console.error('Error details:', JSON.stringify(error, null, 2));
-    res.status(500).json({
-      success: false,
-      message: 'Server error: ' + error.message,
-      error: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-});
-
-// @desc    Schedule appointment without payment (Pay Later)
-// @route   POST /api/appointments/:id/schedule-pay-later
-// @access  Private (Patient)
-router.post('/:id/schedule-pay-later', auth, authorize('patient'), async (req, res) => {
-  try {
-    const appointment = await Appointment.findById(req.params.id);
-
-    if (!appointment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Appointment not found'
-      });
-    }
-
-    // Check authorization
-    if (appointment.patient.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized'
-      });
-    }
-
-    // Update appointment to scheduled with payment pending
-    appointment.status = 'scheduled';
-    appointment.paymentStatus = 'pay-at-hospital';
-    appointment.paymentDetails = {
-      method: 'pay-later',
-      note: 'Payment will be processed at hospital',
-      dueAt: appointment.appointmentDate
-    };
-
-    await appointment.save();
-
-    await appointment.populate([
-      { path: 'patient', select: 'firstName lastName email phone' },
-      { path: 'doctor', select: 'firstName lastName specialization department' }
-    ]);
-
-    res.json({
-      success: true,
-      message: 'Appointment scheduled. Payment due at hospital.',
-      data: { appointment }
-    });
-  } catch (error) {
-    console.error('Schedule pay later error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-});
-
-// @desc    Process payment at hospital (Staff)
-// @route   POST /api/appointments/:id/hospital-payment
-// @access  Private (Staff, Admin)
-router.post('/:id/hospital-payment', auth, authorize('staff', 'admin'), async (req, res) => {
-  try {
-    const appointment = await Appointment.findById(req.params.id);
-
-    if (!appointment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Appointment not found'
-      });
-    }
-
-    // Check if already paid
-    if (appointment.paymentStatus === 'paid') {
-      return res.status(400).json({
-        success: false,
-        message: 'Payment already processed'
-      });
-    }
-
-    const { paymentMethod, transactionId, insuranceDetails, governmentFund } = req.body;
-
-    // Update appointment payment status
-    appointment.paymentStatus = 'paid';
-    appointment.paymentMethod = paymentMethod;
-    appointment.transactionId = transactionId || `HSP-${Date.now()}`;
-    appointment.paymentDate = new Date();
-    appointment.paymentDetails = {
-      method: paymentMethod,
-      transactionId: transactionId || `HSP-${Date.now()}`,
-      paidAt: new Date(),
-      amount: appointment.consultationFee,
-      processedBy: req.user.id,
-      location: 'hospital',
-      insuranceDetails: insuranceDetails || null,
-      governmentFund: governmentFund || false
-    };
-
-    await appointment.save();
-
-    await appointment.populate([
-      { path: 'patient', select: 'firstName lastName email phone digitalHealthCardId' },
-      { path: 'doctor', select: 'firstName lastName specialization department' },
-      { path: 'paymentDetails.processedBy', select: 'firstName lastName' }
-    ]);
-
-    res.json({
-      success: true,
-      message: 'Payment processed successfully',
-      data: { appointment }
-    });
-  } catch (error) {
-    console.error('Hospital payment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-});
+// Payment endpoints removed - Healthcare is now free for all patients
 
 // @desc    Check-in appointment
 // @route   POST /api/appointments/:id/checkin
@@ -680,16 +484,6 @@ router.post('/:id/checkin', auth, async (req, res) => {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to check-in'
-      });
-    }
-
-    // Verify payment if required (allow check-in if paying at hospital)
-    if (appointment.paymentStatus !== 'paid' && 
-        appointment.paymentStatus !== 'pay-at-hospital' && 
-        appointment.consultationFee > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Payment required before check-in'
       });
     }
 

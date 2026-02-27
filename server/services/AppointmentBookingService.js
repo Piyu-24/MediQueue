@@ -344,90 +344,13 @@ class AppointmentBookingService {
   }
 
   /**
-   * Process appointment payment
+   * Process appointment payment - REMOVED (Healthcare is now free)
    */
   async processPayment(appointmentId, paymentData) {
-    try {
-      // Validate inputs
-      if (!appointmentId || !paymentData) {
-        return {
-          success: false,
-          message: 'Appointment ID and payment data are required'
-        };
-      }
-
-      const { amount, paymentMethod, cardDetails } = paymentData;
-
-      // Validate payment data
-      const paymentValidation = this.validatePaymentData(paymentData);
-      if (!paymentValidation.isValid) {
-        return {
-          success: false,
-          message: paymentValidation.message
-        };
-      }
-
-      // Find appointment
-      const appointment = await Appointment.findById(appointmentId);
-      if (!appointment) {
-        return {
-          success: false,
-          message: 'Appointment not found'
-        };
-      }
-
-      // Process payment based on method
-      let paymentResult;
-      if (paymentMethod === 'card') {
-        paymentResult = await this._processCardPayment(amount, cardDetails);
-      } else if (paymentMethod === 'cash') {
-        paymentResult = await this._processCashPayment(amount);
-      } else {
-        return {
-          success: false,
-          message: 'Invalid payment method'
-        };
-      }
-
-      if (!paymentResult.success) {
-        return paymentResult;
-      }
-
-      // Create payment record
-      const payment = new Payment({
-        appointment: appointmentId,
-        amount,
-        paymentMethod,
-        status: 'completed',
-        transactionId: paymentResult.transactionId,
-        processedAt: new Date()
-      });
-
-      await payment.save();
-
-      // Update appointment payment status
-      appointment.paymentStatus = 'paid';
-      appointment.paymentId = payment._id;
-      await appointment.save();
-
-      return {
-        success: true,
-        message: 'Payment processed successfully',
-        payment: {
-          id: payment._id,
-          transactionId: paymentResult.transactionId,
-          amount,
-          method: paymentMethod,
-          status: 'completed'
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: 'Payment processing failed due to server error'
-      };
-    }
+    return {
+      success: true,
+      message: 'Payment processing is no longer required - Healthcare is free for all patients'
+    };
   }
 
   // ============================================================================
