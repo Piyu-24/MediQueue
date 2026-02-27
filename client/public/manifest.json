@@ -1,0 +1,15 @@
+{
+  "short_name": "MediQueue",
+  "name": "MediQueue – Healthcare Queue & Appointment Management",
+  "icons": [
+    {
+      "src": "logo.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1E88E5",
+  "background_color": "#ffffff"
+}
