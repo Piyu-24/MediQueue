@@ -35,7 +35,6 @@ const Register = () => {
     qualification: '',
     yearsOfExperience: '',
     licenseNumber: '',
-    consultationFee: '',
     agreeToTerms: false
   });
   
@@ -119,9 +118,7 @@ const Register = () => {
         if (!formData.licenseNumber) {
           newErrors.licenseNumber = 'License number is required';
         }
-        if (!formData.consultationFee) {
-          newErrors.consultationFee = 'Consultation fee is required';
-        }
+    
       }
     }
     
@@ -172,7 +169,7 @@ const Register = () => {
         cleanFormData.qualification = formData.qualification;
         cleanFormData.yearsOfExperience = parseInt(formData.yearsOfExperience);
         cleanFormData.licenseNumber = formData.licenseNumber;
-        cleanFormData.consultationFee = parseFloat(formData.consultationFee);
+    
       }
 
       console.log('Submitting form data:', cleanFormData);
@@ -621,31 +618,6 @@ const Register = () => {
                     )}
                   </div>
 
-                  <div className="space-y-2">
-                    <label htmlFor="consultationFee" className="text-sm font-semibold text-gray-700">
-                      Consultation Fee (LKR)
-                    </label>
-                    <input
-                      id="consultationFee"
-                      name="consultationFee"
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={formData.consultationFee}
-                      onChange={handleChange}
-                      className={`w-full px-4 py-3 bg-gray-50/50 border-2 rounded-xl focus:outline-none focus:bg-white transition-all duration-200 ${
-                        errors.consultationFee 
-                          ? 'border-red-300 focus:border-red-500' 
-                          : 'border-gray-200 focus:border-blue-500'
-                      }`}
-                      placeholder="1500"
-                    />
-                    {errors.consultationFee && (
-                      <p className="text-sm text-red-600">{errors.consultationFee}</p>
-                    )}
-                  </div>
-                </div>
-
                 <div className="space-y-2">
                   <label htmlFor="licenseNumber" className="text-sm font-semibold text-gray-700">
                     Medical License Number
@@ -667,6 +639,7 @@ const Register = () => {
                     <p className="text-sm text-red-600">{errors.licenseNumber}</p>
                   )}
                 </div>
+              </div>
               </div>
             )}
           </div>
@@ -730,8 +703,8 @@ const Register = () => {
         
       default:
         return null;
-    }
-  };
+      }
+    };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-gray-50 to-blue-50 flex items-center justify-center p-4">
