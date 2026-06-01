@@ -13,7 +13,9 @@ import {
 } from '@heroicons/react/24/outline';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { appointmentAPI, medicalRecordsAPI } from '../../services/api';
+import { appointmentAPI, medicalRecordsAPI, queueAPI } from '../../services/api';
+import socketService from '../../services/socket';
+import ConsultationNoteModal from '../../components/doctor/ConsultationNoteModal';
 import toast from 'react-hot-toast';
 
 const DoctorDashboardEnhanced = () => {
@@ -43,15 +45,99 @@ const DoctorDashboardEnhanced = () => {
 
   const tabs = [
     { id: 'overview', name: 'Overview', icon: ChartBarIcon },
+    { id: 'queue', name: 'Live Queue', icon: UserIcon },
     { id: 'availability', name: 'Availability', icon: ClockIcon },
     { id: 'notifications', name: 'Notifications', icon: BellIcon }
   ];
+
+  const [liveQueue, setLiveQueue] = useState([]);
+  const [queueLoading, setQueueLoading] = useState(false);
+  // Consultation note modal
+  const [noteModalEntry, setNoteModalEntry] = useState(null);
 
   useEffect(() => {
     fetchDoctorData();
     fetchAvailability();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'queue') fetchLiveQueue();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // ── Socket.io: real-time queue updates for this doctor ───────────────────────
+  useEffect(() => {
+    if (!user?._id) return;
+
+    const handleQueueCreated = (data) => {
+      // Flash notification if the new entry is for this doctor
+      if (data?.queueEntry?.doctor === user._id || data?.queueEntry?.doctor?._id === user._id) {
+        toast.custom((t) => (
+          <div className={`bg-blue-600 text-white px-6 py-4 rounded-xl shadow-xl flex items-center space-x-3 ${
+            t.visible ? 'animate-enter' : 'animate-leave'
+          }`}>
+            <span className="text-xl">🔔</span>
+            <div>
+              <p className="font-bold">New Patient in Queue</p>
+              <p className="text-sm opacity-90">Queue #{data.queueEntry.queueNumber} — {data.room}</p>
+            </div>
+          </div>
+        ), { duration: 6000 });
+      }
+      // Always refresh if on queue tab
+      if (activeTab === 'queue') fetchLiveQueue();
+    };
+
+    const handleQueueUpdated = () => {
+      if (activeTab === 'queue') fetchLiveQueue();
+    };
+
+    socketService.on('queue:created', handleQueueCreated);
+    socketService.on('queue:updated', handleQueueUpdated);
+    socketService.on('queue:completed', handleQueueUpdated);
+    socketService.on('queue:called', handleQueueUpdated);
+
+    return () => {
+      socketService.off('queue:created', handleQueueCreated);
+      socketService.off('queue:updated', handleQueueUpdated);
+      socketService.off('queue:completed', handleQueueUpdated);
+      socketService.off('queue:called', handleQueueUpdated);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?._id, activeTab]);
+
+  const fetchLiveQueue = async () => {
+    try {
+      setQueueLoading(true);
+      const res = await queueAPI.getQueue({ status: 'waiting,called,in-consultation,completed,no-show' });
+      if (res.data.success) {
+        setLiveQueue(res.data.data.queueEntries);
+      }
+    } catch {
+      toast.error('Failed to load queue');
+    } finally {
+      setQueueLoading(false);
+    }
+  };
+
+  const handleQueueAction = async (id, action) => {
+    try {
+      const actionMap = {
+        call: () => queueAPI.callPatient(id),
+        start: () => queueAPI.startConsultation(id),
+        complete: () => queueAPI.completeConsultation(id),
+        'no-show': () => queueAPI.markNoShow(id)
+      };
+      await actionMap[action]();
+      toast.success(`Patient ${action === 'call' ? 'called' : action === 'start' ? 'consultation started' : action === 'complete' ? 'consultation completed' : 'marked no-show'}`);
+      fetchLiveQueue();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Action failed');
+    }
+  };
+
+
 
   const fetchDoctorData = async () => {
     const today = new Date().toISOString().split('T')[0];
@@ -213,6 +299,18 @@ const DoctorDashboardEnhanced = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-gray-50">
+      {/* Consultation Note Modal */}
+      {noteModalEntry && (
+        <ConsultationNoteModal
+          entry={noteModalEntry}
+          doctor={user}
+          onClose={() => setNoteModalEntry(null)}
+          onSaved={() => {
+            setNoteModalEntry(null);
+            toast.success('Consultation notes saved!');
+          }}
+        />
+      )}
       {/* Header */}
       <div className="bg-white shadow-lg border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -591,9 +689,155 @@ const DoctorDashboardEnhanced = () => {
         )}
 
         {/* Availability Tab */}
+        {/* Live Queue Tab */}
+        {activeTab === 'queue' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-3">
+                <UserIcon className="w-6 h-6 text-blue-600" />
+                <h2 className="text-xl font-bold text-gray-900">My Live Queue</h2>
+                <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">
+                  {liveQueue.filter(e => ['waiting','called','in-consultation'].includes(e.status)).length} active
+                </span>
+              </div>
+              <button onClick={fetchLiveQueue} className="flex items-center space-x-1 px-3 py-1.5 text-sm text-gray-500 hover:text-blue-600 border border-gray-200 rounded-lg hover:border-blue-300 transition-all">
+                <ArrowPathIcon className={`w-4 h-4 ${queueLoading ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            {/* Stats mini bar */}
+            {liveQueue.length > 0 && (
+              <div className="grid grid-cols-4 gap-3">
+                {[
+                  { label: 'Waiting', count: liveQueue.filter(e => e.status === 'waiting').length, color: 'bg-blue-50 text-blue-700 border-blue-200' },
+                  { label: 'Called', count: liveQueue.filter(e => e.status === 'called').length, color: 'bg-orange-50 text-orange-700 border-orange-200' },
+                  { label: 'In Consultation', count: liveQueue.filter(e => e.status === 'in-consultation').length, color: 'bg-purple-50 text-purple-700 border-purple-200' },
+                  { label: 'Completed', count: liveQueue.filter(e => e.status === 'completed').length, color: 'bg-green-50 text-green-700 border-green-200' },
+                ].map(s => (
+                  <div key={s.label} className={`${s.color} border rounded-xl p-3 text-center`}>
+                    <p className="text-2xl font-black">{s.count}</p>
+                    <p className="text-xs font-medium">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {queueLoading ? (
+              <div className="text-center py-12 text-gray-400">
+                <ArrowPathIcon className="w-8 h-8 animate-spin mx-auto mb-2" />
+                <p>Loading queue...</p>
+              </div>
+            ) : liveQueue.length === 0 ? (
+              <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-12 text-center">
+                <UserIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500 text-lg font-medium">No queue entries today</p>
+                <p className="text-gray-400 text-sm">Patients will appear here once checked in by reception</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {liveQueue.map(entry => (
+                  <div key={entry._id} className={`bg-white rounded-xl border-2 p-4 transition-all shadow-sm ${
+                    entry.status === 'waiting' ? 'border-blue-200' :
+                    entry.status === 'called' ? 'border-orange-300 shadow-orange-100' :
+                    entry.status === 'in-consultation' ? 'border-purple-300 shadow-purple-100' :
+                    entry.status === 'completed' ? 'border-gray-100 opacity-60' :
+                    'border-red-100 opacity-50'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-4">
+                        <div className={`text-xl font-black px-3 py-2 rounded-lg min-w-[90px] text-center ${
+                          entry.status === 'waiting' ? 'bg-blue-600 text-white' :
+                          entry.status === 'called' ? 'bg-orange-500 text-white' :
+                          entry.status === 'in-consultation' ? 'bg-purple-600 text-white' :
+                          entry.status === 'completed' ? 'bg-gray-300 text-gray-600' :
+                          'bg-red-400 text-white'
+                        }`}>
+                          {entry.queueNumber}
+                        </div>
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <p className="font-semibold text-gray-900">
+                              {entry.patient?.firstName} {entry.patient?.lastName}
+                            </p>
+                            {entry.priority === 'urgent' && (
+                              <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">🔴 URGENT</span>
+                            )}
+                            {entry.isWalkIn && (
+                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Walk-in</span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-500">
+                            {entry.room} · Check-in: {entry.checkInTime ? new Date(entry.checkInTime).toLocaleTimeString() : '—'}
+                            {entry.estimatedWaitMinutes > 0 && entry.status === 'waiting' && ` · Est. ${entry.estimatedWaitMinutes} min wait`}
+                          </p>
+                          {entry.notes && <p className="text-xs text-amber-600 mt-0.5">📝 {entry.notes}</p>}
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center space-x-2">
+                        {entry.status === 'waiting' && (
+                          <>
+                            <button onClick={() => handleQueueAction(entry._id, 'call')}
+                              className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-semibold hover:bg-orange-600 transition-all shadow-sm">
+                              📢 Call
+                            </button>
+                            <button onClick={() => handleQueueAction(entry._id, 'no-show')}
+                              className="px-3 py-2 border border-red-200 text-red-500 rounded-lg text-sm hover:bg-red-50 transition-all">
+                              No-show
+                            </button>
+                          </>
+                        )}
+                        {entry.status === 'called' && (
+                          <>
+                            <button onClick={() => handleQueueAction(entry._id, 'start')}
+                              className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 transition-all shadow-sm">
+                              🩺 Start
+                            </button>
+                            <button onClick={() => handleQueueAction(entry._id, 'no-show')}
+                              className="px-3 py-2 border border-red-200 text-red-500 rounded-lg text-sm hover:bg-red-50 transition-all">
+                              No-show
+                            </button>
+                          </>
+                        )}
+                        {entry.status === 'in-consultation' && (
+                          <button onClick={() => handleQueueAction(entry._id, 'complete')}
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-all shadow-sm">
+                            ✓ Complete
+                          </button>
+                        )}
+                        {(entry.status === 'completed' || entry.status === 'no-show') && (
+                          <div className="flex items-center space-x-2">
+                            <span className={`text-xs font-semibold px-3 py-1.5 rounded-full ${
+                              entry.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
+                            }`}>
+                              {entry.status}
+                            </span>
+                            {entry.status === 'completed' && (
+                              <button
+                                onClick={() => setNoteModalEntry(entry)}
+                                className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition-all shadow-sm flex items-center space-x-1"
+                              >
+                                <DocumentTextIcon className="w-3.5 h-3.5" />
+                                <span>Write Notes</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === 'availability' && (
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">
+
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-gray-900">Manage Availability</h2>
                 <button

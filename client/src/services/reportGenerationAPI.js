@@ -47,10 +47,6 @@ export const reportGenerationAPI = {
   generateStaffUtilizationReport: (data) => 
     api.post('/report-generation/staff-utilization', data),
 
-  // Generate Financial Summary Report
-  generateFinancialSummaryReport: (data) => 
-    api.post('/report-generation/financial-summary', data),
-
   // Generate Comprehensive Report
   generateComprehensiveReport: (data) => 
     api.post('/report-generation/comprehensive', data),
@@ -134,31 +130,6 @@ export const reportUtils = {
           ]
         };
 
-      case 'financial-summary':
-        return {
-          title: 'Financial Summary',
-          summary: reportData.summary || {},
-          data: reportData.transactions || [],
-          charts: [
-            {
-              type: 'line',
-              title: 'Daily Revenue',
-              data: Object.entries(reportData.analytics?.dailyRevenue || {}).map(([date, revenue]) => ({
-                date,
-                revenue
-              }))
-            },
-            {
-              type: 'pie',
-              title: 'Payment Methods',
-              data: Object.entries(reportData.analytics?.paymentMethodBreakdown || {}).map(([method, data]) => ({
-                name: method,
-                value: data.amount
-              }))
-            }
-          ]
-        };
-
       case 'comprehensive':
         return {
           title: 'Comprehensive Report',
@@ -171,10 +142,6 @@ export const reportUtils = {
             {
               title: 'Staff Utilization',
               data: reportData.staffUtilization || {}
-            },
-            {
-              title: 'Financial Performance',
-              data: reportData.financial || {}
             }
           ]
         };
@@ -204,13 +171,6 @@ export const reportUtils = {
         csvContent = 'Staff Member,Role,Department,Total Appointments,Completion Rate,Utilization Rate\n';
         (reportData.staffUtilization || []).forEach(staff => {
           csvContent += `${staff.name},${staff.role},${staff.specialization},${staff.totalAppointments},${staff.completionRate}%,${staff.utilizationRate}%\n`;
-        });
-        break;
-
-      case 'financial-summary':
-        csvContent = 'Date,Patient,Amount,Payment Method,Status,Department\n';
-        (reportData.transactions || []).forEach(txn => {
-          csvContent += `${new Date(txn.date).toLocaleDateString()},${txn.patientName},${txn.amount},${txn.paymentMethod},${txn.status},${txn.department}\n`;
         });
         break;
 
@@ -274,13 +234,6 @@ export const reportUtils = {
         requiredFields: ['startDate', 'endDate'],
         optionalFields: ['department'],
         estimatedTime: '3-7 minutes'
-      },
-      'financial-summary': {
-        name: 'Financial Summary Report',
-        description: 'Financial performance and revenue analysis',
-        requiredFields: ['startDate', 'endDate'],
-        optionalFields: ['paymentMethod', 'status'],
-        estimatedTime: '2-4 minutes'
       },
       'comprehensive': {
         name: 'Comprehensive Report',

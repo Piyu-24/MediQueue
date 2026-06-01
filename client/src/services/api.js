@@ -101,6 +101,14 @@ export const appointmentAPI = {
   checkIn: (id, method) => api.post(`/appointments/${id}/checkin`, { method }),
   getDoctorAppointments: (doctorId, params) => api.get(`/appointments/doctor/${doctorId}`, { params }),
   getPatientAppointments: (patientId, params) => api.get(`/appointments/patient/${patientId}`, { params }),
+  getPendingReschedule: () => api.get('/appointments/pending-reschedule')
+};
+
+// Doctor leave API endpoints
+export const leaveAPI = {
+  submitLeave: (leaveData, params) => api.post('/doctor/leave', leaveData, { params }),
+  getLeaves: (params) => api.get('/doctor/leave', { params }),
+  cancelLeave: (slotId) => api.delete(`/doctor/leave/${slotId}`)
 };
 
 // Medical Records API endpoints
@@ -126,6 +134,30 @@ export const healthCardAPI = {
   getAccessLog: (cardId) => api.get(`/health-cards/${cardId}/access-log`),
   getAllCards: (params) => api.get('/health-cards', { params }),
 };
+// Queue API endpoints
+export const queueAPI = {
+  /** Receptionist checks a patient in — creates QueueEntry */
+  checkIn: (data) => api.post('/queue/checkin', data),
+  /** Validate a QR code / health card and get patient + today's appointment */
+  validateQR: (data) => api.post('/queue/validate-qr', data),
+  /** Get full queue list with optional filters */
+  getQueue: (params) => api.get('/queue', { params }),
+  /** Get public display data (no auth) — all rooms */
+  getDisplay: (date) => api.get('/queue/display', { params: { date } }),
+  /** Get the current patient's own queue status */
+  getMyStatus: () => api.get('/queue/my-status'),
+  /** Get queue stats for admin/manager */
+  getStats: (date) => api.get('/queue/stats', { params: { date } }),
+  /** Doctor: call a waiting patient */
+  callPatient: (id) => api.patch(`/queue/${id}/call`),
+  /** Doctor: start consultation */
+  startConsultation: (id) => api.patch(`/queue/${id}/start`),
+  /** Doctor: complete consultation */
+  completeConsultation: (id) => api.patch(`/queue/${id}/complete`),
+  /** Doctor/Receptionist: mark no-show */
+  markNoShow: (id) => api.patch(`/queue/${id}/no-show`),
+};
+
 // Document API endpoints
 export const documentAPI = {
   uploadDocument: (formData) => api.post('/documents/upload', formData, {
@@ -160,6 +192,7 @@ export const reportsAPI = reportAPI;
 // Notification API endpoints
 export const notificationAPI = {
   getNotifications: () => api.get('/notifications'),
+  getUnreadCount: () => api.get('/notifications/unread-count'),
   markAsRead: (id) => api.patch(`/notifications/${id}/read`),
   markAllAsRead: () => api.patch('/notifications/read-all'),
   deleteNotification: (id) => api.delete(`/notifications/${id}`),

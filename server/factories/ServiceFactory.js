@@ -7,7 +7,6 @@
 const ManagerService = require('../services/ManagerService');
 const UserRepository = require('../repositories/UserRepository');
 const AppointmentRepository = require('../repositories/AppointmentRepository');
-const PaymentRepository = require('../repositories/PaymentRepository');
 const Logger = require('../utils/Logger');
 
 /**
@@ -35,9 +34,6 @@ class ServiceFactory {
         break;
       case 'appointment':
         repository = new AppointmentRepository();
-        break;
-      case 'payment':
-        repository = new PaymentRepository();
         break;
       default:
         throw new Error(`Unknown repository type: ${repositoryType}`);
@@ -68,9 +64,6 @@ class ServiceFactory {
       case 'appointment':
         service = this.createAppointmentService();
         break;
-      case 'payment':
-        service = this.createPaymentService();
-        break;
       default:
         throw new Error(`Unknown service type: ${serviceType}`);
     }
@@ -87,12 +80,10 @@ class ServiceFactory {
   static createManagerService() {
     const userRepository = this.getRepository('user');
     const appointmentRepository = this.getRepository('appointment');
-    const paymentRepository = this.getRepository('payment');
 
     return new ManagerService(
       userRepository,
-      appointmentRepository,
-      paymentRepository
+      appointmentRepository
     );
   }
 
@@ -129,22 +120,6 @@ class ServiceFactory {
     return appointmentRepository;
   }
 
-  /**
-   * Creates a PaymentService with its dependencies
-   * @returns {Object} Payment service instance
-   * @private
-   */
-  static createPaymentService() {
-    // Placeholder for PaymentService implementation
-    const paymentRepository = this.getRepository('payment');
-    const appointmentRepository = this.getRepository('appointment');
-    
-    // When PaymentService is implemented, it would be:
-    // return new PaymentService(paymentRepository, appointmentRepository);
-    
-    // For now, return the repository directly
-    return paymentRepository;
-  }
 
   /**
    * Clears all cached instances (useful for testing)
@@ -159,7 +134,7 @@ class ServiceFactory {
    * @returns {Array} Array of available service types
    */
   static getAvailableServices() {
-    return ['manager', 'user', 'appointment', 'payment'];
+    return ['manager', 'user', 'appointment'];
   }
 
   /**
@@ -167,7 +142,7 @@ class ServiceFactory {
    * @returns {Array} Array of available repository types
    */
   static getAvailableRepositories() {
-    return ['user', 'appointment', 'payment'];
+    return ['user', 'appointment'];
   }
 
   /**
@@ -199,8 +174,7 @@ class ServiceFactory {
       case 'manager':
         return new ManagerService(
           dependencies.userRepository,
-          dependencies.appointmentRepository,
-          dependencies.paymentRepository
+          dependencies.appointmentRepository
         );
       default:
         throw new Error(`Custom dependency injection not supported for ${serviceType}`);

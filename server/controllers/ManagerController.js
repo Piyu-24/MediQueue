@@ -80,22 +80,6 @@ class ManagerController extends BaseController {
   }
 
   /**
-   * Generates financial summary report
-   * @param {Object} req - Express request object
-   * @param {Object} res - Express response object
-   */
-  async getFinancialSummaryReport(req, res) {
-    await this.handleAsync(async (req, res) => {
-      this.logAction('getFinancialSummaryReport', req, { filters: req.query });
-      
-      const filters = this.buildFilters(req, ['startDate', 'endDate', 'paymentMethod', 'status']);
-      const reportData = await this.service.generateFinancialSummaryReport(filters);
-      
-      this.sendSuccess(res, reportData, 'Financial summary report generated successfully');
-    }, req, res);
-  }
-  
-  /**
    * Gets resource name for base controller
    * @returns {string} Resource name
    */

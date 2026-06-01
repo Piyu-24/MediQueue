@@ -18,13 +18,11 @@ const ManagerController = require('../../controllers/ManagerController');
 const ManagerService = require('../../services/ManagerService');
 const UserRepository = require('../../repositories/UserRepository');
 const AppointmentRepository = require('../../repositories/AppointmentRepository');
-const PaymentRepository = require('../../repositories/PaymentRepository');
 
 // Mock dependencies
 jest.mock('../../services/ManagerService');
 jest.mock('../../repositories/UserRepository');
 jest.mock('../../repositories/AppointmentRepository');
-jest.mock('../../repositories/PaymentRepository');
 jest.mock('../../utils/Logger', () => ({
   getLogger: jest.fn(() => ({
     info: jest.fn(),
@@ -101,7 +99,6 @@ describe('ManagerController - >80% Coverage Tests', () => {
     todayAppointments: 45,
     pendingAppointments: 12,
     completedAppointments: 320,
-    totalRevenue: 45000,
     recentAppointments: [
       {
         _id: '507f1f77bcf86cd799439011',
@@ -109,15 +106,6 @@ describe('ManagerController - >80% Coverage Tests', () => {
         doctor: { firstName: 'Dr. Jane', lastName: 'Smith', specialization: 'Cardiology' },
         appointmentDate: new Date('2024-12-25'),
         status: 'scheduled'
-      }
-    ],
-    recentPayments: [
-      {
-        _id: '507f1f77bcf86cd799439012',
-        patient: { firstName: 'John', lastName: 'Doe', email: 'john@test.com' },
-        amount: 150,
-        paymentMethod: 'card',
-        status: 'completed'
       }
     ]
   };
@@ -169,34 +157,6 @@ describe('ManagerController - >80% Coverage Tests', () => {
     }
   };
 
-  const mockFinancialSummaryReport = {
-    transactions: [
-      {
-        _id: '507f1f77bcf86cd799439012',
-        patient: { firstName: 'John', lastName: 'Doe', email: 'john@test.com' },
-        appointment: { department: 'Cardiology', reasonForVisit: 'Checkup' },
-        amount: 150,
-        paymentMethod: 'card',
-        status: 'completed',
-        createdAt: new Date('2024-12-25')
-      }
-    ],
-    analytics: {
-      totalRevenue: 150,
-      totalTransactions: 1,
-      paymentMethodBreakdown: { 'card': 150 },
-      dailyRevenue: { '2024-12-25': 150 },
-      departmentRevenue: { 'Cardiology': 150 },
-      averageTransaction: 150
-    },
-    summary: {
-      totalRecords: 1,
-      totalRevenue: 150,
-      dateRange: { startDate: '2024-12-01', endDate: '2024-12-31' },
-      filters: { paymentMethod: 'card', status: 'completed' }
-    }
-  };
-
   beforeEach(() => {
     jest.clearAllMocks();
     
@@ -220,8 +180,7 @@ describe('ManagerController - >80% Coverage Tests', () => {
     mockManagerService = {
       getDashboardOverview: jest.fn(),
       generatePatientVisitReport: jest.fn(),
-      generateStaffUtilizationReport: jest.fn(),
-      generateFinancialSummaryReport: jest.fn()
+      generateStaffUtilizationReport: jest.fn()
     };
 
     // Replace the service instance
@@ -380,66 +339,6 @@ describe('ManagerController - >80% Coverage Tests', () => {
       mockManagerService.generateStaffUtilizationReport.mockRejectedValue(error);
       
       await ManagerController.getStaffUtilizationReport(mockReq, mockRes);
-
-      expect(mockRes.status).toHaveBeenCalledWith(500);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        success: false,
-        message: 'Internal server error',
-        error: expect.any(String)
-      });
-    });
-  });
-
-  // ============================================================================
-  // FINANCIAL SUMMARY REPORT TESTS
-  // ============================================================================
-  describe('getFinancialSummaryReport', () => {
-    // POSITIVE CASES
-    test('should generate financial summary report successfully', async () => {
-      mockReq.query = {
-        startDate: '2024-12-01',
-        endDate: '2024-12-31',
-        paymentMethod: 'card',
-        status: 'completed'
-      };
-      
-      mockManagerService.generateFinancialSummaryReport.mockResolvedValue(mockFinancialSummaryReport);
-      
-      await ManagerController.getFinancialSummaryReport(mockReq, mockRes);
-
-      expect(mockManagerService.generateFinancialSummaryReport).toHaveBeenCalledWith({
-        startDate: '2024-12-01',
-        endDate: '2024-12-31',
-        paymentMethod: 'card',
-        status: 'completed'
-      });
-      expect(mockRes.status).toHaveBeenCalledWith(200);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        success: true,
-        message: 'Financial summary report generated successfully',
-        data: mockFinancialSummaryReport
-      });
-    });
-
-    test('should handle financial report with partial filters', async () => {
-      mockReq.query = { paymentMethod: 'cash' };
-      
-      mockManagerService.generateFinancialSummaryReport.mockResolvedValue(mockFinancialSummaryReport);
-      
-      await ManagerController.getFinancialSummaryReport(mockReq, mockRes);
-
-      expect(mockManagerService.generateFinancialSummaryReport).toHaveBeenCalledWith({
-        paymentMethod: 'cash'
-      });
-      expect(mockRes.status).toHaveBeenCalledWith(200);
-    });
-
-    // NEGATIVE CASES
-    test('should handle financial report generation errors', async () => {
-      const error = new Error('Payment data corrupted');
-      mockManagerService.generateFinancialSummaryReport.mockRejectedValue(error);
-      
-      await ManagerController.getFinancialSummaryReport(mockReq, mockRes);
 
       expect(mockRes.status).toHaveBeenCalledWith(500);
       expect(mockRes.json).toHaveBeenCalledWith({

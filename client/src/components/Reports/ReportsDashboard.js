@@ -4,7 +4,6 @@ import {
   DocumentArrowDownIcon,
   CalendarIcon,
   UsersIcon,
-  CurrencyDollarIcon,
   ClockIcon,
   BuildingOfficeIcon,
 } from '@heroicons/react/24/outline';
@@ -56,13 +55,6 @@ const ReportsDashboard = () => {
       description: 'Track doctor and staff performance metrics',
       icon: BuildingOfficeIcon,
       color: 'green'
-    },
-    {
-      id: 'revenue-analysis',
-      title: 'Revenue Analysis',
-      description: 'Financial performance and revenue trends',
-      icon: CurrencyDollarIcon,
-      color: 'teal'
     },
     {
       id: 'appointment-analytics',

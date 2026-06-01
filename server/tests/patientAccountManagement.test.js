@@ -4,6 +4,7 @@ const app = require('../server');
 const User = require('../models/User');
 const Appointment = require('../models/Appointment');
 const MedicalRecord = require('../models/MedicalRecord');
+const crypto = require('crypto');
 
 /**
  * UC02 - Patient Account Management Unit Test Suite
@@ -21,7 +22,7 @@ describe('UC02 - Patient Account Management', () => {
   let medicalRecord;
 
   const testEmail = 'patient@test.com';
-  const testPassword = 'TestPass123!';
+  const testPassword = `Test${crypto.randomBytes(8).toString('hex')}A1!`;
   const validPhone = '+1-555-0100';
 
   // Database setup

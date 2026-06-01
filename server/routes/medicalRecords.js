@@ -170,12 +170,13 @@ router.get('/:id', auth, async (req, res) => {
 // @access  Private (Doctor, Staff, Admin)
 router.post('/', 
   auth, 
-  authorize('doctor', 'staff', 'admin'),
+  authorize('doctor', 'staff', 'admin', 'receptionist'),
   [
     body('patient').isMongoId().withMessage('Valid patient ID is required'),
     body('recordType').isIn(['diagnosis', 'prescription', 'lab-result', 'imaging', 'surgery', 'vaccination', 'consultation', 'treatment-plan', 'other']),
-    body('title').isLength({ min: 5, max: 200 }).withMessage('Title must be between 5-200 characters'),
-    body('description').isLength({ min: 10, max: 2000 }).withMessage('Description must be between 10-2000 characters')
+    // title and description are optional for consultation records (derived from diagnosis/complaint)
+    body('title').optional().isLength({ min: 2, max: 200 }).withMessage('Title must be between 2-200 characters'),
+    body('description').optional().isLength({ min: 1, max: 2000 }).withMessage('Description cannot exceed 2000 characters')
   ],
   async (req, res) => {
     try {
@@ -227,12 +228,18 @@ router.post('/',
         }
       }
       
+      // Derive title/description if not provided (e.g. consultation records from the OPD flow)
+      const derivedTitle = req.body.title ||
+        (req.body.chiefComplaint ? `Consultation: ${req.body.chiefComplaint}`.slice(0, 200) : 'OPD Consultation');
+      const derivedDescription = req.body.description ||
+        req.body.diagnosis || req.body.chiefComplaint || req.body.treatment || 'Consultation record';
+
       // Create record
       const record = await MedicalRecord.create({
         patient,
-        recordType,
-        title,
-        description,
+        recordType: recordType || 'consultation',
+        title: derivedTitle,
+        description: derivedDescription,
         appointment,
         doctor: doctor || (req.user.role === 'doctor' ? req.user.id : null),
         createdBy: req.user.id,

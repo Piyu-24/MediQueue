@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { 
@@ -8,12 +8,19 @@ import {
   UserCircleIcon,
   BellIcon
 } from '@heroicons/react/24/outline';
+import { notificationAPI } from '../../services/api';
+import NotificationPanel from '../Notifications/NotificationPanel';
+import socketService from '../../services/socket';
+import toast from 'react-hot-toast';
 
 const Navbar = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const handleLogout = async () => {
     await logout();
@@ -89,6 +96,83 @@ const Navbar = () => {
 
   const navigationLinks = getNavigationLinks();
 
+  useEffect(() => {
+    if (!user) return;
+    const loadUnread = async () => {
+      try {
+        const res = await notificationAPI.getUnreadCount();
+        if (res.data.success) setUnreadCount(res.data.data.count || 0);
+      } catch {
+        // Ignore badge load errors
+      }
+    };
+
+    loadUnread();
+    // Join personal room and subscribe to notification events
+    try {
+      socketService.joinRoom(user._id);
+    } catch (e) {
+      // ignore socket join errors
+    }
+
+    const handleAppointmentUnavailable = (payload) => {
+      // Show a small toast and increment badge
+      toast.error('Your appointment was affected by doctor unavailability');
+      setUnreadCount((prev) => prev + 1);
+      // If panel is open, refresh notifications
+      if (notificationsOpen) {
+        (async () => {
+          try {
+            const res = await notificationAPI.getNotifications();
+            if (res.data.success) setNotifications(res.data.data.notifications || []);
+          } catch (err) {
+            // ignore
+          }
+        })();
+      }
+    };
+
+    socketService.on('appointment:doctor-unavailable', handleAppointmentUnavailable);
+
+    return () => {
+      socketService.off('appointment:doctor-unavailable', handleAppointmentUnavailable);
+    };
+  }, [user, notificationsOpen]);
+
+  const openNotifications = async () => {
+    if (!user) return;
+    setNotificationsOpen(true);
+    try {
+      const res = await notificationAPI.getNotifications();
+      if (res.data.success) setNotifications(res.data.data.notifications || []);
+    } catch {
+      // Ignore panel load errors
+    }
+  };
+
+  const markNotificationRead = async (notification) => {
+    try {
+      await notificationAPI.markAsRead(notification._id);
+      setNotifications((prev) => prev.map((item) => (
+        item._id === notification._id ? { ...item, isRead: true } : item
+      )));
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    } catch {
+      // Ignore read errors
+    }
+  };
+
+  const handleReschedule = (notification) => {
+    const doctorId = notification.metadata?.doctorId;
+    const appointmentId = notification.appointment?._id || notification.appointment;
+    setNotificationsOpen(false);
+    if (doctorId) {
+      navigate(`/dashboard?tab=book-appointment&doctorId=${doctorId}${appointmentId ? `&appointmentId=${appointmentId}` : ''}`);
+    } else {
+      navigate('/dashboard?tab=book-appointment');
+    }
+  };
+
   return (
     <nav className="bg-white shadow-lg sticky top-0 z-50">
       <div className="container mx-auto px-4">
@@ -125,9 +209,17 @@ const Navbar = () => {
             {user ? (
               <>
                 {/* Notifications */}
-                <button className="p-2 text-gray-600 hover:text-blue-600 relative">
+                <button
+                  className="p-2 text-gray-600 hover:text-blue-600 relative"
+                  onClick={openNotifications}
+                  aria-label="Open notifications"
+                >
                   <BellIcon className="h-6 w-6" />
-                  <span className="absolute top-0 right-0 h-2 w-2 bg-red-500 rounded-full"></span>
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
                 </button>
 
                 {/* User Menu */}
@@ -283,6 +375,14 @@ const Navbar = () => {
           </div>
         )}
       </div>
+
+      <NotificationPanel
+        isOpen={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
+        notifications={notifications}
+        onMarkRead={markNotificationRead}
+        onReschedule={handleReschedule}
+      />
     </nav>
   );
 };

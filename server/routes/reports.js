@@ -93,7 +93,7 @@ router.get('/appointments', auth, authorize('manager', 'admin'), async (req, res
   }
 });
 
-// Revenue reports removed - Healthcare is now free for all patients
+// Revenue reports removed
 
 // @desc    Get user reports
 // @route   GET /api/reports/users
@@ -226,9 +226,8 @@ router.get('/generate/:reportType', auth, authorize('manager'), async (req, res)
         break;
 
       case 'financial-summary':
-        // Financial summary removed - Healthcare is now free
         data = {
-          message: 'Financial tracking removed - Free healthcare service',
+          message: 'Financial reporting is disabled',
           appointments: []
         };
         break;
@@ -261,7 +260,7 @@ router.get('/generate/:reportType', auth, authorize('manager'), async (req, res)
         data = {
           patientVisits,
           staffUtilization,
-          message: 'Healthcare service is now free for all patients'
+          message: 'Comprehensive report preview'
         };
         break;
 
@@ -274,22 +273,14 @@ router.get('/generate/:reportType', auth, authorize('manager'), async (req, res)
         
         data = {
           appointments: weeklyAppointments,
-          message: 'Healthcare service is now free'
-        };
-        break;
-
-      case 'monthly-billing':
-        // Billing removed - Healthcare is now free
-        data = {
-          message: 'Billing removed - Free healthcare service',
-          appointments: []
+          message: 'Weekly appointment summary'
         };
         break;
 
       default:
         return res.status(400).json({
           success: false,
-          message: 'Invalid report type. Available types: patient-visit, staff-utilization, financial-summary, comprehensive'
+          message: 'Invalid report type. Available types: patient-visit, staff-utilization, comprehensive'
         });
     }
 

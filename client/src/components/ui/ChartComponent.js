@@ -114,42 +114,6 @@ const ChartComponent = ({ type, data, config = {} }) => {
     </ResponsiveContainer>
   );
 
-  const renderFinancialTrend = () => (
-    <ResponsiveContainer width={width} height={height}>
-      <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-        {showGrid && <CartesianGrid strokeDasharray="3 3" />}
-        <XAxis dataKey="month" />
-        <YAxis />
-        {showTooltip && <Tooltip formatter={(value) => [`$${value.toLocaleString()}`, '']} />}
-        {showLegend && <Legend />}
-        <Line 
-          type="monotone" 
-          dataKey="revenue" 
-          stroke={COLORS[1]} 
-          strokeWidth={2}
-          name="Revenue"
-          dot={{ fill: COLORS[1] }}
-        />
-        <Line 
-          type="monotone" 
-          dataKey="costs" 
-          stroke={COLORS[3]} 
-          strokeWidth={2}
-          name="Costs"
-          dot={{ fill: COLORS[3] }}
-        />
-        <Line 
-          type="monotone" 
-          dataKey="margin" 
-          stroke={COLORS[0]} 
-          strokeWidth={2}
-          name="Margin"
-          dot={{ fill: COLORS[0] }}
-        />
-      </LineChart>
-    </ResponsiveContainer>
-  );
-
   // Chart type selector
   switch (type) {
     case 'line':
@@ -162,8 +126,6 @@ const ChartComponent = ({ type, data, config = {} }) => {
       return renderPieChart();
     case 'weekly':
       return renderWeeklyChart();
-    case 'financial':
-      return renderFinancialTrend();
     default:
       return renderBarChart();
   }

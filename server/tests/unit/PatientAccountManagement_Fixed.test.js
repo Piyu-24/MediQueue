@@ -405,7 +405,8 @@ describe('UC01 - Patient Account Management (>80% Coverage)', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveProperty('upcomingAppointments');
-      expect(result.data).toHaveProperty('recentMedicalRecords');
+      expect(result.data).toHaveProperty('recentActivity');
+      expect(result.data).toHaveProperty('healthSummary');
       expect(result.data).toHaveProperty('profileCompleteness');
       expect(typeof result.data.profileCompleteness).toBe('number');
     });
@@ -468,7 +469,7 @@ describe('UC01 - Patient Account Management (>80% Coverage)', () => {
         throw new Error('Invalid token');
       });
 
-      const result = await PatientManagementService.validateToken('invalid.token');
+      const result = await PatientManagementService.validateToken('invalid.token.value');
 
       expect(result.success).toBe(false);
       expect(result.message).toBe('Invalid token');
@@ -481,7 +482,7 @@ describe('UC01 - Patient Account Management (>80% Coverage)', () => {
         throw error;
       });
 
-      const result = await PatientManagementService.validateToken('expired.token');
+      const result = await PatientManagementService.validateToken('expired.token.value');
 
       expect(result.success).toBe(false);
       expect(result.message).toBe('Token expired');
@@ -496,7 +497,7 @@ describe('UC01 - Patient Account Management (>80% Coverage)', () => {
       jwt.verify.mockReturnValue(tokenPayload);
       User.findById.mockResolvedValue(null);
 
-      const result = await PatientManagementService.validateToken('valid.token');
+      const result = await PatientManagementService.validateToken('valid.token.value');
 
       expect(result.success).toBe(false);
       expect(result.message).toBe('User not found');

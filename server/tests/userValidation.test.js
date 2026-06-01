@@ -1,14 +1,14 @@
 const request = require('supertest');
-const mongoose = require('mongoose');
 const app = require('../server');
 const User = require('../models/User');
+const TestDatabase = require('./testDatabase');
 
 describe('UC03 - Patient Identification and Validation', () => {
   let authToken;
   let doctorToken;
 
   beforeAll(async () => {
-    await mongoose.connect(process.env.MONGODB_URI);
+    await TestDatabase.connect();
 
     // Create test users
     await User.create([
@@ -69,7 +69,8 @@ describe('UC03 - Patient Identification and Validation', () => {
   });
 
   afterAll(async () => {
-    await mongoose.connection.close();
+    await TestDatabase.cleanup();
+    await TestDatabase.disconnect();
   });
 
   describe('GET /api/users/search - Patient Search (MS5)', () => {

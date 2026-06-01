@@ -12,16 +12,14 @@ const AppointmentBookingService = require('../../services/AppointmentBookingServ
 const Appointment = require('../../models/Appointment');
 const User = require('../../models/User');
 const DoctorSlot = require('../../models/DoctorSlot');
-const Payment = require('../../models/Payment');
 
 // Mock all dependencies
 jest.mock('../../models/Appointment');
 jest.mock('../../models/User');
 jest.mock('../../models/DoctorSlot');
-jest.mock('../../models/Payment');
 
 describe('AppointmentBookingService - >80% Coverage Tests', () => {
-  let mockDoctor, mockPatient, mockAppointment, mockPayment;
+  let mockDoctor, mockPatient, mockAppointment;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -53,14 +51,6 @@ describe('AppointmentBookingService - >80% Coverage Tests', () => {
       save: jest.fn().mockResolvedValue(true)
     };
 
-    mockPayment = {
-      _id: '507f1f77bcf86cd799439014',
-      appointment: mockAppointment._id,
-      amount: 100,
-      paymentMethod: 'card',
-      status: 'completed',
-      save: jest.fn().mockResolvedValue(true)
-    };
   });
 
   // ============================================================================
@@ -589,116 +579,6 @@ describe('AppointmentBookingService - >80% Coverage Tests', () => {
   });
 
   // ============================================================================
-  // PROCESS PAYMENT TESTS - Complete Coverage
-  // ============================================================================
-  describe('processPayment', () => {
-    let paymentData;
-
-    beforeEach(() => {
-      paymentData = {
-        amount: 100,
-        paymentMethod: 'card',
-        cardDetails: {
-          cardNumber: '4111111111111111',
-          expiryDate: '12/25',
-          cvv: '123'
-        }
-      };
-
-      Appointment.findById = jest.fn();
-      Payment.mockImplementation(() => mockPayment);
-      AppointmentBookingService._processCardPayment = jest.fn().mockResolvedValue({
-        success: true,
-        transactionId: 'TXN-123456'
-      });
-    });
-
-    // POSITIVE CASES
-    test('should process card payment successfully', async () => {
-      Appointment.findById.mockResolvedValue(mockAppointment);
-
-      const result = await AppointmentBookingService.processPayment(mockAppointment._id, paymentData);
-
-      expect(result.success).toBe(true);
-      expect(result.message).toBe('Payment processed successfully');
-      expect(result.payment.transactionId).toBe('TXN-123456');
-    });
-
-    test('should process cash payment successfully', async () => {
-      const cashPaymentData = {
-        amount: 100,
-        paymentMethod: 'cash'
-      };
-
-      Appointment.findById.mockResolvedValue(mockAppointment);
-      AppointmentBookingService._processCashPayment = jest.fn().mockResolvedValue({
-        success: true,
-        transactionId: 'CASH-123456'
-      });
-
-      const result = await AppointmentBookingService.processPayment(mockAppointment._id, cashPaymentData);
-
-      expect(result.success).toBe(true);
-      expect(result.payment.method).toBe('cash');
-    });
-
-    // NEGATIVE CASES
-    test('should reject missing appointmentId', async () => {
-      const result = await AppointmentBookingService.processPayment('', paymentData);
-      expect(result.success).toBe(false);
-      expect(result.message).toBe('Appointment ID and payment data are required');
-    });
-
-    test('should reject missing paymentData', async () => {
-      const result = await AppointmentBookingService.processPayment(mockAppointment._id, null);
-      expect(result.success).toBe(false);
-      expect(result.message).toBe('Appointment ID and payment data are required');
-    });
-
-    test('should reject non-existent appointment', async () => {
-      Appointment.findById.mockResolvedValue(null);
-
-      const result = await AppointmentBookingService.processPayment('invalid-id', paymentData);
-      expect(result.success).toBe(false);
-      expect(result.message).toBe('Appointment not found');
-    });
-
-    test('should reject invalid payment method', async () => {
-      const invalidPaymentData = {
-        amount: 100,
-        paymentMethod: 'crypto'
-      };
-
-      Appointment.findById.mockResolvedValue(mockAppointment);
-
-      const result = await AppointmentBookingService.processPayment(mockAppointment._id, invalidPaymentData);
-      expect(result.success).toBe(false);
-      expect(result.message).toBe('Invalid payment method');
-    });
-
-    test('should handle failed card payment', async () => {
-      Appointment.findById.mockResolvedValue(mockAppointment);
-      AppointmentBookingService._processCardPayment = jest.fn().mockResolvedValue({
-        success: false,
-        message: 'Card declined'
-      });
-
-      const result = await AppointmentBookingService.processPayment(mockAppointment._id, paymentData);
-      expect(result.success).toBe(false);
-      expect(result.message).toBe('Card declined');
-    });
-
-    // ERROR CASES
-    test('should handle database errors', async () => {
-      Appointment.findById.mockRejectedValue(new Error('Database error'));
-
-      const result = await AppointmentBookingService.processPayment(mockAppointment._id, paymentData);
-      expect(result.success).toBe(false);
-      expect(result.message).toBe('Payment processing failed due to server error');
-    });
-  });
-
-  // ============================================================================
   // VALIDATION HELPER TESTS - Complete Coverage
   // ============================================================================
   describe('Validation Helpers', () => {
@@ -738,34 +618,6 @@ describe('AppointmentBookingService - >80% Coverage Tests', () => {
       });
     });
 
-    // CARD NUMBER VALIDATION
-    describe('isValidCardNumber', () => {
-      test('should validate correct card numbers', () => {
-        expect(AppointmentBookingService.isValidCardNumber('4111111111111111')).toBe(true);
-        expect(AppointmentBookingService.isValidCardNumber('4111 1111 1111 1111')).toBe(true);
-        expect(AppointmentBookingService.isValidCardNumber('5555555555554444')).toBe(true);
-      });
-
-      test('should reject invalid card numbers', () => {
-        expect(AppointmentBookingService.isValidCardNumber('123')).toBe(false);
-        expect(AppointmentBookingService.isValidCardNumber('abcd1234')).toBe(false);
-        expect(AppointmentBookingService.isValidCardNumber('')).toBe(false);
-        expect(AppointmentBookingService.isValidCardNumber(null)).toBe(false);
-        expect(AppointmentBookingService.isValidCardNumber(123)).toBe(false);
-      });
-    });
-
-    // FEE CALCULATION
-    describe('calculateAppointmentFee', () => {
-      test('should calculate fees correctly', () => {
-        expect(AppointmentBookingService.calculateAppointmentFee(30, 'general')).toBe(50);
-        expect(AppointmentBookingService.calculateAppointmentFee(60, 'general')).toBe(100);
-        expect(AppointmentBookingService.calculateAppointmentFee(30, 'cardiology')).toBe(75);
-        expect(AppointmentBookingService.calculateAppointmentFee(30, 'surgery')).toBe(100);
-        expect(AppointmentBookingService.calculateAppointmentFee(30, 'unknown')).toBe(50);
-      });
-    });
-
     // PRIVATE HELPER METHOD TESTS (to increase function coverage)
     describe('Private Helper Methods Coverage', () => {
       test('should test _generateAppointmentReference', () => {
@@ -773,33 +625,6 @@ describe('AppointmentBookingService - >80% Coverage Tests', () => {
         expect(reference).toContain('APT-');
         expect(reference).toContain(mockAppointment._id.toString().slice(-4));
       });
-
-      test('should test _processCardPayment with valid card', async () => {
-        const result = await AppointmentBookingService._processCardPayment(100, {
-          cardNumber: '4111111111111111',
-          expiryDate: '12/25',
-          cvv: '123'
-        });
-        expect(result.success).toBe(true);
-        expect(result.transactionId).toContain('TXN-');
-      });
-
-      test('should test _processCardPayment with declined card', async () => {
-        const result = await AppointmentBookingService._processCardPayment(100, {
-          cardNumber: '4000000000000002',
-          expiryDate: '12/25',
-          cvv: '123'
-        });
-        expect(result.success).toBe(false);
-        expect(result.message).toBe('Card declined');
-      });
-
-      test('should test _processCashPayment', async () => {
-        const result = await AppointmentBookingService._processCashPayment(100);
-        expect(result.success).toBe(true);
-        expect(result.transactionId).toContain('CASH-');
-      });
-
       test('should test _checkSlotAvailability with available slot', async () => {
         Appointment.findOne = jest.fn().mockResolvedValue(null);
         

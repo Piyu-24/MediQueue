@@ -222,35 +222,18 @@ const StaffDashboard = () => {
                             }`}>
                               {appointment.status}
                             </span>
-                            {appointment.paymentStatus === 'paid' ? (
-                              <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                Paid
-                              </span>
-                            ) : (
-                              <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                                Payment Pending
-                              </span>
-                            )}
                           </div>
                         </div>
                       </div>
 
                       <div className="flex flex-col space-y-2">
-                        {appointment.status === 'scheduled' && appointment.paymentStatus === 'paid' && (
+                        {appointment.status === 'scheduled' && (
                           <button
                             onClick={() => handleCheckIn(appointment._id)}
                             className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
                           >
                             <CheckCircleIcon className="w-4 h-4 inline mr-1" />
                             Check In
-                          </button>
-                        )}
-                        {appointment.paymentStatus !== 'paid' && (
-                          <button
-                            className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm"
-                            disabled
-                          >
-                            Awaiting Payment
                           </button>
                         )}
                         <button

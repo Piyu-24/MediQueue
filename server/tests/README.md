@@ -19,7 +19,6 @@ tests/
 ├── unit/                              # Unit tests (isolated components)
 │   ├── services/
 │   │   ├── AppointmentService.test.js # Business logic tests
-│   │   └── PaymentService.test.js     # Payment integration tests
 │   ├── repositories/
 │   │   └── AppointmentRepository.test.js # Data layer tests
 │   └── controllers/
@@ -57,32 +56,6 @@ tests/
 ✓ should enforce minimum 24-hour advance booking
 ✓ should enforce maximum 90-day advance booking
 ✓ should handle concurrent booking attempts
-```
-
-#### **PaymentService.test.js** - 75+ test cases
-- ✅ **Step 6**: Payment processing with multiple methods
-- ✅ **Alternate Flow 6a**: Payment failure handling
-- ✅ **Exception Flow 1**: Refund processing
-- ✅ **Security**: Fraud detection, data masking
-- ✅ **Gateway Integration**: Timeout, retry logic
-
-**Key Test Cases:**
-```javascript
-// Payment Processing
-✓ should successfully process payment with valid card
-✓ should handle payment failure with retry
-✓ should validate card details (Luhn algorithm)
-✓ should support multiple payment methods
-
-// Refund Handling
-✓ should process full refunds for cancellations
-✓ should handle partial refunds correctly
-✓ should reject invalid refund requests
-
-// Security
-✓ should mask sensitive card data in logs
-✓ should detect fraudulent transactions
-✓ should validate CVV format
 ```
 
 ### **2. Unit Tests - Data Layer**
@@ -134,26 +107,24 @@ tests/
 
 #### **AppointmentFlow.test.js** - 25+ test cases
 - ✅ **Complete UC02 Flow**: End-to-end appointment booking
-- ✅ **All Alternate Flows**: Doctor unavailable, payment failure
-- ✅ **All Exception Flows**: Cancellations, refunds, system errors
+- ✅ **All Alternate Flows**: Doctor unavailable
+- ✅ **All Exception Flows**: Cancellations, system errors
 - ✅ **Concurrent Scenarios**: Multiple users, race conditions
 
 **Key Test Cases:**
 ```javascript
-// Main Success Scenario (Steps 1-9)
-✓ Complete appointment booking with payment
+// Main Success Scenario
+✓ Complete appointment booking
 ✓ Hospital verification and confirmation
 ✓ Patient notification delivery
 
 // Alternate Flows
 ✓ 4a. Doctor fully booked - suggest alternatives
-✓ 6a. Payment failure - retry mechanism
-✓ 8a. Appointment rejection - refund processing
 
 // Exception Flows
-✓ Appointment cancellation with refund policy
+✓ Appointment cancellation
 ✓ Concurrent booking attempts for same slot
-✓ System downtime during payment processing
+✓ System downtime during booking
 ```
 
 ## 📈 **Coverage Metrics**
@@ -163,7 +134,6 @@ tests/
 | Component | Statements | Branches | Functions | Lines |
 |-----------|------------|----------|-----------|-------|
 | AppointmentService | 95% | 92% | 100% | 94% |
-| PaymentService | 88% | 85% | 95% | 87% |
 | AppointmentRepository | 90% | 87% | 100% | 89% |
 | AppointmentController | 92% | 88% | 100% | 91% |
 | **Overall** | **91%** | **88%** | **99%** | **90%** |
@@ -186,7 +156,6 @@ npm run test:appointment
 npm test tests/unit/services/AppointmentService.test.js
 npm test tests/unit/repositories/AppointmentRepository.test.js
 npm test tests/unit/controllers/AppointmentController.test.js
-npm test tests/unit/services/PaymentService.test.js
 npm test tests/integration/AppointmentFlow.test.js
 
 # Run with coverage
@@ -212,7 +181,6 @@ npm run test:coverage
 
 ### **✅ Positive Test Cases (Happy Path)**
 - Valid appointment creation with all required fields
-- Successful payment processing with various methods
 - Proper appointment confirmation and notification
 - Correct data retrieval and formatting
 
@@ -220,19 +188,17 @@ npm run test:coverage
 - Invalid input data (missing fields, wrong formats)
 - Authentication and authorization failures
 - Business rule violations (past dates, non-business hours)
-- External service failures (payment gateway, database)
+- External service failures (database)
 
 ### **✅ Edge Cases (Boundary Conditions)**
 - Minimum/maximum booking advance times (24 hours / 90 days)
 - Business hour boundaries (9 AM / 5 PM)
 - Weekend booking attempts
-- Maximum payment amounts and limits
 - Very long or very short input strings
 
 ### **✅ Error Cases (Exception Handling)**
 - Network timeouts and connectivity issues
 - Database connection failures
-- Payment gateway maintenance mode
 - Concurrent booking conflicts
 - System resource exhaustion
 
@@ -244,7 +210,6 @@ npm run test:coverage
 global.testUtils = {
   createMockUser(overrides = {}) { /* ... */ },
   createMockAppointment(overrides = {}) { /* ... */ },
-  createMockPayment(overrides = {}) { /* ... */ },
   createMockRequest(overrides = {}) { /* ... */ },
   createMockResponse() { /* ... */ }
 };

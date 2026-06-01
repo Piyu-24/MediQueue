@@ -28,12 +28,11 @@ const ManagerDashboard = () => {
     totalPatients: 0,
     totalDoctors: 0,
     appointmentsToday: 0,
-    revenue: 0,
     pendingAppointments: 0,
-    completedAppointments: 0
+    completedAppointments: 0,
+    pendingReschedule: 0
   });
   const [recentAppointments, setRecentAppointments] = useState([]);
-  const [recentPayments, setRecentPayments] = useState([]);
   const [usingRealData, setUsingRealData] = useState(false);
 
   const sidebarNavigation = [
@@ -68,17 +67,17 @@ const ManagerDashboard = () => {
             totalPatients: data.totalUsers || 0,
             totalDoctors: data.totalDoctors || 0,
             appointmentsToday: data.todayAppointments || 0,
-            revenue: data.totalRevenue || 0,
             pendingAppointments: data.pendingAppointments || 0,
-            completedAppointments: data.completedAppointments || 0
+            completedAppointments: data.completedAppointments || 0,
+            pendingReschedule: 0
           });
           
           // Set recent data
           setRecentAppointments(data.recentAppointments?.slice(0, 5) || []);
-          setRecentPayments(data.recentPayments?.slice(0, 5) || []);
           
           console.log('Manager dashboard data loaded successfully:', data);
           setUsingRealData(true);
+          await fetchPendingRescheduleCount();
         }
       } catch (managerError) {
         console.warn('Manager API not available, using fallback APIs');
@@ -97,12 +96,11 @@ const ManagerDashboard = () => {
         totalPatients: 0,
         totalDoctors: 0,
         appointmentsToday: 0,
-        revenue: 0,
         pendingAppointments: 0,
-        completedAppointments: 0
+        completedAppointments: 0,
+        pendingReschedule: 0
       });
       setRecentAppointments([]);
-      setRecentPayments([]);
     } finally {
       setLoading(false);
     }
@@ -142,29 +140,22 @@ const ManagerDashboard = () => {
         }));
       }
 
-      // Fetch recent payments
-      try {
-        const paymentsRes = await axios.get('/api/payments/stats/overview', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (paymentsRes.data.success) {
-          const payments = paymentsRes.data.data.recentPayments || [];
-          setRecentPayments(payments.slice(0, 5));
-          
-          const totalRevenue = paymentsRes.data.data.totalRevenue || 0;
-          
-          setStats(prev => ({
-            ...prev,
-            revenue: totalRevenue
-          }));
-        }
-      } catch (paymentError) {
-        console.warn('Payment data not available');
-        setStats(prev => ({ ...prev, revenue: 0 }));
-        setRecentPayments([]);
-      }
+      await fetchPendingRescheduleCount();
+
     } catch (fallbackError) {
       console.error('Fallback data fetch failed:', fallbackError);
+    }
+  };
+
+  const fetchPendingRescheduleCount = async () => {
+    try {
+      const res = await appointmentAPI.getAppointments({ status: 'doctor-unavailable' });
+      if (res.data.success) {
+        const count = res.data.data.appointments?.length || 0;
+        setStats(prev => ({ ...prev, pendingReschedule: count }));
+      }
+    } catch (error) {
+      console.error('Error fetching pending reschedule count:', error);
     }
   };
 
@@ -296,7 +287,7 @@ const ManagerDashboard = () => {
         {activeTab === 'overview' && (
           <>
             {/* Key Metrics */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -338,6 +329,19 @@ const ManagerDashboard = () => {
               <ChartBarIcon className="w-12 h-12 text-teal-500" />
             </div>
           </div>
+
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">Pending Reschedule</p>
+                    <p className="text-3xl font-bold text-gray-900">{stats.pendingReschedule}</p>
+                    <div className="flex items-center mt-2">
+                      <span className="text-sm text-gray-600">Doctor unavailable</span>
+                    </div>
+                  </div>
+                  <BellIcon className="w-12 h-12 text-amber-500" />
+                </div>
+              </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -397,8 +401,8 @@ const ManagerDashboard = () => {
               <p className="text-sm text-gray-600">Pending</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-green-600">{recentPayments.filter(p => p.status === 'completed').length}</p>
-              <p className="text-sm text-gray-600">Paid</p>
+              <p className="text-2xl font-bold text-green-600">{stats.appointmentsToday}</p>
+              <p className="text-sm text-gray-600">Today</p>
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-teal-600">{stats.totalDoctors}</p>

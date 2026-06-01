@@ -9,6 +9,7 @@ import { useAuth } from './hooks/useAuth';
 import Navbar from './components/layout/Navbar';
 import Footer from './components/layout/Footer';
 import LoadingSpinner from './components/ui/LoadingSpinner';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Pages
 import Home from './pages/Home';
@@ -48,6 +49,9 @@ import AdminDashboard from './pages/admin/DashboardFull';
 
 // Shared Pages
 import AppointmentDetails from './pages/AppointmentDetails';
+
+// Public Display
+import QueueDisplay from './pages/display/QueueDisplay';
 
 // Suppress React DevTools warning in development
 if (process.env.NODE_ENV === 'development') {
@@ -182,9 +186,11 @@ function App() {
               {/* Patient Routes */}
               <Route path="/dashboard" element={
                 <ProtectedRoute allowedRoles={['patient']}>
-                  <Layout>
-                    <PatientDashboard />
-                  </Layout>
+                  <ErrorBoundary>
+                    <Layout>
+                      <PatientDashboard />
+                    </Layout>
+                  </ErrorBoundary>
                 </ProtectedRoute>
               } />
               
@@ -237,9 +243,11 @@ function App() {
               {/* Doctor Routes */}
               <Route path="/doctor/dashboard" element={
                 <ProtectedRoute allowedRoles={['doctor']}>
-                  <Layout>
-                    <DoctorDashboard />
-                  </Layout>
+                  <ErrorBoundary>
+                    <Layout>
+                      <DoctorDashboard />
+                    </Layout>
+                  </ErrorBoundary>
                 </ProtectedRoute>
               } />
               
@@ -312,9 +320,11 @@ function App() {
               {/* Receptionist Routes */}
               <Route path="/receptionist/dashboard" element={
                 <ProtectedRoute allowedRoles={['receptionist']}>
-                  <Layout>
-                    <ReceptionistDashboard />
-                  </Layout>
+                  <ErrorBoundary>
+                    <Layout>
+                      <ReceptionistDashboard />
+                    </Layout>
+                  </ErrorBoundary>
                 </ProtectedRoute>
               } />
 
@@ -326,6 +336,9 @@ function App() {
                   </Layout>
                 </ProtectedRoute>
               } />
+
+              {/* Public Display Screen — no auth, no layout */}
+              <Route path="/display" element={<QueueDisplay />} />
 
               {/* Error Routes */}
               <Route path="/unauthorized" element={

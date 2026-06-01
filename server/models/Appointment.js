@@ -33,7 +33,7 @@ const appointmentSchema = new mongoose.Schema({
   // Status and Type
   status: {
     type: String,
-    enum: ['scheduled', 'confirmed', 'in-progress', 'completed', 'cancelled', 'no-show'],
+    enum: ['scheduled', 'confirmed', 'in-progress', 'completed', 'cancelled', 'no-show', 'doctor-unavailable'],
     default: 'scheduled'
   },
   appointmentType: {
@@ -139,6 +139,19 @@ const appointmentSchema = new mongoose.Schema({
     },
     cancelledAt: Date,
     reason: String
+  },
+
+  // Doctor leave impact tracking
+  leaveInfo: {
+    leaveId: {
+      type: String
+    },
+    markedAt: Date,
+    reason: String,
+    previousStatus: {
+      type: String,
+      enum: ['scheduled', 'confirmed', 'in-progress', 'completed', 'cancelled', 'no-show', 'doctor-unavailable']
+    }
   },
   
   // Notifications

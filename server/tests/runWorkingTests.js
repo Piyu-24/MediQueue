@@ -9,7 +9,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 const workingTests = [
-  'tests/unit/services/PaymentService.test.js'
+  'tests/unit/PatientAuthService.test.js'
 ];
 
 async function runTest(testFile) {

@@ -9,6 +9,7 @@ const xss = require('xss-clean');
 const hpp = require('hpp');
 const compression = require('compression');
 const path = require('path');
+const crypto = require('crypto');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
@@ -28,6 +29,9 @@ const healthCardRoutes = require('./routes/healthCards');
 const documentRoutes = require('./routes/documents');
 const chatbotRoutes = require('./routes/chatbot');
 const doctorRoutes = require('./routes/doctor');
+const queueRoutes = require('./routes/queue');
+const leaveRoutes = require('./routes/leave');
+const notificationRoutes = require('./routes/notifications');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -63,11 +67,12 @@ connectMongo(mongoose)
       const User = require('./models/User');
       const existingManager = await User.findOne({ email: 'manager@mediqueue.lk' });
       if (!existingManager) {
+        const generatedPassword = `Test${crypto.randomBytes(6).toString('hex')}A1!`;
         const managerUser = new User({
           firstName: 'Healthcare',
           lastName: 'Manager',
           email: 'manager@mediqueue.lk',
-          password: 'Manager123!',
+          password: generatedPassword,
           phone: '+1-555-0100',
           role: 'manager',
           isActive: true,
@@ -81,7 +86,7 @@ connectMongo(mongoose)
           }
         });
         await managerUser.save();
-        console.log('Default healthcare manager user created');
+        console.log(`Default healthcare manager user created. Password: ${generatedPassword}`);
       }
     } catch (error) {
       console.error('Error auto-creating manager:', error.message);
@@ -212,6 +217,9 @@ app.use('/api/health-cards', healthCardRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/doctor', doctorRoutes);
+app.use('/api/doctor', leaveRoutes);
+app.use('/api/queue', queueRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
@@ -231,6 +239,22 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Handle queue room subscriptions (display screens + patients)
+  socket.on('queue:join-room', (room) => {
+    socket.join(`queue-room-${room}`);
+    console.log(`Socket ${socket.id} joined queue room: ${room}`);
+  });
+
+  socket.on('queue:leave-room', (room) => {
+    socket.leave(`queue-room-${room}`);
+  });
+
+  // Display screen subscribes to all queue updates
+  socket.on('queue:subscribe-display', () => {
+    socket.join('queue-display');
+    console.log(`Display screen connected: ${socket.id}`);
+  });
+
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
   });
@@ -248,11 +272,15 @@ app.use(errorHandler);
 
 // Start server
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-  console.log(`API Base URL: http://localhost:${PORT}/api`);
-  console.log(`Health Check: http://localhost:${PORT}/health`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  server.listen(PORT, () => {
+    console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+    console.log(`API Base URL: http://localhost:${PORT}/api`);
+    console.log(`Health Check: http://localhost:${PORT}/health`);
+  });
+}
+
+module.exports = app;
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err, promise) => {

@@ -64,6 +64,8 @@ const authReducer = (state, action) => {
 // Create context
 const AuthContext = createContext();
 
+const getAuthPayload = (response) => response?.data?.data ?? response?.data ?? {};
+
 // Provider component
 export const AuthProvider = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
@@ -82,10 +84,11 @@ export const AuthProvider = ({ children }) => {
           setIsChecking(true);
           const response = await authAPI.getMe();
           if (response.data.success) {
+            const authData = getAuthPayload(response);
             dispatch({
               type: 'AUTH_SUCCESS',
               payload: {
-                user: response.data.data, // data is the user object directly
+                user: authData.user ?? authData,
                 token,
                 refreshToken: localStorage.getItem('refreshToken'),
               },
@@ -118,7 +121,8 @@ export const AuthProvider = ({ children }) => {
       const response = await authAPI.login({ email, password });
       
       if (response.data.success) {
-        const { user, token, refreshToken } = response.data.data;
+        const authData = getAuthPayload(response);
+        const { user, token, refreshToken } = authData;
         
         // Store tokens in localStorage
         localStorage.setItem('token', token);
@@ -150,7 +154,8 @@ export const AuthProvider = ({ children }) => {
       const response = await authAPI.register(userData);
       
       if (response.data.success) {
-        const { user, token, refreshToken } = response.data.data;
+        const authData = getAuthPayload(response);
+        const { user, token, refreshToken } = authData;
         
         // Store tokens in localStorage
         localStorage.setItem('token', token);
@@ -219,7 +224,8 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authAPI.getMe();
       if (response.data.success) {
-        dispatch({ type: 'UPDATE_USER', payload: response.data.data.user });
+        const authData = getAuthPayload(response);
+        dispatch({ type: 'UPDATE_USER', payload: authData.user ?? authData });
         return { success: true };
       }
       return { success: false };

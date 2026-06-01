@@ -213,17 +213,17 @@ class ReportGenerationController {
     }
   }
   
-  // Financial Summary Report - Removed (Healthcare is now free)
+  // Financial Summary Report
   static async generateFinancialSummaryReport(req, res) {
     try {
       res.json({
         success: true,
-        message: 'Financial reports are no longer applicable as healthcare services are now provided free of charge',
+        message: 'Financial reports are currently unavailable',
         data: {
           reportType: 'financial-summary',
           generatedAt: new Date(),
           summary: {
-            message: 'All healthcare services are provided free of charge to patients'
+            message: 'Financial reporting is disabled'
           }
         }
       });
@@ -312,20 +312,13 @@ class ReportGenerationController {
   }
   
   static async getFinancialData(startDate, endDate) {
-    const payments = await Payment.find({
-      createdAt: { $gte: new Date(startDate), $lte: new Date(endDate) }
-    });
-    
-    const totalRevenue = payments
-      .filter(p => p.status === 'completed')
-      .reduce((sum, p) => sum + (p.amount || 0), 0);
-    
     return {
       summary: {
-        totalRevenue: Math.round(totalRevenue * 100) / 100,
-        totalTransactions: payments.length
+        totalRevenue: 0,
+        totalTransactions: 0,
+        message: 'Financial reporting is disabled'
       },
-      transactions: payments.slice(0, 10) // Limit for comprehensive report
+      transactions: []
     };
   }
 }

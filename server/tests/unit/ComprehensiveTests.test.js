@@ -9,14 +9,12 @@
 
 const PatientManagementService = require('../../services/PatientManagementService');
 const AppointmentService = require('../../services/AppointmentService');
-const PaymentService = require('../../services/PaymentService');
 const SlotManagementService = require('../../services/SlotManagementService');
 
 // Mock all models and dependencies
 jest.mock('../../models/User');
 jest.mock('../../models/Appointment');
 jest.mock('../../models/DoctorSlot');
-jest.mock('../../models/Payment');
 jest.mock('../../models/MedicalRecord');
 jest.mock('../../models/Document');
 jest.mock('../../models/AuditLog');
@@ -27,12 +25,11 @@ jest.mock('jsonwebtoken');
 const User = require('../../models/User');
 const Appointment = require('../../models/Appointment');
 const DoctorSlot = require('../../models/DoctorSlot');
-const Payment = require('../../models/Payment');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 describe('MediQueue System - Comprehensive Unit Tests (>80% Coverage)', () => {
-  let mockUser, mockDoctor, mockAppointment, mockSlot, mockPayment;
+  let mockUser, mockDoctor, mockAppointment, mockSlot;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -90,13 +87,6 @@ describe('MediQueue System - Comprehensive Unit Tests (>80% Coverage)', () => {
       save: jest.fn().mockResolvedValue(true)
     };
 
-    mockPayment = {
-      _id: '507f1f77bcf86cd799439015',
-      appointment: mockAppointment._id,
-      amount: 150,
-      status: 'completed',
-      paymentMethod: 'card'
-    };
   });
 
   // ============================================================================
@@ -332,7 +322,7 @@ describe('MediQueue System - Comprehensive Unit Tests (>80% Coverage)', () => {
       AppointmentService.createAppointment = jest.fn();
       AppointmentService.rescheduleAppointment = jest.fn();
       AppointmentService.cancelAppointment = jest.fn();
-      PaymentService.processPayment = jest.fn();
+      // No PaymentService mock needed — consultations are FREE
 
       // Test slot availability - positive cases
       DoctorSlot.find.mockResolvedValue([mockSlot]);
@@ -372,8 +362,7 @@ describe('MediQueue System - Comprehensive Unit Tests (>80% Coverage)', () => {
       // Test appointment creation - negative cases
       const failureScenarios = [
         { mock: { success: false, message: 'Patient not found' }, data: { ...appointmentData, patientId: 'invalid' } },
-        { mock: { success: false, message: 'Slot unavailable' }, data: { ...appointmentData, slotId: 'unavailable' } },
-        { mock: { success: false, message: 'Payment failed' }, data: { ...appointmentData, paymentMethod: 'invalid' } }
+        { mock: { success: false, message: 'Slot unavailable' }, data: { ...appointmentData, slotId: 'unavailable' } }
       ];
 
       for (const scenario of failureScenarios) {
@@ -382,31 +371,8 @@ describe('MediQueue System - Comprehensive Unit Tests (>80% Coverage)', () => {
         expect(result.success).toBe(false);
       }
 
-      // Test payment processing
-      PaymentService.processPayment.mockResolvedValue({
-        success: true,
-        payment: mockPayment
-      });
-
-      result = await PaymentService.processPayment({
-        appointmentId: mockAppointment._id,
-        amount: 150,
-        paymentMethod: 'card'
-      });
-      expect(result.success).toBe(true);
-
-      // Test payment failures
-      const paymentFailures = [
-        { success: false, message: 'Card declined' },
-        { success: false, message: 'Insufficient funds' },
-        { success: false, message: 'Invalid amount' }
-      ];
-
-      for (const failure of paymentFailures) {
-        PaymentService.processPayment.mockResolvedValue(failure);
-        result = await PaymentService.processPayment({ amount: -50 });
-        expect(result.success).toBe(false);
-      }
+      // Payment-related assertions removed — consultations are FREE.
+      // The appointment flow ends at booking (no payment step).
 
       // Test appointment modifications
       AppointmentService.rescheduleAppointment.mockResolvedValue({
@@ -485,8 +451,7 @@ describe('MediQueue System - Comprehensive Unit Tests (>80% Coverage)', () => {
       // Test report generation - all types
       const reportTypes = [
         { method: 'getPatientVisitReport', mockData: { totalVisits: 100, departmentBreakdown: [] } },
-        { method: 'getStaffUtilizationReport', mockData: { staffMetrics: [], averageUtilization: 75 } },
-        { method: 'getFinancialSummaryReport', mockData: { totalRevenue: 50000, paymentBreakdown: [] } }
+        { method: 'getStaffUtilizationReport', mockData: { staffMetrics: [], averageUtilization: 75 } }
       ];
 
       for (const reportType of reportTypes) {

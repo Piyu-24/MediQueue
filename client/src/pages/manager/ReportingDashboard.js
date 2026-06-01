@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
-import { Calendar, FileText, Users, Activity, DollarSign, Download, Printer, Save, TrendingUp } from 'lucide-react';
+import { Calendar, FileText, Users, Activity, Download, Printer, Save, TrendingUp } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import ChartComponent from '../../components/ui/ChartComponent';
+import { queueAPI } from '../../services/api';
 import { 
   mockPatientVisitData, 
-  mockStaffUtilizationData, 
-  mockFinancialKPIs, 
-  mockCostBreakdown,
-  mockMonthlyFinancials 
+  mockStaffUtilizationData
 } from '../../data/mockData';
 import toast from 'react-hot-toast';
 import { reportGenerationAPI } from '../../services/reportGenerationAPI';
@@ -28,6 +26,8 @@ const ReportingDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [apiConnected, setApiConnected] = useState(false);
   const [recentReports, setRecentReports] = useState([]);
+  const [queueStats, setQueueStats] = useState(null);
+  const [queueStatsLoading, setQueueStatsLoading] = useState(false);
 
   // Test API connection and fetch recent reports on component mount
   React.useEffect(() => {
@@ -50,6 +50,21 @@ const ReportingDashboard = () => {
     };
 
     initializeComponent();
+
+    // Load today's queue analytics
+    const fetchQueueStats = async () => {
+      try {
+        setQueueStatsLoading(true);
+        const today = new Date().toISOString().split('T')[0];
+        const res = await queueAPI.getStats(today);
+        if (res.data.success) setQueueStats(res.data.data.stats);
+      } catch {
+        // silently fail — queue module may not be seeded yet
+      } finally {
+        setQueueStatsLoading(false);
+      }
+    };
+    fetchQueueStats();
   }, []);
 
   const fetchRecentReports = async () => {
@@ -121,25 +136,10 @@ const ReportingDashboard = () => {
         }));
         return staffUtilization;
 
-      case 'financial-summary':
-        const financialData = Array.from({ length: Math.min(daysDiff * 3, 30) }, (_, i) => ({
-          createdAt: new Date(startDate.getTime() + Math.random() * (endDate - startDate)).toISOString(),
-          amount: Math.floor(Math.random() * 500) + 100,
-          paymentMethod: ['Credit Card', 'Insurance', 'Cash', 'Bank Transfer'][Math.floor(Math.random() * 4)],
-          patient: {
-            firstName: mockPatients[Math.floor(Math.random() * mockPatients.length)].split(' ')[0],
-            lastName: mockPatients[Math.floor(Math.random() * mockPatients.length)].split(' ')[1]
-          },
-          service: appointmentReasons[Math.floor(Math.random() * appointmentReasons.length)],
-          status: 'completed'
-        }));
-        return financialData;
-
       case 'comprehensive':
         return {
           patientData: mockPatientVisitData.slice(0, 10),
-          staffData: mockStaffUtilizationData.slice(0, 6),
-          financialData: mockFinancialKPIs
+          staffData: mockStaffUtilizationData.slice(0, 6)
         };
 
       default:
@@ -165,7 +165,6 @@ const ReportingDashboard = () => {
       const reportTypeNames = {
         'patient-visit': 'Patient Visit Report',
         'staff-utilization': 'Staff Utilization Analysis',
-        'financial-summary': 'Financial Summary',
         'comprehensive': 'Comprehensive Report'
       };
 
@@ -173,7 +172,6 @@ const ReportingDashboard = () => {
       const reportTypeMapping = {
         'patient-visit': 'patient-visits',
         'staff-utilization': 'staff-utilization',
-        'financial-summary': 'financial-summary',
         'comprehensive': 'comprehensive'
       };
       
@@ -233,7 +231,7 @@ const ReportingDashboard = () => {
       // Fallback to mock data if API fails
       const mockData = generateMockData(selectedReportType, dateRange);
       const totalRecords = Array.isArray(mockData) ? mockData.length : 
-        (mockData.patientVisits?.length || 0) + (mockData.staffUtilization?.length || 0) + (mockData.financial?.length || 0);
+        (mockData.patientVisits?.length || 0) + (mockData.staffUtilization?.length || 0);
 
       const reportData = {
         reportType: selectedReportType,
@@ -280,11 +278,6 @@ const ReportingDashboard = () => {
       reportPreview.preview.forEach(staff => {
         csvContent += `${staff.staffMember},${staff.role},${staff.department},${staff.hoursWorked},${staff.utilizationRate}%\n`;
       });
-    } else if (reportType === 'financial-summary') {
-      csvContent += 'Transaction Date,Type,Amount,Payment Method,Status\n';
-      reportPreview.preview.forEach(transaction => {
-        csvContent += `${transaction.transactionDate},${transaction.transactionType},${transaction.amount},${transaction.paymentMethod},${transaction.status}\n`;
-      });
     }
 
     // Create and download file
@@ -316,7 +309,6 @@ const ReportingDashboard = () => {
       const reportTypeNames = {
         'patient-visit': 'Patient Visit Report',
         'staff-utilization': 'Staff Utilization Analysis',
-        'financial-summary': 'Financial Summary',
         'comprehensive': 'Comprehensive Report'
       };
       
@@ -425,28 +417,6 @@ const ReportingDashboard = () => {
 
           <div 
             onClick={() => {
-              setSelectedReportType('financial-summary');
-              const today = new Date();
-              const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-              setDateRange({
-                startDate: firstDay.toISOString().split('T')[0],
-                endDate: today.toISOString().split('T')[0]
-              });
-            }}
-            className={`border ${selectedReportType === 'financial-summary' ? 'border-orange-500 bg-orange-50' : 'border-gray-300 bg-gray-50'} rounded-lg p-6 flex flex-col items-center text-center cursor-pointer hover:bg-gray-100 transition-colors`}
-          >
-            <div className="w-12 h-12 rounded bg-white border border-gray-300 flex items-center justify-center mb-3">
-              <DollarSign className="w-6 h-6 text-[#f59e0b]" />
-            </div>
-            <h3 className="text-[14px] mb-1 font-semibold">Financial Summary</h3>
-            <p className="text-[11px] text-gray-600">High-level financial performance overview</p>
-            {selectedReportType === 'financial-summary' && (
-              <span className="mt-2 text-[10px] text-orange-600 font-medium">Selected</span>
-            )}
-          </div>
-
-          <div 
-            onClick={() => {
               setSelectedReportType('comprehensive');
               const today = new Date();
               const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -492,8 +462,6 @@ const ReportingDashboard = () => {
                       return <Users className="w-4 h-4 text-blue-600" />;
                     case 'staff-utilization':
                       return <Activity className="w-4 h-4 text-green-600" />;
-                    case 'financial-summary':
-                      return <DollarSign className="w-4 h-4 text-orange-600" />;
                     case 'comprehensive':
                       return <TrendingUp className="w-4 h-4 text-teal-600" />;
                     default:
@@ -540,7 +508,6 @@ const ReportingDashboard = () => {
                 <span className="font-semibold">Selected Report:</span> {' '}
                 {selectedReportType === 'patient-visit' && 'Patient Visit Report'}
                 {selectedReportType === 'staff-utilization' && 'Staff Utilization Report'}
-                {selectedReportType === 'financial-summary' && 'Financial Summary Report'}
                 {selectedReportType === 'comprehensive' && 'Comprehensive Report (All Reports)'}
               </p>
               <p className="text-[12px] text-gray-500">
@@ -647,7 +614,6 @@ const ReportingDashboard = () => {
                 <p className="text-[12px] text-gray-600">
                   {reportPreview.reportType === 'patient-visit' && 'Patient Visit Report'}
                   {reportPreview.reportType === 'staff-utilization' && 'Staff Utilization Report'}
-                  {reportPreview.reportType === 'financial-summary' && 'Financial Summary Report'}
                   {reportPreview.reportType === 'comprehensive' && 'Comprehensive Report - All Analytics'}
                   {' '} • {reportPreview.dateRange?.startDate} to {reportPreview.dateRange?.endDate}
                 </p>
@@ -755,86 +721,6 @@ const ReportingDashboard = () => {
                   </>
                 )}
 
-                {/* Financial Summary Cards */}
-                {reportPreview.reportType === 'financial-summary' && (
-                  <>
-                    <div className="bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 rounded-lg p-6">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-[12px] text-orange-600 font-medium mb-1">Total Revenue</p>
-                          <p className="text-[32px] font-bold text-orange-900">
-                            ${Array.isArray(reportPreview.preview) 
-                              ? reportPreview.preview.reduce((sum, p) => sum + (p.amount || 0), 0).toLocaleString()
-                              : '0'}
-                          </p>
-                          <p className="text-[11px] text-orange-600 mt-1">Period revenue</p>
-                        </div>
-                        <DollarSign className="w-12 h-12 text-orange-400" />
-                      </div>
-                    </div>
-                    <div className="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-lg p-6">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-[12px] text-green-600 font-medium mb-1">Transactions</p>
-                          <p className="text-[32px] font-bold text-green-900">{Array.isArray(reportPreview.preview) ? reportPreview.preview.length : 0}</p>
-                          <p className="text-[11px] text-green-600 mt-1">Payment records</p>
-                        </div>
-                        <FileText className="w-12 h-12 text-green-400" />
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Table for Financial Summary */}
-            {reportPreview.reportType === 'financial-summary' && Array.isArray(reportPreview.preview) && (
-              <div className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden mb-4">
-                <div className="overflow-x-auto max-h-96">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-700 uppercase tracking-wider">Date</th>
-                        <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-700 uppercase tracking-wider">Patient</th>
-                        <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-700 uppercase tracking-wider">Amount</th>
-                        <th className="px-4 py-3 text-left text-[11px] font-semibold text-gray-700 uppercase tracking-wider">Method</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {reportPreview.preview.map((payment, idx) => (
-                        <tr key={idx} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-[12px] text-gray-900">
-                            {new Date(payment.createdAt).toLocaleDateString()}
-                          </td>
-                          <td className="px-4 py-3 text-[12px] text-gray-900">
-                            {payment.patient?.firstName} {payment.patient?.lastName}
-                          </td>
-                          <td className="px-4 py-3 text-[12px] font-semibold text-green-600">
-                            ${payment.amount.toFixed(2)}
-                          </td>
-                          <td className="px-4 py-3 text-[12px] text-gray-600">
-                            {payment.paymentMethod}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {reportPreview.preview.length === 0 && (
-                    <div className="text-center py-8 text-gray-500 text-[12px]">
-                      No billing records found for this period
-                    </div>
-                  )}
-                </div>
-                {reportPreview.preview.length > 0 && (
-                  <div className="bg-gray-100 px-4 py-3 border-t border-gray-200">
-                    <div className="flex justify-between items-center">
-                      <p className="text-[12px] font-semibold text-gray-700">Total Amount:</p>
-                      <p className="text-[16px] font-bold text-green-600">
-                        ${reportPreview.preview.reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -876,29 +762,6 @@ const ReportingDashboard = () => {
                 </div>
               )}
 
-              {/* Financial Summary Charts */}
-              {reportPreview.reportType === 'financial-summary' && (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="bg-white border border-gray-200 rounded-lg p-6">
-                      <h4 className="text-lg font-semibold text-gray-900 mb-4">Cost Breakdown</h4>
-                      <ChartComponent 
-                        type="pie" 
-                        data={mockCostBreakdown} 
-                        config={{ height: 300, showLegend: true }} 
-                      />
-                    </div>
-                    <div className="bg-white border border-gray-200 rounded-lg p-6">
-                      <h4 className="text-lg font-semibold text-gray-900 mb-4">Monthly Financial Trends</h4>
-                      <ChartComponent 
-                        type="financial" 
-                        data={mockMonthlyFinancials} 
-                        config={{ height: 300, showGrid: true, showLegend: true }} 
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Table for Patient Visit Report */}
@@ -1078,43 +941,6 @@ const ReportingDashboard = () => {
                   </div>
                 )}
 
-                {/* Financial Summary Section */}
-                {(reportPreview.preview.financial || reportPreview.preview.financialData) && (
-                  <div>
-                    <h4 className="text-[14px] font-semibold mb-3 flex items-center">
-                      <DollarSign className="w-4 h-4 mr-2 text-orange-600" />
-                      Financial Performance
-                    </h4>
-                    <div className="bg-gradient-to-r from-orange-50 to-yellow-50 border border-orange-200 rounded-lg p-4">
-                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="text-center">
-                          <p className="text-[12px] text-orange-600 font-medium">Total Revenue</p>
-                          <p className="text-[20px] font-bold text-orange-900">
-                            ${(reportPreview.preview.financial?.transactions || reportPreview.preview.financialData || []).reduce((sum, p) => sum + (p.amount || 0), 0).toLocaleString()}
-                          </p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-[12px] text-orange-600 font-medium">Transactions</p>
-                          <p className="text-[20px] font-bold text-orange-900">{(reportPreview.preview.financial?.transactions || reportPreview.preview.financialData || []).length}</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-[12px] text-orange-600 font-medium">Avg Transaction</p>
-                          <p className="text-[20px] font-bold text-orange-900">
-                            ${(reportPreview.preview.financial?.transactions || reportPreview.preview.financialData || []).length > 0 
-                              ? Math.round((reportPreview.preview.financial?.transactions || reportPreview.preview.financialData || []).reduce((sum, p) => sum + (p.amount || 0), 0) / (reportPreview.preview.financial?.transactions || reportPreview.preview.financialData || []).length)
-                              : 0}
-                          </p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-[12px] text-orange-600 font-medium">Payment Methods</p>
-                          <p className="text-[20px] font-bold text-orange-900">
-                            {[...new Set((reportPreview.preview.financial?.transactions || reportPreview.preview.financialData || []).map(p => p.paymentMethod))].length}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -1141,6 +967,73 @@ const ReportingDashboard = () => {
             </div>
           </div>
         )}
+
+        {/* ── OPD Queue Analytics ─────────────────────────────────────────── */}
+        <div className="mt-8 border-t-2 border-gray-100 pt-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-base font-bold text-gray-900">📊 OPD Queue Analytics — Today</h3>
+              <p className="text-[11px] text-gray-500 mt-0.5">{new Date().toLocaleDateString('en-LK', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+            </div>
+            <button
+              onClick={async () => {
+                try {
+                  setQueueStatsLoading(true);
+                  const today = new Date().toISOString().split('T')[0];
+                  const res = await queueAPI.getStats(today);
+                  if (res.data.success) setQueueStats(res.data.data.stats);
+                } catch { /* silent */ } finally { setQueueStatsLoading(false); }
+              }}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center space-x-1"
+            >
+              <span>{queueStatsLoading ? '⟳ Refreshing…' : '↺ Refresh'}</span>
+            </button>
+          </div>
+
+          {queueStatsLoading && !queueStats ? (
+            <div className="text-center py-6 text-gray-400 text-sm">Loading queue data…</div>
+          ) : queueStats ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center">
+                <p className="text-[11px] font-semibold text-blue-600 uppercase tracking-wide mb-1">Waiting</p>
+                <p className="text-3xl font-black text-blue-800">{queueStats.waiting ?? '—'}</p>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 text-center">
+                <p className="text-[11px] font-semibold text-purple-600 uppercase tracking-wide mb-1">In Consultation</p>
+                <p className="text-3xl font-black text-purple-800">{queueStats.inConsultation ?? '—'}</p>
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
+                <p className="text-[11px] font-semibold text-green-600 uppercase tracking-wide mb-1">Completed</p>
+                <p className="text-3xl font-black text-green-800">{queueStats.completed ?? '—'}</p>
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
+                <p className="text-[11px] font-semibold text-red-600 uppercase tracking-wide mb-1">No-show</p>
+                <p className="text-3xl font-black text-red-800">{queueStats.noShow ?? '—'}</p>
+              </div>
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-center">
+                <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-1">Total Today</p>
+                <p className="text-3xl font-black text-gray-800">{queueStats.total ?? '—'}</p>
+              </div>
+              <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-center">
+                <p className="text-[11px] font-semibold text-orange-600 uppercase tracking-wide mb-1">Avg Wait</p>
+                <p className="text-3xl font-black text-orange-800">{queueStats.avgWaitMinutes != null ? `${queueStats.avgWaitMinutes}m` : '—'}</p>
+              </div>
+              <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 text-center">
+                <p className="text-[11px] font-semibold text-teal-600 uppercase tracking-wide mb-1">Avg Consult</p>
+                <p className="text-3xl font-black text-teal-800">{queueStats.avgConsultationMinutes != null ? `${queueStats.avgConsultationMinutes}m` : '—'}</p>
+              </div>
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-center">
+                <p className="text-[11px] font-semibold text-indigo-600 uppercase tracking-wide mb-1">Active</p>
+                <p className="text-3xl font-black text-indigo-800">{queueStats.active ?? '—'}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
+              <p className="text-gray-400 text-sm">No queue data available yet today.</p>
+              <p className="text-gray-400 text-xs mt-1">Data populates once patients start checking in via the OPD queue.</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

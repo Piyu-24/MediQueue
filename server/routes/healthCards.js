@@ -9,7 +9,7 @@ const authorize = require('../middleware/authorize');
 // @desc    Create health card for patient
 // @route   POST /api/health-cards
 // @access  Private (Staff, Admin)
-router.post('/', auth, authorize('staff', 'admin'), async (req, res) => {
+router.post('/', auth, authorize('receptionist', 'staff', 'admin'), async (req, res) => {
   try {
     const { 
       patientId, 
@@ -46,8 +46,10 @@ router.post('/', auth, authorize('staff', 'admin'), async (req, res) => {
       cardNumber,
       patientId,
       name: `${patient.firstName} ${patient.lastName}`,
-      bloodGroup,
-      emergencyContact: emergencyContact?.phone
+      dob: patient.dateOfBirth ? new Date(patient.dateOfBirth).toISOString().split('T')[0] : 'N/A',
+      bloodGroup: bloodGroup || patient.bloodType || 'Unknown',
+      allergies: allergies?.length ? allergies.join(', ') : 'None',
+      emergencyContact: emergencyContact?.phone || patient.emergencyContact?.phone || 'Not provided'
     };
 
     // Generate QR code
@@ -139,7 +141,10 @@ router.get('/patient/:patientId', auth, async (req, res) => {
           cardNumber,
           patientId,
           name: `${patient.firstName} ${patient.lastName}`,
-          emergencyContact: patient.phone || 'Not provided'
+          dob: patient.dateOfBirth ? new Date(patient.dateOfBirth).toISOString().split('T')[0] : 'N/A',
+          bloodGroup: patient.bloodType || 'Unknown',
+          allergies: patient.allergies?.length ? patient.allergies.map(a => typeof a === 'string' ? a : a.allergen).join(', ') : 'None',
+          emergencyContact: patient.emergencyContact?.phone || patient.phone || 'Not provided'
         };
 
         // Generate QR code
@@ -192,7 +197,7 @@ router.get('/patient/:patientId', auth, async (req, res) => {
 // @desc    Validate health card by card number or QR scan
 // @route   POST /api/health-cards/validate
 // @access  Private (Staff, Doctor, Admin)
-router.post('/validate', auth, authorize('staff', 'doctor', 'admin'), async (req, res) => {
+router.post('/validate', auth, authorize('receptionist', 'staff', 'doctor', 'admin'), async (req, res) => {
   try {
     const { cardNumber, qrData } = req.body;
 
@@ -269,7 +274,7 @@ router.post('/validate', auth, authorize('staff', 'doctor', 'admin'), async (req
 // @desc    Update health card information
 // @route   PUT /api/health-cards/:id
 // @access  Private (Staff, Admin)
-router.put('/:id', auth, authorize('staff', 'admin'), async (req, res) => {
+router.put('/:id', auth, authorize('receptionist', 'staff', 'admin'), async (req, res) => {
   try {
     const { 
       bloodGroup, 
@@ -327,7 +332,7 @@ router.put('/:id', auth, authorize('staff', 'admin'), async (req, res) => {
 // @desc    Get health card access log
 // @route   GET /api/health-cards/:id/access-log
 // @access  Private (Staff, Admin)
-router.get('/:id/access-log', auth, authorize('staff', 'admin'), async (req, res) => {
+router.get('/:id/access-log', auth, authorize('receptionist', 'staff', 'admin'), async (req, res) => {
   try {
     const healthCard = await HealthCard.findById(req.params.id)
       .populate('accessLog.accessedBy', 'firstName lastName role')
@@ -420,7 +425,7 @@ router.put('/patient/:patientId', auth, async (req, res) => {
 // @desc    Get all health cards (Admin/Staff)
 // @route   GET /api/health-cards
 // @access  Private (Staff, Admin)
-router.get('/', auth, authorize('staff', 'admin'), async (req, res) => {
+router.get('/', auth, authorize('receptionist', 'staff', 'admin'), async (req, res) => {
   try {
     const { status, search, page = 1, limit = 10 } = req.query;
 

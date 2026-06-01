@@ -7,19 +7,16 @@
 const AppointmentService = require('../../../services/AppointmentService');
 const AppointmentRepository = require('../../../repositories/AppointmentRepository');
 const UserRepository = require('../../../repositories/UserRepository');
-const PaymentService = require('../../../services/PaymentService');
 const { ValidationError, ConflictError, NotFoundError } = require('../../../utils/errors');
 
 // Mock dependencies
 jest.mock('../../../repositories/AppointmentRepository');
 jest.mock('../../../repositories/UserRepository');
-jest.mock('../../../services/PaymentService');
 
 describe('AppointmentService - Make an Appointment (UC02)', () => {
   let appointmentService;
   let mockAppointmentRepo;
   let mockUserRepo;
-  let mockPaymentService;
 
   beforeEach(() => {
     // Reset mocks
@@ -28,13 +25,11 @@ describe('AppointmentService - Make an Appointment (UC02)', () => {
     // Create mock instances
     mockAppointmentRepo = new AppointmentRepository();
     mockUserRepo = new UserRepository();
-    mockPaymentService = new PaymentService();
     
     // Create service instance
     appointmentService = new AppointmentService(
       mockAppointmentRepo,
-      mockUserRepo,
-      mockPaymentService
+      mockUserRepo
     );
   });
 
@@ -42,7 +37,7 @@ describe('AppointmentService - Make an Appointment (UC02)', () => {
     const validAppointmentData = {
       patientId: '507f1f77bcf86cd799439011',
       doctorId: '507f1f77bcf86cd799439013',
-      appointmentDate: new Date(Date.now() + 86400000), // Tomorrow
+      appointmentDate: new Date(Date.now() + 172800000), // 48 hours in future (clears the 24h min check)
       duration: 30,
       reasonForVisit: 'Regular checkup',
       department: 'General Medicine'

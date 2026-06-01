@@ -136,29 +136,6 @@ class ValidationHelper {
   }
 
   /**
-   * Common validation rules for payment fields
-   */
-  static get paymentValidations() {
-    return {
-      amount: body('amount')
-        .isFloat({ min: 0.01 })
-        .withMessage('Amount must be a positive number'),
-      
-      paymentMethod: body('paymentMethod')
-        .isIn(['cash', 'card', 'insurance', 'bank_transfer', 'digital_wallet'])
-        .withMessage('Invalid payment method'),
-      
-      status: body('status')
-        .isIn(['pending', 'completed', 'failed', 'refunded'])
-        .withMessage('Invalid payment status'),
-      
-      currency: body('currency')
-        .isIn(['USD', 'EUR', 'GBP', 'LKR'])
-        .withMessage('Invalid currency code')
-    };
-  }
-
-  /**
    * Common parameter validations
    */
   static get paramValidations() {
@@ -279,20 +256,6 @@ class ValidationHelper {
       this.medicalRecordValidations.recordType,
       this.medicalRecordValidations.medications,
       this.medicalRecordValidations.allergies,
-      this.handleValidationErrors
-    ];
-  }
-
-  /**
-   * Creates validation middleware for payment processing
-   * @returns {Array} Array of validation middleware
-   */
-  static validatePaymentCreation() {
-    return [
-      body('appointmentId').isMongoId().withMessage('Invalid appointment ID'),
-      this.paymentValidations.amount,
-      this.paymentValidations.paymentMethod,
-      this.paymentValidations.currency,
       this.handleValidationErrors
     ];
   }

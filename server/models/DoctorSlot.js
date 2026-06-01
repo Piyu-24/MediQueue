@@ -81,6 +81,10 @@ const doctorSlotSchema = new mongoose.Schema({
     blockedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
+    },
+    leaveId: {
+      type: String,
+      index: true
     }
   },
   
@@ -206,8 +210,8 @@ doctorSlotSchema.pre('save', function(next) {
   if (this.isNew) {
     const now = new Date();
     const slotDateTime = new Date(`${this.date.toISOString().split('T')[0]}T${this.startTime}:00`);
-    
-    if (slotDateTime < now) {
+
+    if (slotDateTime < now && this.status !== 'BLOCKED') {
       return next(new Error('Cannot create slots in the past'));
     }
   }

@@ -324,22 +324,6 @@ const Appointments = () => {
                               </div>
                             )}
                           </div>
-                          <div className="space-y-2">
-                            <div className="flex items-center space-x-2">
-                              <span className="text-sm font-medium text-gray-700">Fee:</span>
-                              <span className="text-sm text-green-600 font-semibold">
-                                LKR {(appointment.consultationFee || 0).toLocaleString()}
-                              </span>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <span className="text-sm font-medium text-gray-700">Payment:</span>
-                              <span className={`text-sm font-medium ${
-                                appointment.paymentStatus === 'paid' ? 'text-green-600' : 'text-red-600'
-                              }`}>
-                                {appointment.paymentStatus || 'pending'}
-                              </span>
-                            </div>
-                          </div>
                         </div>
                         
                         {appointment.chiefComplaint && (
