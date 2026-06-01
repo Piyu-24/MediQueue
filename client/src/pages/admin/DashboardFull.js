@@ -6,11 +6,10 @@ import {
   ChartBarIcon,
   UserPlusIcon,
   MagnifyingGlassIcon,
-  DocumentChartBarIcon,
-  CurrencyDollarIcon
+  DocumentChartBarIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
-import { userAPI, reportAPI } from '../../services/api';
+import { userAPI, reportAPI, queueAPI } from '../../services/api';
 import ReportsDashboard from '../../components/Reports/ReportsDashboard';
 import toast from 'react-hot-toast';
 
@@ -21,11 +20,9 @@ const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState([]);
   const [stats, setStats] = useState({
-    totalUsers: 0,
-    patients: 0,
-    doctors: 0,
-    staff: 0
+    totalUsers: 0, patients: 0, doctors: 0, staff: 0
   });
+  const [queueStats, setQueueStats] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [selectedRole, setSelectedRole] = useState('all');
@@ -33,6 +30,7 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     fetchAdminData();
+    fetchQueueStats();
   }, []);
 
   useEffect(() => {
@@ -43,42 +41,33 @@ const AdminDashboard = () => {
   const fetchAdminData = async () => {
     try {
       setLoading(true);
-      
-      // Fetch dashboard stats
       const dashboardRes = await reportAPI.getDashboardStats();
-      if (dashboardRes.data.success) {
-        setStats(prev => ({
-          ...prev,
-          ...dashboardRes.data.data
-        }));
-      }
-
-      // Fetch all users (would need admin endpoint)
-      // For now, using search to get users
+      if (dashboardRes.data.success) setStats(prev => ({ ...prev, ...dashboardRes.data.data }));
       const searchRes = await userAPI.searchUsers('');
       if (searchRes.data.success) {
         const allUsers = searchRes.data.data.users || [];
         setUsers(allUsers);
-        
-        const patients = allUsers.filter(u => u.role === 'patient').length;
-        const doctors = allUsers.filter(u => u.role === 'doctor').length;
-        const staff = allUsers.filter(u => u.role === 'staff').length;
-        
         setStats(prev => ({
           ...prev,
           totalUsers: allUsers.length,
-          patients,
-          doctors,
-          staff
+          patients: allUsers.filter(u => u.role === 'patient').length,
+          doctors: allUsers.filter(u => u.role === 'doctor').length,
+          staff: allUsers.filter(u => ['staff', 'receptionist'].includes(u.role)).length
         }));
       }
-      
     } catch (error) {
       console.error('Error fetching admin data:', error);
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchQueueStats = async () => {
+    try {
+      const res = await queueAPI.getStats();
+      if (res.data.success) setQueueStats(res.data.data.stats);
+    } catch { /* silent — queue may have no data yet */ }
   };
 
   const filterUsers = () => {
@@ -159,8 +148,7 @@ const AdminDashboard = () => {
               {[
                 { id: 'overview', name: 'Overview', icon: ChartBarIcon },
                 { id: 'users', name: 'User Management', icon: UsersIcon },
-                { id: 'reports', name: 'Reports & Analytics', icon: DocumentChartBarIcon },
-                { id: 'refunds', name: 'Refund Management', icon: CurrencyDollarIcon }
+                { id: 'reports', name: 'Reports & Analytics', icon: DocumentChartBarIcon }
               ].map((tab) => {
                 const IconComponent = tab.icon;
                 return (
@@ -350,6 +338,44 @@ const AdminDashboard = () => {
           </div>
         </div>
 
+        {/* Today's OPD Queue Stats */}
+        {queueStats && (
+          <div className="mt-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-900">Today's OPD Queue</h2>
+              <button onClick={fetchQueueStats} className="text-xs text-blue-600 hover:text-blue-800 flex items-center space-x-1">
+                <span>Refresh</span>
+              </button>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              {[
+                { label: 'Total Check-ins', value: queueStats.total, color: 'border-blue-300 bg-blue-50 text-blue-800' },
+                { label: 'Waiting', value: queueStats.waiting, color: 'border-yellow-300 bg-yellow-50 text-yellow-800' },
+                { label: 'In Consultation', value: queueStats.inConsultation, color: 'border-purple-300 bg-purple-50 text-purple-800' },
+                { label: 'Completed', value: queueStats.completed, color: 'border-green-300 bg-green-50 text-green-800' },
+                { label: 'No-shows', value: queueStats.noShow, color: 'border-red-300 bg-red-50 text-red-800' },
+              ].map(s => (
+                <div key={s.label} className={`border-2 ${s.color} rounded-xl p-4 text-center`}>
+                  <p className="text-3xl font-black">{s.value}</p>
+                  <p className="text-xs font-semibold mt-1">{s.label}</p>
+                </div>
+              ))}
+            </div>
+            {(queueStats.avgWaitMinutes > 0 || queueStats.avgConsultationMinutes > 0) && (
+              <div className="mt-3 grid grid-cols-2 gap-4">
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Avg. Wait Time</span>
+                  <span className="font-bold text-gray-900">{queueStats.avgWaitMinutes} min</span>
+                </div>
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Avg. Consultation</span>
+                  <span className="font-bold text-gray-900">{queueStats.avgConsultationMinutes} min</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* System Stats */}
         <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white rounded-lg shadow p-6">
@@ -375,15 +401,11 @@ const AdminDashboard = () => {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">Active Users</span>
-                <span className="font-semibold text-green-600">
-                  {users.filter(u => u.isActive).length}
-                </span>
+                <span className="font-semibold text-green-600">{users.filter(u => u.isActive).length}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">Verified Emails</span>
-                <span className="font-semibold">
-                  {users.filter(u => u.isEmailVerified).length}
-                </span>
+                <span className="font-semibold">{users.filter(u => u.isEmailVerified).length}</span>
               </div>
             </div>
           </div>
@@ -399,7 +421,7 @@ const AdminDashboard = () => {
               </button>
             </div>
           </div>
-            </div>
+        </div>
           </>
         )}
 

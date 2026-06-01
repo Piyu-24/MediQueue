@@ -8,7 +8,6 @@ import {
   HeartIcon,
   CalendarIcon,
   DocumentTextIcon,
-  CurrencyDollarIcon,
   ExclamationTriangleIcon,
   CheckCircleIcon
 } from '@heroicons/react/24/outline';
@@ -38,7 +37,6 @@ const ChatBot = () => {
           'Book an appointment',
           'Check symptoms',
           'View my records',
-          'Payment help',
           'Emergency assistance'
         ]
       };
@@ -97,20 +95,6 @@ const ChatBot = () => {
       };
     }
 
-    // Payment and billing
-    const paymentKeywords = ['payment', 'bill', 'insurance', 'cost', 'refund', 'charge', 'money'];
-    if (paymentKeywords.some(keyword => lowerMessage.includes(keyword))) {
-      return {
-        type: 'payment',
-        message: '💳 I can help with payment and billing questions!\n\n• View payment history\n• Process refunds\n• Insurance information\n• Payment methods\n• Billing inquiries',
-        suggestions: ['View bills', 'Request refund', 'Insurance help', 'Payment methods'],
-        actions: [
-          { label: 'Payment History', action: 'navigate', path: '/payments' },
-          { label: 'Request Refund', action: 'tab', tab: 'refunds' }
-        ]
-      };
-    }
-
     // Medical records
     const recordsKeywords = ['record', 'history', 'report', 'document', 'test result', 'lab'];
     if (recordsKeywords.some(keyword => lowerMessage.includes(keyword))) {
@@ -151,8 +135,8 @@ const ChatBot = () => {
     // Default response with AI-like processing
     return {
       type: 'general',
-      message: `I understand you're asking about "${message}". Let me help you with that!\n\nI can assist you with:\n• Booking appointments\n• Medical records and documents\n• Payment and billing\n• Health card information\n• General health guidance\n\nWhat specific area would you like help with?`,
-      suggestions: ['Book appointment', 'View records', 'Payment help', 'Health card', 'Contact support']
+      message: `I understand you're asking about "${message}". Let me help you with that!\n\nI can assist you with:\n• Booking appointments\n• Medical records and documents\n• Health card information\n• General health guidance\n\nWhat specific area would you like help with?`,
+      suggestions: ['Book appointment', 'View records', 'Health card', 'Contact support']
     };
   };
 
@@ -222,7 +206,6 @@ const ChatBot = () => {
       case 'emergency': return <ExclamationTriangleIcon className="w-5 h-5 text-red-500" />;
       case 'appointment': return <CalendarIcon className="w-5 h-5 text-blue-500" />;
       case 'symptom': return <HeartIcon className="w-5 h-5 text-teal-500" />;
-      case 'payment': return <CurrencyDollarIcon className="w-5 h-5 text-green-500" />;
       case 'records': return <DocumentTextIcon className="w-5 h-5 text-blue-500" />;
       case 'healthcard': return <UserIcon className="w-5 h-5 text-orange-500" />;
       case 'health_tips': return <CheckCircleIcon className="w-5 h-5 text-teal-500" />;

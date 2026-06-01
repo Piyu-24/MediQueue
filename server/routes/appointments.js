@@ -29,7 +29,7 @@ router.get('/', auth, async (req, res) => {
         const endDate = new Date(date);
         endDate.setDate(endDate.getDate() + 1);
         query.appointmentDate = { $gte: startDate, $lt: endDate };
-        // Only show booked slots (pending-payment, scheduled, confirmed)
+        // Only show booked slots (scheduled, confirmed)
         if (status) {
           const statusArray = status.split(',');
           query.status = { $in: statusArray };
@@ -86,6 +86,32 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
+// @desc    Get patient's doctor-unavailable appointments (pending reschedule)
+// @route   GET /api/appointments/pending-reschedule
+// @access  Private (Patient)
+router.get('/pending-reschedule', auth, authorize('patient'), async (req, res) => {
+  try {
+    const appointments = await Appointment.find({
+      patient: req.user.id,
+      status: 'doctor-unavailable'
+    })
+      .populate('doctor', 'firstName lastName specialization department')
+      .sort({ appointmentDate: 1, appointmentTime: 1 });
+
+    res.json({
+      success: true,
+      count: appointments.length,
+      data: { appointments }
+    });
+  } catch (error) {
+    console.error('Get pending reschedule error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
 // @desc    Create appointment
 // @route   POST /api/appointments
 // @access  Private (Patient)
@@ -129,7 +155,7 @@ router.post('/', auth, authorize('patient'), [
       });
     }
 
-    // Create appointment with scheduled status (free healthcare)
+    // Create appointment with scheduled status
     const appointment = await Appointment.create({
       patient: req.user.id,
       doctor,
@@ -402,7 +428,7 @@ router.patch('/:id/status',
   auth, 
   authorize('doctor', 'staff', 'admin'),
   [
-    body('status').isIn(['scheduled', 'confirmed', 'in-progress', 'completed', 'cancelled', 'no-show'])
+    body('status').isIn(['scheduled', 'confirmed', 'in-progress', 'completed', 'cancelled', 'no-show', 'doctor-unavailable'])
       .withMessage('Invalid status')
   ],
   async (req, res) => {
@@ -458,8 +484,6 @@ router.patch('/:id/status',
     }
   }
 );
-
-// Payment endpoints removed - Healthcare is now free for all patients
 
 // @desc    Check-in appointment
 // @route   POST /api/appointments/:id/checkin

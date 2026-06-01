@@ -2,36 +2,33 @@
  * @fileoverview Unit Tests for Make an Appointment Use Case
  * @description Comprehensive test suite covering appointment booking, slot management, and scheduling
  * @author MediQueue Development Team
- * @version 1.0.0
- * 
+ * @version 2.0.0
+ *
+ * Payment integration has been removed.
+ *
  * Test Coverage Areas:
  * - Appointment Creation (positive, negative, edge cases)
  * - Slot Availability Checking
  * - Doctor Schedule Management
- * - Payment Integration
  * - Appointment Modifications
- * - Cancellation and Refunds
- * 
+ * - Cancellation
+ *
  * Target Coverage: >80%
  */
 
 const AppointmentService = require('../../services/AppointmentService');
-const PaymentService = require('../../services/PaymentService');
 const SlotManagementService = require('../../services/SlotManagementService');
 const Appointment = require('../../models/Appointment');
 const DoctorSlot = require('../../models/DoctorSlot');
-const Payment = require('../../models/Payment');
 const User = require('../../models/User');
 
 // Mock dependencies
 jest.mock('../../models/Appointment');
 jest.mock('../../models/DoctorSlot');
-jest.mock('../../models/Payment');
 jest.mock('../../models/User');
-jest.mock('../../services/PaymentService');
 
 describe('UC02 - Make an Appointment', () => {
-  let mockPatient, mockDoctor, mockSlot, mockAppointment, mockPayment;
+  let mockPatient, mockDoctor, mockSlot, mockAppointment;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -50,8 +47,7 @@ describe('UC02 - Make an Appointment', () => {
       lastName: 'Doctor',
       email: 'doctor@test.com',
       role: 'doctor',
-      specialization: 'Cardiology',
-      consultationFee: 150
+      specialization: 'Cardiology'
     };
 
     mockSlot = {
@@ -74,17 +70,7 @@ describe('UC02 - Make an Appointment', () => {
       status: 'scheduled',
       reasonForVisit: 'Regular checkup',
       department: 'Cardiology',
-      consultationFee: 150,
       save: jest.fn()
-    };
-
-    mockPayment = {
-      _id: '507f1f77bcf86cd799439015',
-      appointment: mockAppointment._id,
-      patient: mockPatient._id,
-      amount: 150,
-      status: 'completed',
-      paymentMethod: 'card'
     };
   });
 
@@ -169,8 +155,7 @@ describe('UC02 - Make an Appointment', () => {
           patientId: mockPatient._id,
           doctorId: mockDoctor._id,
           slotId: mockSlot._id,
-          reasonForVisit: 'Regular checkup',
-          paymentMethod: 'card'
+          reasonForVisit: 'Regular checkup'
         };
 
         User.findById.mockImplementation((id) => {
@@ -182,7 +167,6 @@ describe('UC02 - Make an Appointment', () => {
         DoctorSlot.findById.mockResolvedValue(mockSlot);
         DoctorSlot.findByIdAndUpdate.mockResolvedValue({ ...mockSlot, isAvailable: false });
         Appointment.prototype.save = jest.fn().mockResolvedValue(mockAppointment);
-        PaymentService.processPayment.mockResolvedValue({ success: true, payment: mockPayment });
 
         const result = await AppointmentService.createAppointment(appointmentData);
 
@@ -200,8 +184,7 @@ describe('UC02 - Make an Appointment', () => {
           doctorId: mockDoctor._id,
           slotId: mockSlot._id,
           reasonForVisit: 'Emergency consultation',
-          priority: 'urgent',
-          paymentMethod: 'card'
+          priority: 'urgent'
         };
 
         User.findById.mockImplementation((id) => {
@@ -212,7 +195,6 @@ describe('UC02 - Make an Appointment', () => {
         DoctorSlot.findById.mockResolvedValue(mockSlot);
         DoctorSlot.findByIdAndUpdate.mockResolvedValue({ ...mockSlot, isAvailable: false });
         Appointment.prototype.save = jest.fn().mockResolvedValue({ ...mockAppointment, priority: 'urgent' });
-        PaymentService.processPayment.mockResolvedValue({ success: true, payment: mockPayment });
 
         const result = await AppointmentService.createAppointment(emergencyData);
 
@@ -259,13 +241,12 @@ describe('UC02 - Make an Appointment', () => {
         expect(result.message).toContain('Selected slot is no longer available');
       });
 
-      test('should reject appointment with payment failure', async () => {
+      test('should reject appointment for unavailable slot (booking conflict)', async () => {
         const appointmentData = {
           patientId: mockPatient._id,
           doctorId: mockDoctor._id,
           slotId: mockSlot._id,
-          reasonForVisit: 'Checkup',
-          paymentMethod: 'card'
+          reasonForVisit: 'Checkup'
         };
 
         User.findById.mockImplementation((id) => {
@@ -273,13 +254,13 @@ describe('UC02 - Make an Appointment', () => {
           if (id === mockDoctor._id) return Promise.resolve(mockDoctor);
         });
         
-        DoctorSlot.findById.mockResolvedValue(mockSlot);
-        PaymentService.processPayment.mockResolvedValue({ success: false, message: 'Payment failed' });
+        // Slot becomes unavailable just before booking is confirmed
+        DoctorSlot.findById.mockResolvedValue({ ...mockSlot, isAvailable: false });
 
         const result = await AppointmentService.createAppointment(appointmentData);
 
         expect(result.success).toBe(false);
-        expect(result.message).toContain('Payment failed');
+        expect(result.message).toContain('Selected slot is no longer available');
       });
     });
 
@@ -358,10 +339,8 @@ describe('UC02 - Make an Appointment', () => {
         expect(result.appointment.slot).toBe(newSlot._id);
       });
 
-      test('should successfully cancel appointment with refund', async () => {
+      test('should successfully cancel appointment', async () => {
         Appointment.findById.mockResolvedValue(mockAppointment);
-        Payment.findOne.mockResolvedValue(mockPayment);
-        PaymentService.processRefund.mockResolvedValue({ success: true, refund: { amount: 150 } });
         DoctorSlot.findByIdAndUpdate.mockResolvedValue({ ...mockSlot, isAvailable: true });
         Appointment.findByIdAndUpdate.mockResolvedValue({ ...mockAppointment, status: 'cancelled' });
 
@@ -369,7 +348,6 @@ describe('UC02 - Make an Appointment', () => {
 
         expect(result.success).toBe(true);
         expect(result.appointment.status).toBe('cancelled');
-        expect(PaymentService.processRefund).toHaveBeenCalled();
       });
     });
 
@@ -399,15 +377,18 @@ describe('UC02 - Make an Appointment', () => {
     });
 
     describe('Edge Cases', () => {
-      test('should handle refund failures during cancellation', async () => {
-        Appointment.findById.mockResolvedValue(mockAppointment);
-        Payment.findOne.mockResolvedValue(mockPayment);
-        PaymentService.processRefund.mockResolvedValue({ success: false, message: 'Refund failed' });
+      test('should handle cancellation gracefully', async () => {
+        // Slot is already in the past — cancellation should fail
+        const pastAppointment = {
+          ...mockAppointment,
+          appointmentDate: new Date('2020-01-01T09:00:00Z')
+        };
+        Appointment.findById.mockResolvedValue(pastAppointment);
 
         const result = await AppointmentService.cancelAppointment(mockAppointment._id, mockPatient._id);
 
+        // Either rejected as past appointment or handled gracefully
         expect(result.success).toBe(false);
-        expect(result.message).toContain('Refund processing failed');
       });
 
       test('should handle same-day cancellation policies', async () => {
@@ -426,121 +407,5 @@ describe('UC02 - Make an Appointment', () => {
     });
   });
 
-  describe('Payment Integration', () => {
-    describe('Positive Cases', () => {
-      test('should process card payment successfully', async () => {
-        const paymentData = {
-          appointmentId: mockAppointment._id,
-          amount: 150,
-          paymentMethod: 'card',
-          cardToken: 'tok_visa'
-        };
-
-        PaymentService.processPayment.mockResolvedValue({
-          success: true,
-          payment: mockPayment,
-          transactionId: 'txn_123'
-        });
-
-        const result = await PaymentService.processPayment(paymentData);
-
-        expect(result.success).toBe(true);
-        expect(result.payment.status).toBe('completed');
-      });
-
-      test('should handle insurance payment processing', async () => {
-        const insurancePayment = {
-          appointmentId: mockAppointment._id,
-          amount: 150,
-          paymentMethod: 'insurance',
-          insuranceProvider: 'BlueCross',
-          policyNumber: 'POL123456'
-        };
-
-        PaymentService.processPayment.mockResolvedValue({
-          success: true,
-          payment: { ...mockPayment, paymentMethod: 'insurance' }
-        });
-
-        const result = await PaymentService.processPayment(insurancePayment);
-
-        expect(result.success).toBe(true);
-        expect(result.payment.paymentMethod).toBe('insurance');
-      });
-    });
-
-    describe('Negative Cases', () => {
-      test('should handle declined card payments', async () => {
-        const paymentData = {
-          appointmentId: mockAppointment._id,
-          amount: 150,
-          paymentMethod: 'card',
-          cardToken: 'tok_declined'
-        };
-
-        PaymentService.processPayment.mockResolvedValue({
-          success: false,
-          message: 'Card declined'
-        });
-
-        const result = await PaymentService.processPayment(paymentData);
-
-        expect(result.success).toBe(false);
-        expect(result.message).toContain('Card declined');
-      });
-
-      test('should handle insufficient funds', async () => {
-        const paymentData = {
-          appointmentId: mockAppointment._id,
-          amount: 150,
-          paymentMethod: 'card',
-          cardToken: 'tok_insufficient_funds'
-        };
-
-        PaymentService.processPayment.mockResolvedValue({
-          success: false,
-          message: 'Insufficient funds'
-        });
-
-        const result = await PaymentService.processPayment(paymentData);
-
-        expect(result.success).toBe(false);
-        expect(result.message).toContain('Insufficient funds');
-      });
-    });
-
-    describe('Edge Cases', () => {
-      test('should handle payment gateway timeouts', async () => {
-        const paymentData = {
-          appointmentId: mockAppointment._id,
-          amount: 150,
-          paymentMethod: 'card'
-        };
-
-        PaymentService.processPayment.mockImplementation(() => {
-          return new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Gateway timeout')), 100);
-          });
-        });
-
-        const result = await PaymentService.processPayment(paymentData);
-
-        expect(result.success).toBe(false);
-        expect(result.message).toContain('Payment processing failed');
-      });
-
-      test('should validate payment amounts', async () => {
-        const invalidPayment = {
-          appointmentId: mockAppointment._id,
-          amount: -50, // Negative amount
-          paymentMethod: 'card'
-        };
-
-        const result = await PaymentService.processPayment(invalidPayment);
-
-        expect(result.success).toBe(false);
-        expect(result.message).toContain('Invalid payment amount');
-      });
-    });
-  });
+  // Payment integration section removed.
 });

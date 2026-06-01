@@ -64,38 +64,7 @@ export const mockStaffMembers = [
   { name: 'Admin John Davis', role: 'Admin', department: 'Reception', hoursWorked: 40, utilization: 78, overtime: 0 }
 ];
 
-// 3. Financial Summary Mock Data
-export const mockFinancialKPIs = {
-  totalRevenue: 520000,
-  totalCosts: 480000,
-  operatingMargin: 40000,
-  profitMargin: 7.7,
-  revenuePerPatient: 3023
-};
-
-export const mockCostBreakdown = [
-  { name: 'Staff Salaries & Overtime', value: 300000, percentage: 62.5 },
-  { name: 'Medical Supplies', value: 120000, percentage: 25 },
-  { name: 'Administrative Costs', value: 40000, percentage: 8.3 },
-  { name: 'Equipment & Maintenance', value: 20000, percentage: 4.2 }
-];
-
-export const mockRevenueBreakdown = [
-  { name: 'OPD Payments', value: 350000, percentage: 67.3 },
-  { name: 'Direct Patient Payments', value: 120000, percentage: 23.1 },
-  { name: 'Government Funding', value: 50000, percentage: 9.6 }
-];
-
-export const mockMonthlyFinancials = [
-  { month: 'Jan', revenue: 480000, costs: 445000, margin: 35000 },
-  { month: 'Feb', revenue: 510000, costs: 460000, margin: 50000 },
-  { month: 'Mar', revenue: 520000, costs: 480000, margin: 40000 },
-  { month: 'Apr', revenue: 495000, costs: 455000, margin: 40000 },
-  { month: 'May', revenue: 535000, costs: 490000, margin: 45000 },
-  { month: 'Jun', revenue: 520000, costs: 480000, margin: 40000 }
-];
-
-// 4. Peak Hours Prediction Mock Data (Enhanced ML Simulation)
+// 3. Peak Hours Prediction Mock Data (Enhanced ML Simulation)
 export const mockPeakPrediction = {
   forecasts: [
     { 
@@ -276,11 +245,6 @@ export const mockReportTemplates = {
     title: 'Staff Utilization Report', 
     description: 'Staff efficiency and workload distribution analysis',
     sections: ['Utilization Overview', 'Department Breakdown', 'Overtime Analysis', 'Staffing Recommendations']
-  },
-  'financial-summary': {
-    title: 'Financial Summary Report',
-    description: 'Revenue, costs, and financial performance metrics',
-    sections: ['Financial Overview', 'Revenue Analysis', 'Cost Breakdown', 'Profitability Trends']
   }
 };
 
@@ -326,10 +290,6 @@ const mockData = {
   mockStaffUtilizationData,
   mockStaffKPIs,
   mockStaffMembers,
-  mockFinancialKPIs,
-  mockCostBreakdown,
-  mockRevenueBreakdown,
-  mockMonthlyFinancials,
   mockPeakPrediction,
   mockPatientDB,
   mockDashboardSummary,

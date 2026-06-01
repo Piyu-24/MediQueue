@@ -355,24 +355,11 @@ async function processUserMessage(message, user, context = {}) {
     };
   }
 
-  // Payment queries
-  if (lowerMessage.includes('payment') || lowerMessage.includes('bill') || lowerMessage.includes('refund')) {
-    return {
-      type: 'payment',
-      message: '💳 I can help with payment and billing!\n\n• View payment history\n• Process refunds\n• Insurance information\n• Payment methods\n• Billing inquiries',
-      suggestions: ['Payment history', 'Request refund', 'Insurance help', 'Billing support'],
-      actions: [
-        { label: 'View Payments', action: 'navigate', path: '/payments' },
-        { label: 'Request Refund', action: 'tab', tab: 'refunds' }
-      ]
-    };
-  }
-
   // Default response
   return {
     type: 'general',
-    message: `Hello ${user.firstName}! I'm here to help with your healthcare needs.\n\nI can assist you with:\n• Booking appointments\n• Medical records and documents\n• Payment and billing questions\n• Health information and tips\n• Emergency assistance\n\nWhat would you like help with today?`,
-    suggestions: ['Book appointment', 'View records', 'Health tips', 'Payment help', 'Emergency info'],
+    message: `Hello ${user.firstName}! I'm here to help with your healthcare needs.\n\nI can assist you with:\n• Booking appointments\n• Medical records and documents\n• Health information and tips\n• Emergency assistance\n\nWhat would you like help with today?`,
+    suggestions: ['Book appointment', 'View records', 'Health tips', 'Emergency info'],
     personalizedGreeting: true
   };
 }

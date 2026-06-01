@@ -46,17 +46,6 @@ router.get('/reports/staff-utilization',
   managerController.getStaffUtilizationReport.bind(managerController)
 );
 
-// @desc    Get financial summary report
-// @route   GET /api/manager/reports/financial-summary
-// @access  Private (Manager, Staff)
-// @validation Date range and payment filter parameters
-router.get('/reports/financial-summary', 
-  auth, 
-  authorize('manager', 'staff'),
-  ValidationHelper.validateDateRange(),
-  managerController.getFinancialSummaryReport.bind(managerController)
-);
-
 // Error handling middleware for manager routes
 router.use((error, req, res, next) => {
   logger.error('Manager route error:', {

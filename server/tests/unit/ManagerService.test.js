@@ -18,12 +18,10 @@
 const ManagerService = require('../../services/ManagerService');
 const UserRepository = require('../../repositories/UserRepository');
 const AppointmentRepository = require('../../repositories/AppointmentRepository');
-const PaymentRepository = require('../../repositories/PaymentRepository');
 
 // Mock dependencies
 jest.mock('../../repositories/UserRepository');
 jest.mock('../../repositories/AppointmentRepository');
-jest.mock('../../repositories/PaymentRepository');
 jest.mock('../../utils/Logger', () => ({
   getLogger: jest.fn(() => ({
     info: jest.fn(),
@@ -35,7 +33,7 @@ jest.mock('../../utils/Logger', () => ({
 
 describe('ManagerService - >80% Coverage Tests', () => {
   let managerService;
-  let mockUserRepository, mockAppointmentRepository, mockPaymentRepository;
+  let mockUserRepository, mockAppointmentRepository;
 
   // Mock data
   const mockUsers = {
@@ -60,20 +58,6 @@ describe('ManagerService - >80% Coverage Tests', () => {
     ]
   };
 
-  const mockPayments = {
-    data: [
-      {
-        _id: '1',
-        patient: { _id: '1', firstName: 'John', lastName: 'Doe', email: 'john@test.com' },
-        appointment: { department: 'Cardiology', reasonForVisit: 'Checkup' },
-        amount: 150,
-        paymentMethod: 'card',
-        status: 'completed',
-        createdAt: new Date('2024-12-25')
-      }
-    ]
-  };
-
   beforeEach(() => {
     jest.clearAllMocks();
     
@@ -88,17 +72,10 @@ describe('ManagerService - >80% Coverage Tests', () => {
       findMany: jest.fn()
     };
     
-    mockPaymentRepository = {
-      count: jest.fn(),
-      findMany: jest.fn(),
-      aggregate: jest.fn()
-    };
-
     // Create service instance
     managerService = new ManagerService(
       mockUserRepository,
-      mockAppointmentRepository,
-      mockPaymentRepository
+      mockAppointmentRepository
     );
 
     // Mock emit method
@@ -121,8 +98,6 @@ describe('ManagerService - >80% Coverage Tests', () => {
         .mockResolvedValueOnce(320); // completedAppointments
       
       mockAppointmentRepository.findMany.mockResolvedValue(mockAppointments);
-      mockPaymentRepository.findMany.mockResolvedValue(mockPayments);
-      mockPaymentRepository.aggregate.mockResolvedValue([{ _id: null, total: 45000 }]);
     });
 
     // POSITIVE CASES
@@ -135,9 +110,8 @@ describe('ManagerService - >80% Coverage Tests', () => {
         todayAppointments: 45,
         pendingAppointments: 12,
         completedAppointments: 320,
-        totalRevenue: 45000,
         recentAppointments: mockAppointments.data,
-        recentPayments: mockPayments.data
+        message: 'Dashboard overview generated'
       });
 
       expect(managerService.emit).toHaveBeenCalledWith('dashboardAccessed', {
@@ -145,23 +119,7 @@ describe('ManagerService - >80% Coverage Tests', () => {
       });
     });
 
-    test('should handle zero revenue case', async () => {
-      mockPaymentRepository.aggregate.mockResolvedValue([]);
-      
-      const result = await managerService.getDashboardOverview();
-      
-      expect(result.totalRevenue).toBe(0);
-    });
-
     // NEGATIVE CASES - Covered in other error handling tests
-
-    test('should handle revenue calculation errors', async () => {
-      mockPaymentRepository.aggregate.mockRejectedValue(new Error('Aggregate failed'));
-      
-      const result = await managerService.getDashboardOverview();
-      
-      expect(result.totalRevenue).toBe(0);
-    });
   });
 
   // ============================================================================
@@ -309,100 +267,9 @@ describe('ManagerService - >80% Coverage Tests', () => {
   });
 
   // ============================================================================
-  // FINANCIAL SUMMARY REPORT TESTS
-  // ============================================================================
-  describe('generateFinancialSummaryReport', () => {
-    beforeEach(() => {
-      mockPaymentRepository.findMany.mockResolvedValue(mockPayments);
-    });
-
-    // POSITIVE CASES
-    test('should generate financial summary report with filters', async () => {
-      const filters = {
-        startDate: '2024-12-01',
-        endDate: '2024-12-31',
-        paymentMethod: 'card',
-        status: 'completed'
-      };
-
-      const result = await managerService.generateFinancialSummaryReport(filters);
-
-      expect(result).toEqual({
-        transactions: mockPayments.data,
-        analytics: expect.objectContaining({
-          totalRevenue: 150,
-          totalTransactions: 1,
-          paymentMethodBreakdown: { 'card': 150 },
-          dailyRevenue: { '2024-12-25': 150 },
-          departmentRevenue: { 'Cardiology': 150 },
-          averageTransaction: 150
-        }),
-        summary: {
-          totalRecords: 1,
-          totalRevenue: 150,
-          dateRange: { startDate: '2024-12-01', endDate: '2024-12-31' },
-          filters: { paymentMethod: 'card', status: 'completed' }
-        }
-      });
-
-      expect(managerService.emit).toHaveBeenCalledWith('reportGenerated', {
-        type: 'financial-summary',
-        transactionCount: 1,
-        totalRevenue: 150,
-        filters
-      });
-    });
-
-    test('should handle empty payments', async () => {
-      mockPaymentRepository.findMany.mockResolvedValue({ data: [] });
-
-      const result = await managerService.generateFinancialSummaryReport();
-
-      expect(result.transactions).toEqual([]);
-      expect(result.analytics.totalRevenue).toBe(0);
-      expect(result.analytics.averageTransaction).toBe(0);
-    });
-
-    // NEGATIVE CASES
-    test('should handle repository errors', async () => {
-      mockPaymentRepository.findMany.mockRejectedValue(new Error('Repository error'));
-
-      await expect(managerService.generateFinancialSummaryReport()).rejects.toThrow();
-    });
-  });
-
-  // ============================================================================
   // PRIVATE HELPER METHOD TESTS
   // ============================================================================
   describe('Private Helper Methods', () => {
-    test('should calculate total revenue correctly', async () => {
-      mockPaymentRepository.aggregate.mockResolvedValue([{ _id: null, total: 1000 }]);
-
-      const result = await managerService.calculateTotalRevenue();
-
-      expect(result).toBe(1000);
-      expect(mockPaymentRepository.aggregate).toHaveBeenCalledWith([
-        { $match: { status: 'completed' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
-    });
-
-    test('should return 0 when no revenue data', async () => {
-      mockPaymentRepository.aggregate.mockResolvedValue([]);
-
-      const result = await managerService.calculateTotalRevenue();
-
-      expect(result).toBe(0);
-    });
-
-    test('should handle revenue calculation errors', async () => {
-      mockPaymentRepository.aggregate.mockRejectedValue(new Error('Aggregate error'));
-
-      const result = await managerService.calculateTotalRevenue();
-
-      expect(result).toBe(0);
-    });
-
     test('should generate visit analytics correctly', () => {
       const appointments = [
         {
@@ -479,35 +346,6 @@ describe('ManagerService - >80% Coverage Tests', () => {
       });
     });
 
-    test('should generate financial analytics correctly', () => {
-      const payments = [
-        {
-          amount: 100,
-          status: 'completed',
-          paymentMethod: 'card',
-          createdAt: new Date('2024-12-25'),
-          appointment: { department: 'Cardiology' }
-        },
-        {
-          amount: 50,
-          status: 'completed',
-          paymentMethod: 'cash',
-          createdAt: new Date('2024-12-25'),
-          appointment: { department: 'Neurology' }
-        }
-      ];
-
-      const result = managerService.generateFinancialAnalytics(payments);
-
-      expect(result).toEqual({
-        totalRevenue: 150,
-        totalTransactions: 2,
-        paymentMethodBreakdown: { 'card': 100, 'cash': 50 },
-        dailyRevenue: { '2024-12-25': 150 },
-        departmentRevenue: { 'Cardiology': 100, 'Neurology': 50 },
-        averageTransaction: 75
-      });
-    });
   });
 
   // ============================================================================
@@ -542,10 +380,5 @@ describe('ManagerService - >80% Coverage Tests', () => {
       await expect(managerService.generateStaffUtilizationReport()).rejects.toThrow('User query failed');
     });
 
-    test('should handle service errors in financial summary report', async () => {
-      mockPaymentRepository.findMany.mockRejectedValue(new Error('Payment query failed'));
-
-      await expect(managerService.generateFinancialSummaryReport()).rejects.toThrow('Payment query failed');
-    });
   });
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   CalendarIcon,
   DocumentTextIcon,
@@ -9,11 +9,14 @@ import {
   ArrowRightIcon,
   QrCodeIcon,
   UserCircleIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  XMarkIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { appointmentAPI, medicalRecordsAPI } from '../../services/api';
+import { appointmentAPI, medicalRecordsAPI, queueAPI } from '../../services/api';
+import socketService from '../../services/socket';
 import HealthCardDisplay from '../../components/HealthCard/HealthCardDisplay';
 import AppointmentBooking from './AppointmentBooking';
 import MedicalRecords from './MedicalRecords';
@@ -38,6 +41,12 @@ const PatientDashboardEnhanced = () => {
   });
   const [activeTab, setActiveTab] = useState('overview');
   const [isFetching, setIsFetching] = useState(false);
+  const [queueStatus, setQueueStatus] = useState(null); // today's queue info for this patient
+  const [queueLoading, setQueueLoading] = useState(false);
+  // Cancellation modal state
+  const [cancelModal, setCancelModal] = useState({ open: false, appointmentId: null, appointmentTitle: '' });
+  const [cancelling, setCancelling] = useState(false);
+  const isFetchingRef = useRef(false);
 
   // Tab configuration
   const tabs = [
@@ -57,7 +66,7 @@ const PatientDashboardEnhanced = () => {
     if (tabParam && tabs.some(tab => tab.id === tabParam)) {
       setActiveTab(tabParam);
     }
-    // Refresh data when navigating to overview from payment
+    // Refresh data when navigating to overview
     if (tabParam === 'overview' || !tabParam) {
       fetchDashboardData();
       refreshUser(); // Refresh user data to get updated identity verification status
@@ -68,7 +77,72 @@ const PatientDashboardEnhanced = () => {
   // Fetch dashboard data
   useEffect(() => {
     fetchDashboardData();
+    fetchQueueStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Socket.io real-time subscriptions ──────────────────────────────────────
+  useEffect(() => {
+    if (!user?._id) return;
+
+    // Join personal room so the server can push queue:yourTurn directly
+    socketService.joinRoom(user._id);
+
+    const handleYourTurn = (data) => {
+      toast.success(`🔔 It's your turn! Queue ${data.queueNumber} — please go to ${data.room}`, {
+        duration: 10000,
+      });
+      // Attempt browser notification
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('MediQueue — Your Turn!', {
+          body: `Queue ${data.queueNumber} — Please proceed to ${data.room}`,
+          icon: '/logo192.png',
+        });
+      } else if ('Notification' in window && Notification.permission !== 'denied') {
+        Notification.requestPermission();
+      }
+      fetchQueueStatus();
+    };
+
+    const handleCheckedIn = () => fetchQueueStatus();
+    const handleQueueUpdated = (data) => {
+      // Only refresh if it looks like it might be for this patient
+      if (data?.queueEntry?.patient === user._id || !data?.queueEntry) {
+        fetchQueueStatus();
+      }
+    };
+
+    const handleDoctorUnavailable = () => {
+      toast.error('Your doctor is unavailable. Please reschedule your appointment.');
+      fetchDashboardData();
+    };
+
+    socketService.on('queue:yourTurn', handleYourTurn);
+    socketService.on('queue:checkedIn', handleCheckedIn);
+    socketService.on('queue:updated', handleQueueUpdated);
+    socketService.on('queue:completed', handleQueueUpdated);
+    socketService.on('appointment:doctor-unavailable', handleDoctorUnavailable);
+
+    return () => {
+      socketService.off('queue:yourTurn', handleYourTurn);
+      socketService.off('queue:checkedIn', handleCheckedIn);
+      socketService.off('queue:updated', handleQueueUpdated);
+      socketService.off('queue:completed', handleQueueUpdated);
+      socketService.off('appointment:doctor-unavailable', handleDoctorUnavailable);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?._id]);
+
+  const fetchQueueStatus = useCallback(async () => {
+    try {
+      setQueueLoading(true);
+      const res = await queueAPI.getMyStatus();
+      if (res.data.success) setQueueStatus(res.data.data);
+    } catch {
+      // Silent — not an error if patient isn't in queue
+    } finally {
+      setQueueLoading(false);
+    }
   }, []);
 
   const fetchDashboardData = async () => {
@@ -81,7 +155,7 @@ const PatientDashboardEnhanced = () => {
       
       // Fetch appointments - get all statuses to show both upcoming and history
       const appointmentsRes = await appointmentAPI.getAppointments({
-        status: 'pending-payment,scheduled,confirmed,cancelled,completed,no-show'
+        status: 'scheduled,confirmed,cancelled,completed,no-show,doctor-unavailable'
       });
       
       if (appointmentsRes.data.success) {
@@ -100,7 +174,7 @@ const PatientDashboardEnhanced = () => {
           const [hours, minutes] = apt.appointmentTime.split(':');
           apptDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
           
-          return apptDate > now && !['cancelled', 'completed', 'no-show'].includes(apt.status);
+          return apptDate > now && !['cancelled', 'completed', 'no-show', 'doctor-unavailable'].includes(apt.status);
         }).length;
         
         setStats(prev => ({
@@ -149,20 +223,37 @@ const PatientDashboardEnhanced = () => {
     });
   };
 
-  // Handle appointment cancellation
-  // eslint-disable-next-line no-unused-vars
-  const _handleCancelAppointment = async (appointmentId) => {
-    if (!window.confirm('Are you sure you want to cancel this appointment?')) {
-      return;
-    }
+  // Handle appointment cancellation — requires >2 hours in the future
+  const canCancelAppointment = (appointment) => {
+    if (!['scheduled', 'confirmed'].includes(appointment.status)) return false;
+    const apptDate = new Date(appointment.appointmentDate);
+    const [hours, minutes] = appointment.appointmentTime.split(':');
+    apptDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+    const twoHoursFromNow = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    return apptDate > twoHoursFromNow;
+  };
 
+  const openCancelModal = (appointment) => {
+    setCancelModal({
+      open: true,
+      appointmentId: appointment._id,
+      appointmentTitle: `Dr. ${appointment.doctor?.firstName} ${appointment.doctor?.lastName} on ${formatDate(appointment.appointmentDate)} at ${appointment.appointmentTime}`,
+    });
+  };
+
+  const handleCancelAppointment = async () => {
+    if (!cancelModal.appointmentId) return;
     try {
-      await appointmentAPI.cancelAppointment(appointmentId, 'Patient requested cancellation');
+      setCancelling(true);
+      await appointmentAPI.cancelAppointment(cancelModal.appointmentId, 'Patient requested cancellation');
       toast.success('Appointment cancelled successfully');
-      fetchDashboardData(); // Refresh data
+      setCancelModal({ open: false, appointmentId: null, appointmentTitle: '' });
+      fetchDashboardData();
     } catch (error) {
       console.error('Error cancelling appointment:', error);
       toast.error('Failed to cancel appointment');
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -177,8 +268,56 @@ const PatientDashboardEnhanced = () => {
     );
   }
 
+  const unavailableAppointments = appointments.filter((appointment) => appointment.status === 'doctor-unavailable');
+
+  const handleReschedule = (appointment) => {
+    const doctorId = appointment.doctor?._id;
+    navigate(`/dashboard?tab=book-appointment${doctorId ? `&doctorId=${doctorId}` : ''}`);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-gray-50 p-4 sm:p-6 lg:p-8">
+      {/* Cancellation Confirmation Modal */}
+      {cancelModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 animate-fade-in">
+            <div className="flex items-center space-x-4 mb-6">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <ExclamationTriangleIcon className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Cancel Appointment?</h3>
+                <p className="text-sm text-gray-500 mt-1">This action cannot be undone.</p>
+              </div>
+            </div>
+            <div className="bg-red-50 border border-red-100 rounded-xl p-4 mb-6">
+              <p className="text-sm text-red-800 font-medium">{cancelModal.appointmentTitle}</p>
+            </div>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setCancelModal({ open: false, appointmentId: null, appointmentTitle: '' })}
+                className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
+                disabled={cancelling}
+              >
+                Keep Appointment
+              </button>
+              <button
+                onClick={handleCancelAppointment}
+                disabled={cancelling}
+                className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors disabled:opacity-60 flex items-center justify-center space-x-2"
+              >
+                {cancelling ? (
+                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : <XMarkIcon className="w-4 h-4" />}
+                <span>{cancelling ? 'Cancelling...' : 'Yes, Cancel'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -194,6 +333,27 @@ const PatientDashboardEnhanced = () => {
             
           </div>
         </div>
+
+        {unavailableAppointments.length > 0 && (
+          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <ExclamationTriangleIcon className="w-6 h-6 text-amber-600 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-amber-900">Action Required</p>
+                <p className="text-sm text-amber-800">
+                  Dr. {unavailableAppointments[0]?.doctor?.firstName} {unavailableAppointments[0]?.doctor?.lastName}'s appointment on{' '}
+                  {formatDate(unavailableAppointments[0]?.appointmentDate)} at {unavailableAppointments[0]?.appointmentTime} needs rescheduling.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => handleReschedule(unavailableAppointments[0])}
+              className="px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700"
+            >
+              Reschedule Now
+            </button>
+          </div>
+        )}
 
         {/* Tab Navigation */}
         <div className="mb-8">
@@ -223,6 +383,57 @@ const PatientDashboardEnhanced = () => {
         {/* Tab Content */}
         {activeTab === 'overview' && (
           <>
+            {/* Queue Status Card (shown when patient is in queue today) */}
+            {(queueStatus?.inQueue || queueLoading) && (
+              <div className="mb-8">
+                {queueLoading ? (
+                  <div className="h-24 bg-blue-50 rounded-2xl animate-pulse" />
+                ) : (
+                  <div className={`rounded-2xl p-6 border-2 shadow-lg ${
+                    queueStatus.status === 'in-consultation'
+                      ? 'bg-gradient-to-r from-purple-50 to-purple-100 border-purple-300'
+                      : queueStatus.status === 'called'
+                      ? 'bg-gradient-to-r from-orange-50 to-orange-100 border-orange-300'
+                      : 'bg-gradient-to-r from-blue-50 to-blue-100 border-blue-300'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-5">
+                        <div className={`text-4xl font-black px-5 py-3 rounded-xl shadow-md ${
+                          queueStatus.status === 'in-consultation' ? 'bg-purple-600 text-white' :
+                          queueStatus.status === 'called' ? 'bg-orange-500 text-white' :
+                          'bg-blue-600 text-white'
+                        }`}>
+                          {queueStatus.queueNumber}
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-1">Your Queue Status</p>
+                          <p className={`text-xl font-bold ${
+                            queueStatus.status === 'in-consultation' ? 'text-purple-800' :
+                            queueStatus.status === 'called' ? 'text-orange-800' :
+                            'text-blue-800'
+                          }`}>
+                            {queueStatus.status === 'in-consultation' ? '🩺 In Consultation' :
+                             queueStatus.status === 'called' ? '📢 Please proceed to the room!' :
+                             `Position ${queueStatus.position} in queue`}
+                          </p>
+                          <p className="text-sm text-gray-600 mt-1">
+                            {queueStatus.room} · Dr. {queueStatus.doctor?.firstName} {queueStatus.doctor?.lastName}
+                            {queueStatus.status === 'waiting' && queueStatus.estimatedWaitMinutes > 0 &&
+                              ` · ~${queueStatus.estimatedWaitMinutes} min est. wait`}
+                          </p>
+                        </div>
+                      </div>
+                      <button onClick={fetchQueueStatus} className="p-2 text-gray-400 hover:text-blue-600 transition-colors" title="Refresh">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Quick Stats */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-8">
               <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
@@ -362,20 +573,29 @@ const PatientDashboardEnhanced = () => {
                                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                   appointment.status === 'confirmed' ? 'bg-green-100 text-green-800' :
                                   appointment.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                                  appointment.status === 'doctor-unavailable' ? 'bg-amber-100 text-amber-800' :
                                   'bg-gray-100 text-gray-800'
                                 }`}>
-                                  {appointment.status}
+                                  {appointment.status === 'doctor-unavailable' ? 'doctor unavailable' : appointment.status}
                                 </span>
                               </div>
                             </div>
                           </div>
-                          <div>
+                          <div className="flex flex-col space-y-2">
                             <button 
                               onClick={() => navigate(`/appointments/${appointment._id}`)}
                               className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium shadow-md"
                             >
                               View Details
                             </button>
+                            {canCancelAppointment(appointment) && (
+                              <button
+                                onClick={() => openCancelModal(appointment)}
+                                className="px-6 py-2 bg-white text-red-600 border-2 border-red-200 rounded-xl hover:bg-red-50 transition-colors font-medium text-sm"
+                              >
+                                Cancel
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -538,19 +758,30 @@ const PatientDashboardEnhanced = () => {
                                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                                       appointment.status === 'confirmed' ? 'bg-green-100 text-green-800' :
                                       appointment.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                                      appointment.status === 'doctor-unavailable' ? 'bg-amber-100 text-amber-800' :
                                       'bg-gray-100 text-gray-800'
                                     }`}>
-                                      {appointment.status}
+                                      {appointment.status === 'doctor-unavailable' ? 'doctor unavailable' : appointment.status}
                                     </span>
                                   </div>
                                 </div>
                               </div>
-                              <button
-                                onClick={() => navigate(`/appointments/${appointment._id}`)}
-                                className="px-5 py-2.5 bg-white text-blue-600 border-2 border-blue-200 rounded-xl hover:bg-blue-50 transition-colors font-semibold shadow-sm"
-                              >
-                                View
-                              </button>
+                              <div className="flex flex-col space-y-2 ml-4 flex-shrink-0">
+                                <button
+                                  onClick={() => navigate(`/appointments/${appointment._id}`)}
+                                  className="px-5 py-2.5 bg-white text-blue-600 border-2 border-blue-200 rounded-xl hover:bg-blue-50 transition-colors font-semibold shadow-sm"
+                                >
+                                  View
+                                </button>
+                                {canCancelAppointment(appointment) && (
+                                  <button
+                                    onClick={() => openCancelModal(appointment)}
+                                    className="px-5 py-2 bg-white text-red-600 border-2 border-red-200 rounded-xl hover:bg-red-50 transition-colors font-semibold text-sm"
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         ))}

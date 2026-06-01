@@ -75,7 +75,7 @@ class ManagerService extends BaseService {
         pendingAppointments,
         completedAppointments,
         recentAppointments: recentAppointments.data,
-        message: 'Healthcare is now free - no revenue tracking'
+        message: 'Dashboard overview generated'
       };
 
       this.logger.info('Dashboard overview statistics fetched successfully', {
@@ -226,51 +226,6 @@ class ManagerService extends BaseService {
   }
 
   /**
-   * Generates financial summary report
-   * @param {Object} filters - Report filters
-   * @returns {Promise<Object>} Financial summary report data
-   */
-  async generateFinancialSummaryReport(filters = {}) {
-    try {
-      this.logger.info('Financial summary report requested - healthcare is free', { filters });
-
-      const { startDate, endDate } = filters;
-
-      const reportData = {
-        message: 'Healthcare is now free - no financial transactions to report',
-        transactions: [],
-        analytics: {
-          totalRevenue: 0,
-          totalTransactions: 0,
-          message: 'All healthcare services are provided free of charge'
-        },
-        summary: {
-          totalRecords: 0,
-          totalRevenue: 0,
-          dateRange: { startDate, endDate },
-          note: 'This system operates as a free healthcare service'
-        }
-      };
-
-      this.logger.info('Financial summary report returned - free healthcare system');
-
-      // Emit business event
-      this.emit('reportGenerated', {
-        type: 'financial-summary',
-        message: 'Free healthcare - no transactions',
-        filters
-      });
-
-      return reportData;
-    } catch (error) {
-      this.logger.error('Error generating financial summary report:', error);
-      throw this.handleServiceError(error);
-    }
-  }
-
-
-
-  /**
    * Generates analytics for patient visits
    * @param {Array} appointments - Array of appointments
    * @returns {Object} Visit analytics
@@ -377,12 +332,7 @@ class ManagerService extends BaseService {
     };
   }
 
-  /**
-   * Generates financial analytics
-   * @param {Array} payments - Array of payments
-   * @returns {Object} Financial analytics
-   * @private
-   */
+
 
 
   /**

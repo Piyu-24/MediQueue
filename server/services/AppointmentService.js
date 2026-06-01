@@ -17,12 +17,10 @@ class AppointmentService extends BaseService {
    * Creates an instance of AppointmentService
    * @param {Object} appointmentRepository - Appointment repository instance
    * @param {Object} userRepository - User repository instance
-   * @param {Object} paymentService - Payment service instance
    */
-  constructor(appointmentRepository, userRepository, paymentService) {
+  constructor(appointmentRepository, userRepository) {
     super(appointmentRepository, Logger.getLogger('AppointmentService'));
     this.userRepository = userRepository;
-    this.paymentService = paymentService;
   }
 
   /**
@@ -98,7 +96,7 @@ class AppointmentService extends BaseService {
   }
 
   /**
-   * Cancels an appointment with refund handling
+   * Cancels an appointment
    * @param {string} appointmentId - Appointment ID
    * @param {string} cancellationReason - Reason for cancellation
    * @param {string} cancelledBy - Who cancelled (patient/doctor/admin)

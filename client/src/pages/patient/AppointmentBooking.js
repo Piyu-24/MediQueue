@@ -8,7 +8,7 @@ import {
   ArrowRightIcon,
   ArrowLeftIcon,
 } from '@heroicons/react/24/outline';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { userAPI, appointmentAPI } from '../../services/api';
 import toast from 'react-hot-toast';
@@ -16,6 +16,7 @@ import toast from 'react-hot-toast';
 const AppointmentBooking = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   
   // State management
   const [loading, setLoading] = useState(false);
@@ -47,6 +48,19 @@ const AppointmentBooking = () => {
     checkExistingAppointments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const doctorId = params.get('doctorId');
+
+    if (!doctorId || doctors.length === 0) return;
+
+    const matchedDoctor = doctors.find((doc) => doc._id === doctorId);
+    if (matchedDoctor) {
+      setSelectedDoctor(matchedDoctor);
+      setSelectedStep(2);
+    }
+  }, [location.search, doctors]);
 
   // Cleanup reservation timer on unmount
   useEffect(() => {
@@ -236,12 +250,12 @@ const AppointmentBooking = () => {
         doctorSlots = generateTimeSlots();
       }
       
-      // Check which slots are already booked (including pending payments)
+      // Check which slots are already booked
       try {
         const response = await appointmentAPI.getAppointments({
           doctorId: selectedDoctor._id,
           date: selectedDate,
-          status: 'pending-payment,scheduled,confirmed'
+          status: 'scheduled,confirmed'
         });
         
         if (response.data.success) {
@@ -355,7 +369,7 @@ const AppointmentBooking = () => {
       const response = await appointmentAPI.createAppointment(appointmentData);
       
       if (response.data.success) {
-        toast.success('Appointment scheduled successfully! Healthcare is now free.');
+        toast.success('Appointment scheduled successfully.');
         
         setTimeout(() => {
           navigate('/dashboard?tab=overview', { replace: true });
@@ -490,10 +504,7 @@ const AppointmentBooking = () => {
                         <p className="text-blue-600 font-medium">{doctor.specialization}</p>
                         <p className="text-sm text-gray-600 mt-1">{doctor.experience || 'Experienced'}</p>
                         
-                        <div className="mt-3 flex items-center justify-between">
-                          <span className="text-green-600 font-semibold">
-                            Free Healthcare Service
-                          </span>
+                        <div className="mt-3 flex items-center justify-end">
                           <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">
                             Select Doctor
                           </button>
@@ -825,14 +836,6 @@ const AppointmentBooking = () => {
                     <p className="text-gray-900">{chiefComplaint}</p>
                   </div>
                 </div>
-              </div>
-
-              {/* Free Healthcare Note */}
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <p className="text-sm text-green-800">
-                  ✨ <strong>Free Healthcare Service:</strong> This appointment is completely free. 
-                  No payment required at any time.
-                </p>
               </div>
 
               {/* Action Buttons */}

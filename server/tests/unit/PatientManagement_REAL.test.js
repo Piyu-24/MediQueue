@@ -30,7 +30,7 @@ describe('PatientManagementService - REAL METHODS >80% Coverage', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new PatientManagementService();
+    service = PatientManagementService;
     
     // Set up environment
     process.env.JWT_SECRET = 'test-secret';

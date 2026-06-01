@@ -12,11 +12,9 @@ const generatedReportSchema = new mongoose.Schema({
     enum: [
       'patient-visit',
       'staff-utilization', 
-      'financial-summary',
       'comprehensive',
       'peak-hours',
-      'appointment-analytics',
-      'revenue-analysis'
+      'appointment-analytics'
     ]
   },
   description: {
@@ -36,7 +34,6 @@ const generatedReportSchema = new mongoose.Schema({
   filters: {
     department: String,
     staffRole: String,
-    paymentMethod: String,
     status: String
   },
   summary: {

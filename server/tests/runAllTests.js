@@ -19,7 +19,7 @@ const testSuites = [
   {
     name: 'Make an Appointment',
     file: 'tests/unit/MakeAppointment.test.js',
-    description: 'Tests appointment booking, slot management, payments'
+    description: 'Tests appointment booking and slot management'
   },
   {
     name: 'Patient Identification and Record Access',

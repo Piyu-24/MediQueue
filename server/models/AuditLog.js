@@ -14,7 +14,7 @@ const auditLogSchema = new mongoose.Schema({
   },
   userRole: {
     type: String,
-    enum: ['patient', 'doctor', 'staff', 'manager', 'admin'],
+    enum: ['patient', 'doctor', 'staff', 'manager', 'admin', 'receptionist'],
     required: [true, 'User role is required']
   },
   
@@ -42,7 +42,18 @@ const auditLogSchema = new mongoose.Schema({
       'UNBLOCK_SLOTS',
       'CREATE_PRESCRIPTION',
       'VIEW_PRESCRIPTIONS',
-      'SIGN_PRESCRIPTION'
+      'SIGN_PRESCRIPTION',
+      // OPD Queue actions
+      'QUEUE_CHECKIN',
+      'QUEUE_CALL',
+      'QUEUE_START',
+      'QUEUE_COMPLETE',
+      'QUEUE_NO_SHOW',
+      // Medical record actions
+      'CREATE_MEDICAL_RECORD',
+      // Doctor leave actions
+      'DOCTOR_LEAVE_SUBMITTED',
+      'PATIENT_NOTIFIED_LEAVE'
     ],
     required: [true, 'Action is required'],
     index: true
@@ -51,7 +62,7 @@ const auditLogSchema = new mongoose.Schema({
   // Resource Information
   resourceType: {
     type: String,
-    enum: ['User', 'MedicalRecord', 'Appointment', 'Schedule', 'Patient', 'DoctorSlot', 'Prescription'],
+    enum: ['User', 'MedicalRecord', 'Appointment', 'Schedule', 'Patient', 'DoctorSlot', 'Prescription', 'QueueEntry'],
     required: [true, 'Resource type is required']
   },
   resourceId: {

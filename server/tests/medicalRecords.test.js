@@ -3,19 +3,22 @@ const mongoose = require('mongoose');
 const app = require('../server');
 const User = require('../models/User');
 const MedicalRecord = require('../models/MedicalRecord');
+const TestDatabase = require('./testDatabase');
+const crypto = require('crypto');
 
 describe('UC03 - Medical Record Access', () => {
   let authToken, patientId, doctorToken, doctorId;
+  const testPassword = `Test${crypto.randomBytes(8).toString('hex')}A1!`;
 
   beforeAll(async () => {
-    await mongoose.connect(process.env.MONGODB_URI);
+    await TestDatabase.connect();
 
     // Create test patient
     const patient = await User.create({
       firstName: 'Charlie',
       lastName: 'Wilson',
       email: 'charlie@example.com',
-      password: 'Patient123!',
+      password: testPassword,
       role: 'patient',
       digitalHealthCardId: 'HC444444444',
       phone: '+94770004444',
@@ -31,7 +34,7 @@ describe('UC03 - Medical Record Access', () => {
       firstName: 'Dr. Sarah',
       lastName: 'Davis',
       email: 'sarah.davis@example.com',
-      password: 'Doctor123!',
+      password: testPassword,
       role: 'doctor',
       phone: '+94770005555',
       isActive: true,
@@ -39,12 +42,24 @@ describe('UC03 - Medical Record Access', () => {
     });
     doctorId = doctor._id;
 
+    // Create test receptionist
+    await User.create({
+      firstName: 'Front',
+      lastName: 'Desk',
+      email: 'receptionist@mediqueue.lk',
+      password: testPassword,
+      role: 'receptionist',
+      phone: '+94770006666',
+      isActive: true,
+      isEmailVerified: true
+    });
+
     // Get auth tokens
     const receptionistLogin = await request(app)
       .post('/api/auth/login')
       .send({
         email: 'receptionist@mediqueue.lk',
-        password: 'Receptionist123!'
+        password: testPassword
       });
     authToken = receptionistLogin.body.token;
 
@@ -52,7 +67,7 @@ describe('UC03 - Medical Record Access', () => {
       .post('/api/auth/login')
       .send({
         email: 'sarah.davis@example.com',
-        password: 'Doctor123!'
+        password: testPassword
       });
     doctorToken = doctorLogin.body.token;
 
@@ -93,7 +108,8 @@ describe('UC03 - Medical Record Access', () => {
   });
 
   afterAll(async () => {
-    await mongoose.connection.close();
+    await TestDatabase.cleanup();
+    await TestDatabase.disconnect();
   });
 
   describe('GET /api/medical-records/patient/:patientId - Record Access (MS8-MS9)', () => {
@@ -164,7 +180,7 @@ describe('UC03 - Medical Record Access', () => {
         firstName: 'David',
         lastName: 'Brown',
         email: 'david@example.com',
-        password: 'Patient123!',
+        password: testPassword,
         role: 'patient',
         digitalHealthCardId: 'HC555555555',
         isActive: true,
@@ -176,7 +192,7 @@ describe('UC03 - Medical Record Access', () => {
         .post('/api/auth/login')
         .send({
           email: 'charlie@example.com',
-          password: 'Patient123!'
+          password: testPassword
         });
 
       // Act - Patient trying to access another patient's records
@@ -341,7 +357,7 @@ describe('UC03 - Medical Record Access', () => {
   describe('Exception Flows', () => {
     test('UC03-Exception3: System database error - access temporarily unavailable', async () => {
       // Arrange - Simulate database disconnection
-      await mongoose.connection.close();
+      await TestDatabase.disconnect();
 
       // Act
       const response = await request(app)
@@ -353,7 +369,7 @@ describe('UC03 - Medical Record Access', () => {
       expect(response.body.success).toBe(false);
 
       // Reconnect for other tests
-      await mongoose.connect(process.env.MONGODB_URI);
+      await TestDatabase.connect();
     });
 
     test('UC03-Exception3: Invalid patient ID returns error', async () => {

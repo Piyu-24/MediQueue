@@ -69,38 +69,6 @@ router.post('/staff-utilization', [
   }
 });
 
-// @desc    Generate Financial Summary Report
-// @route   POST /api/report-generation/financial-summary
-// @access  Private (Manager, Staff)
-router.post('/financial-summary', [
-  auth,
-  authorize('manager', 'staff'),
-  body('startDate').isISO8601().withMessage('Valid start date is required'),
-  body('endDate').isISO8601().withMessage('Valid end date is required'),
-  body('paymentMethod').optional().isString(),
-  body('status').optional().isIn(['pending', 'completed', 'failed', 'refunded'])
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
-    req.query = req.body;
-    await ReportGenerationController.generateFinancialSummaryReport(req, res);
-  } catch (error) {
-    console.error('Error in financial summary report route:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
-  }
-});
-
 // @desc    Generate Comprehensive Report
 // @route   POST /api/report-generation/comprehensive
 // @access  Private (Manager)
@@ -137,7 +105,7 @@ router.post('/comprehensive', [
 router.post('/generate-and-save', [
   auth,
   authorize('manager', 'staff'),
-  body('reportType').isIn(['patient-visits', 'staff-utilization', 'financial-summary', 'comprehensive']).withMessage('Valid report type is required'),
+  body('reportType').isIn(['patient-visits', 'staff-utilization', 'comprehensive']).withMessage('Valid report type is required'),
   body('title').notEmpty().withMessage('Report title is required'),
   body('startDate').isISO8601().withMessage('Valid start date is required'),
   body('endDate').isISO8601().withMessage('Valid end date is required'),
@@ -168,9 +136,6 @@ router.post('/generate-and-save', [
         break;
       case 'staff-utilization':
         await ReportGenerationController.generateStaffUtilizationReport(tempReq, tempRes);
-        break;
-      case 'financial-summary':
-        await ReportGenerationController.generateFinancialSummaryReport(tempReq, tempRes);
         break;
       case 'comprehensive':
         await ReportGenerationController.generateComprehensiveReport(tempReq, tempRes);
@@ -263,16 +228,9 @@ router.get('/types', auth, authorize('manager', 'staff'), (req, res) => {
       estimatedTime: '3-7 minutes'
     },
     {
-      id: 'financial-summary',
-      name: 'Financial Summary Report',
-      description: 'Financial performance analysis, revenue tracking, and payment method breakdown',
-      fields: ['startDate', 'endDate', 'paymentMethod', 'status'],
-      estimatedTime: '2-4 minutes'
-    },
-    {
       id: 'comprehensive',
       name: 'Comprehensive Report',
-      description: 'Complete overview combining patient visits, staff utilization, and financial data',
+      description: 'Complete overview combining patient visits and staff utilization data',
       fields: ['startDate', 'endDate'],
       estimatedTime: '5-10 minutes'
     }

@@ -371,7 +371,8 @@ class DoctorService {
   async getPatientMedicalHistory(patientId, doctorId, requestInfo) {
     try {
       // Validate patient exists
-      const patient = await User.findById(patientId).select('firstName lastName digitalHealthCardId dateOfBirth gender bloodType allergies chronicConditions');
+      const patient = await User.findById(patientId)
+        .select('firstName lastName digitalHealthCardId dateOfBirth gender bloodType allergies chronicConditions role');
       
       if (!patient || patient.role !== 'patient') {
         throw new Error('Patient not found');
@@ -452,13 +453,24 @@ class DoctorService {
    * User Story 4: Add new treatment notes during/after consultation
    */
   async addTreatmentNote(patientId, treatmentData, doctorId, requestInfo) {
-    const session = await mongoose.startSession();
+    let session = null;
+    let useTransaction = false;
     
     try {
-      await session.startTransaction();
+      try {
+        session = await mongoose.startSession();
+        session.startTransaction();
+        useTransaction = true;
+      } catch (sessionError) {
+        if (session) {
+          await session.endSession();
+        }
+        session = null;
+      }
 
       // Validate patient exists
-      const patient = await User.findById(patientId).session(session);
+      const patientQuery = User.findById(patientId);
+      const patient = useTransaction ? await patientQuery.session(session) : await patientQuery;
       if (!patient || patient.role !== 'patient') {
         throw new Error('Patient not found');
       }
@@ -479,7 +491,11 @@ class DoctorService {
         tags: treatmentData.tags || ['treatment-note']
       });
 
-      await treatmentNote.save({ session });
+      if (useTransaction) {
+        await treatmentNote.save({ session });
+      } else {
+        await treatmentNote.save();
+      }
 
       // Log the creation with detailed change tracking
       await AuditLog.createLog({
@@ -503,7 +519,9 @@ class DoctorService {
         }
       });
 
-      await session.commitTransaction();
+      if (useTransaction) {
+        await session.commitTransaction();
+      }
 
       return {
         success: true,
@@ -512,7 +530,9 @@ class DoctorService {
       };
 
     } catch (error) {
-      await session.abortTransaction();
+      if (useTransaction) {
+        await session.abortTransaction();
+      }
       
       // Log failed creation
       await AuditLog.createLog({
@@ -531,7 +551,9 @@ class DoctorService {
 
       throw new Error(`Failed to add treatment note: ${error.message}`);
     } finally {
-      await session.endSession();
+      if (session) {
+        await session.endSession();
+      }
     }
   }
 
@@ -540,13 +562,24 @@ class DoctorService {
    * User Story 5: Update patient records with secure logging
    */
   async updateTreatmentNote(recordId, updateData, doctorId, requestInfo) {
-    const session = await mongoose.startSession();
+    let session = null;
+    let useTransaction = false;
     
     try {
-      await session.startTransaction();
+      try {
+        session = await mongoose.startSession();
+        session.startTransaction();
+        useTransaction = true;
+      } catch (sessionError) {
+        if (session) {
+          await session.endSession();
+        }
+        session = null;
+      }
 
       // Get original record for change tracking
-      const originalRecord = await MedicalRecord.findById(recordId).session(session);
+      const originalRecordQuery = MedicalRecord.findById(recordId);
+      const originalRecord = useTransaction ? await originalRecordQuery.session(session) : await originalRecordQuery;
       if (!originalRecord) {
         throw new Error('Medical record not found');
       }
@@ -560,17 +593,21 @@ class DoctorService {
       await originalRecord.createVersion(doctorId, 'Updated treatment note');
 
       // Update the record
+      const updateOptions = {
+        new: true,
+        runValidators: true
+      };
+      if (useTransaction) {
+        updateOptions.session = session;
+      }
+
       const updatedRecord = await MedicalRecord.findByIdAndUpdate(
         recordId,
         {
           ...updateData,
           updatedAt: new Date()
         },
-        { 
-          new: true, 
-          session,
-          runValidators: true 
-        }
+        updateOptions
       );
 
       // Log the update with detailed change tracking
@@ -595,7 +632,9 @@ class DoctorService {
         }
       });
 
-      await session.commitTransaction();
+      if (useTransaction) {
+        await session.commitTransaction();
+      }
 
       return {
         success: true,
@@ -604,7 +643,9 @@ class DoctorService {
       };
 
     } catch (error) {
-      await session.abortTransaction();
+      if (useTransaction) {
+        await session.abortTransaction();
+      }
       
       // Log failed update
       await AuditLog.createLog({
@@ -622,7 +663,9 @@ class DoctorService {
 
       throw new Error(`Failed to update treatment note: ${error.message}`);
     } finally {
-      await session.endSession();
+      if (session) {
+        await session.endSession();
+      }
     }
   }
 
@@ -632,7 +675,8 @@ class DoctorService {
    */
   async getDoctorSchedule(doctorId, requestInfo) {
     try {
-      const doctor = await User.findById(doctorId).select('availability schedule firstName lastName');
+      const doctor = await User.findById(doctorId)
+        .select('availability schedule firstName lastName role');
       
       if (!doctor || doctor.role !== 'doctor') {
         throw new Error('Doctor not found');

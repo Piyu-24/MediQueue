@@ -6,8 +6,6 @@
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
 const DoctorSlot = require('../models/DoctorSlot');
-const Payment = require('../models/Payment');
-const mongoose = require('mongoose');
 
 class AppointmentBookingService {
 
@@ -343,16 +341,6 @@ class AppointmentBookingService {
     }
   }
 
-  /**
-   * Process appointment payment - REMOVED (Healthcare is now free)
-   */
-  async processPayment(appointmentId, paymentData) {
-    return {
-      success: true,
-      message: 'Payment processing is no longer required - Healthcare is free for all patients'
-    };
-  }
-
   // ============================================================================
   // VALIDATION HELPER METHODS (Easy to test for high coverage)
   // ============================================================================
@@ -391,47 +379,6 @@ class AppointmentBookingService {
   }
 
   /**
-   * Validate payment data
-   */
-  validatePaymentData(data) {
-    if (!data) {
-      return { isValid: false, message: 'Payment data is required' };
-    }
-
-    const { amount, paymentMethod } = data;
-
-    if (!amount || !paymentMethod) {
-      return { isValid: false, message: 'Amount and payment method are required' };
-    }
-
-    if (amount <= 0) {
-      return { isValid: false, message: 'Amount must be greater than zero' };
-    }
-
-    if (amount > 10000) {
-      return { isValid: false, message: 'Amount exceeds maximum limit' };
-    }
-
-    if (!['card', 'cash', 'insurance'].includes(paymentMethod)) {
-      return { isValid: false, message: 'Invalid payment method' };
-    }
-
-    // Validate card details if card payment
-    if (paymentMethod === 'card') {
-      const { cardDetails } = data;
-      if (!cardDetails || !cardDetails.cardNumber || !cardDetails.expiryDate || !cardDetails.cvv) {
-        return { isValid: false, message: 'Complete card details are required' };
-      }
-
-      if (!this.isValidCardNumber(cardDetails.cardNumber)) {
-        return { isValid: false, message: 'Invalid card number' };
-      }
-    }
-
-    return { isValid: true };
-  }
-
-  /**
    * Validate time format (HH:MM)
    */
   isValidTimeFormat(time) {
@@ -447,38 +394,6 @@ class AppointmentBookingService {
   isValidStatus(status) {
     const validStatuses = ['scheduled', 'completed', 'cancelled', 'rescheduled', 'no-show'];
     return validStatuses.includes(status);
-  }
-
-  /**
-   * Validate card number (simple Luhn algorithm)
-   */
-  isValidCardNumber(cardNumber) {
-    if (!cardNumber || typeof cardNumber !== 'string') return false;
-    
-    const cleanNumber = cardNumber.replace(/\s/g, '');
-    if (!/^\d{13,19}$/.test(cleanNumber)) return false;
-    
-    // Simple validation - in real app would use proper Luhn algorithm
-    return cleanNumber.length >= 13 && cleanNumber.length <= 19;
-  }
-
-  /**
-   * Calculate appointment fee based on duration and doctor
-   */
-  calculateAppointmentFee(duration, doctorSpecialization = 'general') {
-    const baseFee = 50;
-    const durationMultiplier = duration / 30; // 30 min base
-    
-    const specializationFees = {
-      'general': 1.0,
-      'cardiology': 1.5,
-      'neurology': 1.8,
-      'surgery': 2.0,
-      'pediatrics': 1.2
-    };
-
-    const multiplier = specializationFees[doctorSpecialization] || 1.0;
-    return Math.round(baseFee * durationMultiplier * multiplier);
   }
 
   // ============================================================================
@@ -539,33 +454,6 @@ class AppointmentBookingService {
     return `${prefix}-${timestamp}-${idSuffix}`;
   }
 
-  /**
-   * Process card payment
-   */
-  async _processCardPayment(amount, cardDetails) {
-    // Mock payment processing
-    if (cardDetails.cardNumber === '4000000000000002') {
-      return {
-        success: false,
-        message: 'Card declined'
-      };
-    }
-
-    return {
-      success: true,
-      transactionId: `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-    };
-  }
-
-  /**
-   * Process cash payment
-   */
-  async _processCashPayment(amount) {
-    return {
-      success: true,
-      transactionId: `CASH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-    };
-  }
 }
 
 module.exports = new AppointmentBookingService();

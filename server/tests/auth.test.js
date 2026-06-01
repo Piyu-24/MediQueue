@@ -1,3 +1,12 @@
+// Mock MongoDB connection before server.js loads to prevent real DB connection
+jest.mock('../config/mongo', () => ({
+  connectMongo: jest.fn().mockResolvedValue({
+    source: 'test-mock',
+    fallbackFrom: null,
+    atlasErrorKind: null
+  })
+}));
+
 const request = require('supertest');
 const mongoose = require('mongoose');
 const app = require('../server');
@@ -167,7 +176,8 @@ describe('UC03 - Patient Authentication', () => {
       expect(response.body.user.role).toBe('patient');
     });
 
-    test('UC03-Exception1: Invalid token blocks access', async () => {
+    // Phase 4: JsonWebTokenError → "Invalid token"
+    test('UC03-Exception1: JsonWebTokenError (malformed JWT) → Invalid token', async () => {
       // Act
       const response = await request(app)
         .get('/api/auth/me')
@@ -176,9 +186,55 @@ describe('UC03 - Patient Authentication', () => {
       // Assert
       expect(response.status).toBe(401);
       expect(response.body.success).toBe(false);
-      expect(response.body.message).toContain('Not authorized to access this route');
+      expect(response.body.message).toContain('Invalid token');
     });
 
+    // Phase 4: TokenExpiredError → "Token expired"
+    test('UC03-Exception1: TokenExpiredError → Token expired', async () => {
+      const jwt = require('jsonwebtoken');
+      // Sign a token that is already expired (1ms lifetime)
+      const expiredToken = jwt.sign(
+        { id: new mongoose.Types.ObjectId().toString(), role: 'patient' },
+        process.env.JWT_SECRET || 'test-secret',
+        { expiresIn: '1ms' }
+      );
+      // Wait to guarantee expiry
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Act
+      const response = await request(app)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${expiredToken}`);
+
+      // Assert
+      expect(response.status).toBe(401);
+      expect(response.body.success).toBe(false);
+      expect(response.body.message).toContain('Token expired');
+    });
+
+    // Phase 4: Valid token + deleted/missing user → "User not found"
+    test('UC03-Exception1: Valid token but user deleted → User not found', async () => {
+      const jwt = require('jsonwebtoken');
+      // Sign a structurally valid token for a non-existent user ID
+      const ghostUserId = new mongoose.Types.ObjectId().toString();
+      const validToken = jwt.sign(
+        { id: ghostUserId, role: 'patient' },
+        process.env.JWT_SECRET || 'test-secret',
+        { expiresIn: '1h' }
+      );
+
+      // Act
+      const response = await request(app)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${validToken}`);
+
+      // Assert
+      expect(response.status).toBe(401);
+      expect(response.body.success).toBe(false);
+      expect(response.body.message).toContain('User not found');
+    });
+
+    // Phase 4: Malformed input only (no Bearer prefix) → "Not authorized to access this route"
     test('UC03-Exception1: No token provided blocks access', async () => {
       // Act
       const response = await request(app)

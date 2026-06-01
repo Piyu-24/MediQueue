@@ -19,17 +19,15 @@ const ReportGenerationController = require('../../controllers/ReportGenerationCo
 const ManagerController = require('../../controllers/ManagerController');
 const User = require('../../models/User');
 const Appointment = require('../../models/Appointment');
-const Payment = require('../../models/Payment');
 const GeneratedReport = require('../../models/GeneratedReport');
 
 // Mock dependencies
 jest.mock('../../models/User');
 jest.mock('../../models/Appointment');
-jest.mock('../../models/Payment');
 jest.mock('../../models/GeneratedReport');
 
 describe('UC04 - Generate Reports', () => {
-  let mockManager, mockDoctor, mockPatient, mockAppointments, mockPayments;
+  let mockManager, mockDoctor, mockPatient, mockAppointments;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -79,16 +77,6 @@ describe('UC04 - Generate Reports', () => {
       }
     ];
 
-    mockPayments = [
-      {
-        _id: 'pay1',
-        appointment: 'apt1',
-        amount: 150,
-        paymentMethod: 'card',
-        status: 'completed',
-        createdAt: new Date('2024-01-15')
-      }
-    ];
   });
 
   describe('Patient Visit Reports', () => {
@@ -324,72 +312,6 @@ describe('UC04 - Generate Reports', () => {
     });
   });
 
-  describe('Financial Summary Reports', () => {
-    describe('Positive Cases', () => {
-      test('should generate financial summary report', async () => {
-        const mockReq = {
-          query: { startDate: '2024-01-01', endDate: '2024-01-31' },
-          user: mockManager
-        };
-        const mockRes = {
-          status: jest.fn().mockReturnThis(),
-          json: jest.fn()
-        };
-
-        Payment.aggregate.mockResolvedValue([
-          {
-            _id: 'card',
-            totalAmount: 1200,
-            count: 8
-          },
-          {
-            _id: 'cash',
-            totalAmount: 300,
-            count: 2
-          }
-        ]);
-
-        await ManagerController.getFinancialSummaryReport(mockReq, mockRes);
-
-        expect(mockRes.status).toHaveBeenCalledWith(200);
-        expect(mockRes.json).toHaveBeenCalledWith({
-          success: true,
-          report: expect.objectContaining({
-            totalRevenue: 1500,
-            paymentMethodBreakdown: expect.any(Array),
-            averageTransactionValue: 150
-          })
-        });
-      });
-    });
-
-    describe('Negative Cases', () => {
-      test('should handle no financial data', async () => {
-        const mockReq = {
-          query: { startDate: '2024-01-01', endDate: '2024-01-31' },
-          user: mockManager
-        };
-        const mockRes = {
-          status: jest.fn().mockReturnThis(),
-          json: jest.fn()
-        };
-
-        Payment.aggregate.mockResolvedValue([]);
-
-        await ManagerController.getFinancialSummaryReport(mockReq, mockRes);
-
-        expect(mockRes.status).toHaveBeenCalledWith(200);
-        expect(mockRes.json).toHaveBeenCalledWith({
-          success: true,
-          report: expect.objectContaining({
-            totalRevenue: 0,
-            message: 'No financial data found for the specified period'
-          })
-        });
-      });
-    });
-  });
-
   describe('Peak Hours Analytics', () => {
     describe('Positive Cases', () => {
       test('should generate peak hours analytics', async () => {
@@ -466,8 +388,8 @@ describe('UC04 - Generate Reports', () => {
 
         const mockReport = {
           _id: 'report123',
-          reportType: 'financial-summary',
-          data: { totalRevenue: 50000 },
+          reportType: 'patient-visits',
+          data: { totalVisits: 100 },
           generatedBy: mockManager._id
         };
 
@@ -540,22 +462,6 @@ describe('UC04 - Generate Reports', () => {
         expect(utilizationRate).toBe(50); // 2 completed out of 4 total
       });
 
-      test('should correctly calculate revenue metrics', async () => {
-        const payments = [
-          { amount: 100, paymentMethod: 'card' },
-          { amount: 150, paymentMethod: 'card' },
-          { amount: 75, paymentMethod: 'cash' }
-        ];
-
-        const metrics = ReportGenerationController.calculateRevenueMetrics(payments);
-
-        expect(metrics.totalRevenue).toBe(325);
-        expect(metrics.averageTransaction).toBe(108.33);
-        expect(metrics.paymentMethodBreakdown).toEqual({
-          card: { total: 250, count: 2 },
-          cash: { total: 75, count: 1 }
-        });
-      });
     });
 
     describe('Edge Cases', () => {
@@ -563,9 +469,6 @@ describe('UC04 - Generate Reports', () => {
         const utilizationRate = ReportGenerationController.calculateUtilizationRate([]);
         expect(utilizationRate).toBe(0);
 
-        const metrics = ReportGenerationController.calculateRevenueMetrics([]);
-        expect(metrics.totalRevenue).toBe(0);
-        expect(metrics.averageTransaction).toBe(0);
       });
 
       test('should handle division by zero in calculations', () => {

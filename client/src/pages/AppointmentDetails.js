@@ -157,9 +157,6 @@ const AppointmentDetails = () => {
                 <ExclamationTriangleIcon className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <h3 className="text-red-900 font-semibold mb-1">This appointment has been cancelled</h3>
-                  <p className="text-red-700 text-sm">
-                    This is a free healthcare service. No charges apply.
-                  </p>
                 </div>
               </div>
             </div>
@@ -306,7 +303,7 @@ const AppointmentDetails = () => {
               <h3 className="text-lg font-bold text-gray-900 mb-4">Actions</h3>
               
               <div className="space-y-3">
-                {['scheduled', 'confirmed', 'pending-payment'].includes(appointment.status) && 
+                {['scheduled', 'confirmed'].includes(appointment.status) && 
                  user.role === 'patient' && (
                   <button
                     onClick={handleCancelAppointment}

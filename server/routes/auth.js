@@ -217,7 +217,7 @@ router.post('/login', [
     if (!user.isActive) {
       return res.status(401).json({
         success: false,
-        message: 'Account has been deactivated. Please contact support.'
+        message: 'Account is inactive'
       });
     }
 
@@ -293,12 +293,10 @@ router.post('/login', [
     res.json({
       success: true,
       message: 'Login successful',
-      data: {
-        user,
-        token,
-        refreshToken,
-        requiresTwoFA: user.twoFactorEnabled && !twoFACode
-      }
+      user,
+      token,
+      refreshToken,
+      requiresTwoFA: user.twoFactorEnabled && !twoFACode
     });
 
   } catch (error) {
@@ -548,7 +546,7 @@ router.get('/me', auth, async (req, res) => {
     
     res.json({
       success: true,
-      data: { user }
+      user
     });
   } catch (error) {
     console.error('Get me error:', error);

@@ -11,6 +11,9 @@ const { ConflictError, NotFoundError } = require('../../../utils/errors');
 jest.mock('../../../models/Appointment');
 jest.mock('../../../utils/Logger');
 
+// Hoist mocked model so all describe blocks can access it
+const Appointment = require('../../../models/Appointment');
+
 describe('AppointmentRepository - Data Layer Tests', () => {
   let appointmentRepository;
   let mockAppointment;
@@ -18,6 +21,16 @@ describe('AppointmentRepository - Data Layer Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     
+    // Setup Logger mock to prevent 'Cannot read properties of undefined'
+    const Logger = require('../../../utils/Logger');
+    const mockLogger = {
+      info: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn()
+    };
+    Logger.getLogger = jest.fn().mockReturnValue(mockLogger);
+
     // Mock Appointment constructor
     mockAppointment = {
       save: jest.fn(),
@@ -25,7 +38,6 @@ describe('AppointmentRepository - Data Layer Tests', () => {
       exec: jest.fn()
     };
     
-    const Appointment = require('../../../models/Appointment');
     Appointment.mockImplementation(() => mockAppointment);
     Appointment.findById = jest.fn();
     Appointment.find = jest.fn();
@@ -33,6 +45,8 @@ describe('AppointmentRepository - Data Layer Tests', () => {
     Appointment.findByIdAndUpdate = jest.fn();
     Appointment.findByIdAndDelete = jest.fn();
     Appointment.countDocuments = jest.fn();
+    Appointment.aggregate = jest.fn();
+    Appointment.prototype.save = jest.fn();
     
     appointmentRepository = new AppointmentRepository();
   });

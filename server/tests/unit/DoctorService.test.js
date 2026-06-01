@@ -27,7 +27,7 @@ jest.mock('../../models/Appointment', () => ({
 }));
 
 jest.mock('../../models/AuditLog', () => ({
-  create: jest.fn()
+  createLog: jest.fn()
 }));
 
 jest.mock('mongoose', () => ({
@@ -84,14 +84,14 @@ describe('DoctorService - >80% Coverage Tests', () => {
         exec: jest.fn().mockResolvedValue(mockPatients)
       });
       User.countDocuments.mockResolvedValue(1);
-      AuditLog.create.mockResolvedValue({});
+      AuditLog.createLog.mockResolvedValue({});
 
       const result = await DoctorService.searchPatients('John', {}, 'doctor123', mockRequestInfo);
 
       expect(result.success).toBe(true);
       expect(result.patients).toEqual(mockPatients);
       expect(User.find).toHaveBeenCalled();
-      expect(AuditLog.create).toHaveBeenCalled();
+      expect(AuditLog.createLog).toHaveBeenCalled();
     });
 
     test('should search patients by health card ID', async () => {
@@ -103,7 +103,7 @@ describe('DoctorService - >80% Coverage Tests', () => {
         exec: jest.fn().mockResolvedValue([mockPatient])
       });
       User.countDocuments.mockResolvedValue(1);
-      AuditLog.create.mockResolvedValue({});
+      AuditLog.createLog.mockResolvedValue({});
 
       const result = await DoctorService.searchPatients('HC-123456', {}, 'doctor123', mockRequestInfo);
 
@@ -122,7 +122,7 @@ describe('DoctorService - >80% Coverage Tests', () => {
         exec: jest.fn().mockResolvedValue([mockPatient])
       });
       User.countDocuments.mockResolvedValue(1);
-      AuditLog.create.mockResolvedValue({});
+      AuditLog.createLog.mockResolvedValue({});
 
       const result = await DoctorService.searchPatients('555-0100', {}, 'doctor123', mockRequestInfo);
 
@@ -141,7 +141,7 @@ describe('DoctorService - >80% Coverage Tests', () => {
         exec: jest.fn().mockResolvedValue([mockPatient])
       });
       User.countDocuments.mockResolvedValue(1);
-      AuditLog.create.mockResolvedValue({});
+      AuditLog.createLog.mockResolvedValue({});
 
       const result = await DoctorService.searchPatients('john@test.com', {}, 'doctor123', mockRequestInfo);
 
@@ -172,14 +172,14 @@ describe('DoctorService - >80% Coverage Tests', () => {
     test('should get recent patients successfully', async () => {
       const mockAggregateResult = [{ _id: mockPatient._id, patient: mockPatient, lastVisit: new Date() }];
       MedicalRecord.aggregate.mockResolvedValue(mockAggregateResult);
-      AuditLog.create.mockResolvedValue({});
+      AuditLog.createLog.mockResolvedValue({});
 
       const result = await DoctorService.getRecentPatients('doctor123', 10, mockRequestInfo);
 
       expect(result.success).toBe(true);
       expect(result.patients).toBeDefined();
       expect(MedicalRecord.aggregate).toHaveBeenCalled();
-      expect(AuditLog.create).toHaveBeenCalled();
+      expect(AuditLog.createLog).toHaveBeenCalled();
     });
 
     test('should handle database errors', async () => {
@@ -206,7 +206,7 @@ describe('DoctorService - >80% Coverage Tests', () => {
         sort: jest.fn().mockReturnThis(),
         exec: jest.fn().mockResolvedValue([])
       });
-      AuditLog.create.mockResolvedValue({});
+      AuditLog.createLog.mockResolvedValue({});
 
       const result = await DoctorService.getPatientMedicalHistory(
         '507f1f77bcf86cd799439011',
@@ -217,7 +217,7 @@ describe('DoctorService - >80% Coverage Tests', () => {
       expect(result.success).toBe(true);
       expect(result.patient).toEqual(mockPatient);
       expect(User.findById).toHaveBeenCalledWith('507f1f77bcf86cd799439011');
-      expect(AuditLog.create).toHaveBeenCalled();
+      expect(AuditLog.createLog).toHaveBeenCalled();
     });
 
     test('should handle patient not found', async () => {
@@ -257,7 +257,7 @@ describe('DoctorService - >80% Coverage Tests', () => {
         _id: '507f1f77bcf86cd799439020',
         save: jest.fn().mockResolvedValue(true)
       });
-      AuditLog.create.mockResolvedValue({});
+      AuditLog.createLog.mockResolvedValue({});
 
       const result = await DoctorService.addTreatmentNote(
         '507f1f77bcf86cd799439011',
@@ -269,7 +269,7 @@ describe('DoctorService - >80% Coverage Tests', () => {
       expect(result.success).toBe(true);
       expect(User.findById).toHaveBeenCalledWith('507f1f77bcf86cd799439011');
       expect(MedicalRecord.create).toHaveBeenCalled();
-      expect(AuditLog.create).toHaveBeenCalled();
+      expect(AuditLog.createLog).toHaveBeenCalled();
     });
 
     test('should handle patient not found', async () => {
@@ -298,7 +298,7 @@ describe('DoctorService - >80% Coverage Tests', () => {
       };
 
       MedicalRecord.findById.mockResolvedValue(mockRecord);
-      AuditLog.create.mockResolvedValue({});
+      AuditLog.createLog.mockResolvedValue({});
 
       const result = await DoctorService.updateTreatmentNote(
         '507f1f77bcf86cd799439020',
@@ -310,7 +310,7 @@ describe('DoctorService - >80% Coverage Tests', () => {
       expect(result.success).toBe(true);
       expect(MedicalRecord.findById).toHaveBeenCalledWith('507f1f77bcf86cd799439020');
       expect(mockRecord.save).toHaveBeenCalled();
-      expect(AuditLog.create).toHaveBeenCalled();
+      expect(AuditLog.createLog).toHaveBeenCalled();
     });
 
     test('should handle record not found', async () => {
@@ -337,13 +337,13 @@ describe('DoctorService - >80% Coverage Tests', () => {
         sort: jest.fn().mockReturnThis(),
         exec: jest.fn().mockResolvedValue([])
       });
-      AuditLog.create.mockResolvedValue({});
+      AuditLog.createLog.mockResolvedValue({});
 
       const result = await DoctorService.getDoctorSchedule('doctor123', mockRequestInfo);
 
       expect(result.success).toBe(true);
       expect(User.findById).toHaveBeenCalledWith('doctor123');
-      expect(AuditLog.create).toHaveBeenCalled();
+      expect(AuditLog.createLog).toHaveBeenCalled();
     });
   });
 
@@ -353,13 +353,13 @@ describe('DoctorService - >80% Coverage Tests', () => {
       const mockDoctor = { _id: 'doctor123', availability: {}, save: jest.fn().mockResolvedValue(true) };
       
       User.findById.mockResolvedValue(mockDoctor);
-      AuditLog.create.mockResolvedValue({});
+      AuditLog.createLog.mockResolvedValue({});
 
       const result = await DoctorService.updateAvailability('doctor123', mockAvailabilityData, mockRequestInfo);
 
       expect(result.success).toBe(true);
       expect(User.findById).toHaveBeenCalledWith('doctor123');
-      expect(AuditLog.create).toHaveBeenCalled();
+      expect(AuditLog.createLog).toHaveBeenCalled();
     });
   });
 });

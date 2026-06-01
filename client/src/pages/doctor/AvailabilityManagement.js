@@ -7,7 +7,7 @@ import {
   CheckCircleIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
-import { userAPI } from '../../services/api';
+import { userAPI, leaveAPI } from '../../services/api';
 import toast from 'react-hot-toast';
 
 const AvailabilityManagement = () => {
@@ -18,10 +18,24 @@ const AvailabilityManagement = () => {
   const [selectedDate, setSelectedDate] = useState('');
   const [timeSlots, setTimeSlots] = useState([]);
   const [newSlot, setNewSlot] = useState({ start: '', end: '' });
+  const [leaveForm, setLeaveForm] = useState({
+    startDate: '',
+    endDate: '',
+    leaveType: 'FULL_DAY',
+    startTime: '',
+    endTime: '',
+    reason: 'PERSONAL_TIME',
+    description: ''
+  });
+  const [leaveEntries, setLeaveEntries] = useState([]);
+  const [leaveLoading, setLeaveLoading] = useState(false);
+  const [leaveSubmitting, setLeaveSubmitting] = useState(false);
+  const [leavePreview, setLeavePreview] = useState(null);
 
   useEffect(() => {
     if (user) {
       loadAvailability();
+      loadLeaves();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
@@ -30,6 +44,21 @@ const AvailabilityManagement = () => {
     // Load from user's availability field
     if (user?.availability) {
       setAvailability(user.availability);
+    }
+  };
+
+  const loadLeaves = async () => {
+    try {
+      setLeaveLoading(true);
+      const response = await leaveAPI.getLeaves();
+      if (response.data.success) {
+        setLeaveEntries(response.data.data.leaves || []);
+      }
+    } catch (error) {
+      console.error('Error loading leaves:', error);
+      toast.error('Failed to load leave entries');
+    } finally {
+      setLeaveLoading(false);
     }
   };
 
@@ -133,6 +162,81 @@ const AvailabilityManagement = () => {
       toast.error('Failed to save availability');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePreviewLeave = async () => {
+    if (!leaveForm.startDate) {
+      toast.error('Please select a start date');
+      return;
+    }
+
+    if (leaveForm.leaveType === 'PARTIAL_DAY' && (!leaveForm.startTime || !leaveForm.endTime)) {
+      toast.error('Please select both start and end time');
+      return;
+    }
+
+    try {
+      setLeaveSubmitting(true);
+      const response = await leaveAPI.submitLeave(leaveForm, { dryRun: true });
+      if (response.data.success) {
+        setLeavePreview(response.data.data);
+      }
+    } catch (error) {
+      console.error('Error previewing leave:', error);
+      toast.error('Failed to preview leave impact');
+    } finally {
+      setLeaveSubmitting(false);
+    }
+  };
+
+  const handleSubmitLeave = async () => {
+    if (!leaveForm.startDate) {
+      toast.error('Please select a start date');
+      return;
+    }
+
+    if (leaveForm.leaveType === 'PARTIAL_DAY' && (!leaveForm.startTime || !leaveForm.endTime)) {
+      toast.error('Please select both start and end time');
+      return;
+    }
+
+    try {
+      setLeaveSubmitting(true);
+      const response = await leaveAPI.submitLeave(leaveForm);
+      if (response.data.success) {
+        toast.success(`Leave submitted. ${response.data.data.affectedCount} appointment(s) affected.`);
+        setLeaveForm({
+          startDate: '',
+          endDate: '',
+          leaveType: 'FULL_DAY',
+          startTime: '',
+          endTime: '',
+          reason: 'PERSONAL_TIME',
+          description: ''
+        });
+        setLeavePreview(null);
+        loadLeaves();
+      }
+    } catch (error) {
+      console.error('Error submitting leave:', error);
+      toast.error('Failed to submit leave');
+    } finally {
+      setLeaveSubmitting(false);
+    }
+  };
+
+  const handleCancelLeave = async (leaveId) => {
+    try {
+      setLeaveSubmitting(true);
+      await leaveAPI.cancelLeave(leaveId);
+      toast.success('Leave cancelled successfully');
+      loadLeaves();
+    } catch (error) {
+      console.error('Error cancelling leave:', error);
+      toast.error('Failed to cancel leave');
+    } finally {
+      setLeaveSubmitting(false);
     }
   };
 
@@ -399,6 +503,170 @@ const AvailabilityManagement = () => {
               <p className="text-sm text-gray-600 mt-1">2 PM - 8 PM</p>
               <p className="text-xs text-blue-600 mt-1">24 slots (15-min each)</p>
             </button>
+          </div>
+        </div>
+
+        {/* Doctor Leave / Unavailability */}
+        <div className="mt-8 bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Doctor Leave / Unavailability</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
+                  <input
+                    type="date"
+                    value={leaveForm.startDate}
+                    onChange={(e) => setLeaveForm({ ...leaveForm, startDate: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">End Date (optional)</label>
+                  <input
+                    type="date"
+                    value={leaveForm.endDate}
+                    onChange={(e) => setLeaveForm({ ...leaveForm, endDate: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Leave Type</label>
+                <div className="flex items-center space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setLeaveForm({ ...leaveForm, leaveType: 'FULL_DAY' })}
+                    className={`px-4 py-2 rounded-lg border ${leaveForm.leaveType === 'FULL_DAY' ? 'border-blue-600 text-blue-600' : 'border-gray-300 text-gray-600'}`}
+                  >
+                    Full Day
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLeaveForm({ ...leaveForm, leaveType: 'PARTIAL_DAY' })}
+                    className={`px-4 py-2 rounded-lg border ${leaveForm.leaveType === 'PARTIAL_DAY' ? 'border-blue-600 text-blue-600' : 'border-gray-300 text-gray-600'}`}
+                  >
+                    Partial Day
+                  </button>
+                </div>
+              </div>
+
+              {leaveForm.leaveType === 'PARTIAL_DAY' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
+                    <select
+                      value={leaveForm.startTime}
+                      onChange={(e) => setLeaveForm({ ...leaveForm, startTime: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select</option>
+                      {timeOptions.map((time) => (
+                        <option key={time} value={time}>{time}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">End Time</label>
+                    <select
+                      value={leaveForm.endTime}
+                      onChange={(e) => setLeaveForm({ ...leaveForm, endTime: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select</option>
+                      {timeOptions.map((time) => (
+                        <option key={time} value={time}>{time}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Reason</label>
+                  <select
+                    value={leaveForm.reason}
+                    onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    {['PERSONAL_TIME', 'SICK_LEAVE', 'VACATION', 'SURGERY', 'MEETING', 'EMERGENCY', 'OTHER'].map((reason) => (
+                      <option key={reason} value={reason}>{reason.replace('_', ' ')}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Description (optional)</label>
+                  <input
+                    type="text"
+                    value={leaveForm.description}
+                    onChange={(e) => setLeaveForm({ ...leaveForm, description: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={handlePreviewLeave}
+                  disabled={leaveSubmitting}
+                  className="px-4 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 disabled:opacity-60"
+                >
+                  Preview Impact
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmitLeave}
+                  disabled={leaveSubmitting}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {leaveSubmitting ? 'Submitting...' : 'Submit Leave'}
+                </button>
+              </div>
+
+              {leavePreview && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+                  Preview: {leavePreview.affectedCount} appointment(s) will be affected.
+                </div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">Active Leave Entries</h3>
+              {leaveLoading ? (
+                <div className="text-gray-500">Loading leave entries...</div>
+              ) : leaveEntries.length === 0 ? (
+                <div className="text-gray-500">No leave entries found.</div>
+              ) : (
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {leaveEntries.map((leave) => (
+                    <div key={leave._id} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            {new Date(leave.date).toLocaleDateString('en-US')} · {leave.startTime} - {leave.endTime}
+                          </p>
+                          <p className="text-sm text-gray-600 mt-1">
+                            {leave.blockingInfo?.reason || 'UNSPECIFIED'}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleCancelLeave(leave._id)}
+                          className="text-sm text-red-600 hover:text-red-700"
+                        >
+                          Cancel Leave
+                        </button>
+                      </div>
+                      {leave.blockingInfo?.description && (
+                        <p className="text-sm text-gray-500 mt-2">{leave.blockingInfo.description}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

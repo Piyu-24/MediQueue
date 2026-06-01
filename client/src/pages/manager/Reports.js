@@ -3,7 +3,6 @@ import {
   DocumentTextIcon,
   CalendarIcon,
   UsersIcon,
-  CurrencyDollarIcon,
   ChartBarIcon,
   ArrowDownTrayIcon,
   TrashIcon,
@@ -43,14 +42,6 @@ const Reports = () => {
       bgColor: 'bg-green-50',
       textColor: 'text-green-600',
       borderColor: 'border-green-200'
-    },
-    'financial-summary': {
-      name: 'Financial Summary',
-      icon: CurrencyDollarIcon,
-      color: 'yellow',
-      bgColor: 'bg-yellow-50',
-      textColor: 'text-yellow-600',
-      borderColor: 'border-yellow-200'
     },
     'comprehensive': {
       name: 'Comprehensive Report',
@@ -128,9 +119,9 @@ const Reports = () => {
         },
         {
           _id: '3',
-          title: 'Financial Summary - Monthly',
-          reportType: 'financial-summary',
-          description: 'Comprehensive financial performance overview',
+          title: 'Peak Hours Analysis - Monthly',
+          reportType: 'peak-hours',
+          description: 'Identify busy periods and optimize scheduling',
           dateRange: {
             startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
             endDate: new Date()
@@ -270,7 +261,6 @@ const Reports = () => {
               <option value="">All Report Types</option>
               <option value="patient-visit">Patient Visit Reports</option>
               <option value="staff-utilization">Staff Utilization</option>
-              <option value="financial-summary">Financial Summary</option>
               <option value="comprehensive">Comprehensive</option>
               <option value="peak-hours">Peak Hours</option>
             </select>
