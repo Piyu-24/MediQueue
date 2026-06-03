@@ -87,6 +87,11 @@ export const userAPI = {
   searchUsers: (query) => api.get(`/users/search`, { params: { q: query } }),
 };
 
+// Doctor API endpoints
+export const doctorAPI = {
+  updateAvailability: (availability) => api.put('/doctor/availability', availability),
+};
+
 // Appointment API endpoints
 export const appointmentAPI = {
   getAppointments: (params) => api.get('/appointments', { params }),
@@ -94,14 +99,35 @@ export const appointmentAPI = {
   createAppointment: (appointmentData) => api.post('/appointments', appointmentData),
   updateAppointment: (id, appointmentData) => api.put(`/appointments/${id}`, appointmentData),
   cancelAppointment: (id, reason) => api.delete(`/appointments/${id}`, { data: { reason } }),
-  checkAvailability: (doctorId, date) => api.get(`/appointments/availability/${doctorId}`, { 
-    params: { date } 
+  // Legacy slot check — use getSlotAvailability for full status grid
+  checkAvailability: (doctorId, date) => api.get(`/appointments/availability/${doctorId}`, {
+    params: { date }
   }),
+  // Rich availability: full slot grid with status per slot
+  getSlotAvailability: (doctorId, date, patientId) =>
+    api.get('/appointments/availability', { params: { doctorId, date, patientId } }),
+  // Doctor list with availability summary for a department/date
+  getAvailableDoctors: (date, departmentId, patientId) =>
+    api.get('/appointments/doctors/available', { params: { date, departmentId, patientId } }),
   updateStatus: (id, status) => api.patch(`/appointments/${id}/status`, { status }),
   checkIn: (id, method) => api.post(`/appointments/${id}/checkin`, { method }),
   getDoctorAppointments: (doctorId, params) => api.get(`/appointments/doctor/${doctorId}`, { params }),
   getPatientAppointments: (patientId, params) => api.get(`/appointments/patient/${patientId}`, { params }),
   getPendingReschedule: () => api.get('/appointments/pending-reschedule')
+};
+
+// Notification API endpoints
+export const notificationAPI = {
+  getNotifications: (params) => api.get('/notifications', { params }),
+  getUnreadCount: () => api.get('/notifications/unread-count'),
+
+  // keep one naming style consistently
+  markAsRead: (id) => api.patch(`/notifications/${id}/read`),
+  markAllAsRead: () => api.patch('/notifications/read-all'),
+
+  deleteNotification: (id) => api.delete(`/notifications/${id}`),
+  updatePreferences: (preferences) =>
+    api.put('/notifications/preferences', preferences),
 };
 
 // Doctor leave API endpoints
@@ -136,26 +162,39 @@ export const healthCardAPI = {
 };
 // Queue API endpoints
 export const queueAPI = {
-  /** Receptionist checks a patient in — creates QueueEntry */
+  // ── Legacy check-in (QR flow in receptionist dashboard) ──────────────────
   checkIn: (data) => api.post('/queue/checkin', data),
-  /** Validate a QR code / health card and get patient + today's appointment */
   validateQR: (data) => api.post('/queue/validate-qr', data),
-  /** Get full queue list with optional filters */
+
+  // ── New check-in endpoints ────────────────────────────────────────────────
+  getCheckInEligibility: (appointmentId, patientId) =>
+    api.get(`/check-in/eligibility/${appointmentId}`, { params: { patientId } }),
+  checkInAppointment: (data) => api.post('/check-in/appointment', data),
+  checkInWalkIn: (data) => api.post('/check-in/walk-in', data),
+
+  // ── Queue retrieval ───────────────────────────────────────────────────────
   getQueue: (params) => api.get('/queue', { params }),
-  /** Get public display data (no auth) — all rooms */
+  getActiveQueue: (doctorId, date) =>
+    api.get(`/queue/doctors/${doctorId}/active`, { params: { date } }),
   getDisplay: (date) => api.get('/queue/display', { params: { date } }),
-  /** Get the current patient's own queue status */
   getMyStatus: () => api.get('/queue/my-status'),
-  /** Get queue stats for admin/manager */
   getStats: (date) => api.get('/queue/stats', { params: { date } }),
-  /** Doctor: call a waiting patient */
+
+  // ── Doctor actions ────────────────────────────────────────────────────────
   callPatient: (id) => api.patch(`/queue/${id}/call`),
-  /** Doctor: start consultation */
   startConsultation: (id) => api.patch(`/queue/${id}/start`),
-  /** Doctor: complete consultation */
-  completeConsultation: (id) => api.patch(`/queue/${id}/complete`),
-  /** Doctor/Receptionist: mark no-show */
+  completeConsultation: (id, notes) => api.patch(`/queue/${id}/complete`, { notes }),
+  skipPatient: (id, reason) => api.patch(`/queue/${id}/skip`, { reason }),
   markNoShow: (id) => api.patch(`/queue/${id}/no-show`),
+  pauseQueue: (doctorId, message) => api.patch(`/queue/session/${doctorId}/pause`, { message }),
+  resumeQueue: (doctorId) => api.patch(`/queue/session/${doctorId}/resume`),
+
+  // ── Reception actions ─────────────────────────────────────────────────────
+  markTemporarilyAway: (id) => api.patch(`/queue/${id}/temporarily-away`),
+  markReturned: (id) => api.patch(`/queue/${id}/returned`),
+
+  // ── Appointment lookup for reception ─────────────────────────────────────
+  lookupAppointment: (params) => api.get('/appointments/lookup', { params }),
 };
 
 // Document API endpoints
@@ -188,16 +227,6 @@ export const reportAPI = {
 
 // Alias for backward compatibility
 export const reportsAPI = reportAPI;
-
-// Notification API endpoints
-export const notificationAPI = {
-  getNotifications: () => api.get('/notifications'),
-  getUnreadCount: () => api.get('/notifications/unread-count'),
-  markAsRead: (id) => api.patch(`/notifications/${id}/read`),
-  markAllAsRead: () => api.patch('/notifications/read-all'),
-  deleteNotification: (id) => api.delete(`/notifications/${id}`),
-  updatePreferences: (preferences) => api.put('/notifications/preferences', preferences),
-};
 
 // Chatbot API endpoints // NEW
 export const chatbotAPI = {

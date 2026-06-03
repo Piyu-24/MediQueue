@@ -259,10 +259,11 @@ class AppointmentBookingService {
         };
       }
 
-      // Update appointment
+      // Keep status as 'scheduled' — 'rescheduled' is a terminal status meaning
+      // "moved elsewhere" and would prevent check-in on the new slot.
       appointment.appointmentDate = newDateTime;
       appointment.appointmentTime = newTime;
-      appointment.status = 'rescheduled';
+      appointment.status = 'scheduled';
       appointment.rescheduledAt = new Date();
 
       await appointment.save();
@@ -274,7 +275,7 @@ class AppointmentBookingService {
           id: appointment._id,
           newDate,
           newTime,
-          status: 'rescheduled'
+          status: 'scheduled'
         }
       };
 
@@ -401,45 +402,86 @@ class AppointmentBookingService {
   // ============================================================================
 
   /**
-   * Generate time slots for a doctor on a specific date
+   * Generate time slots for a doctor on a given date.
+   * Marks each slot as available or unavailable based on real booked appointments.
    */
   async _generateTimeSlots(doctorId, date, duration) {
-    // Mock implementation - in real app would check doctor availability
-    const slots = [];
     const startHour = 9;
-    const endHour = 17;
-    
+    const endHour   = 17;
+
+    // Fetch all active appointments for this doctor on this date
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const booked = await Appointment.find({
+      doctor: doctorId,
+      appointmentDate: { $gte: startOfDay, $lte: endOfDay },
+      status: {
+        $in: [
+          'scheduled', 'confirmed', 'checked_in', 'in_queue',
+          'in-progress', 'in_consultation', 'late', 'delayed', 'skipped'
+        ]
+      }
+    }).select('appointmentTime duration').lean();
+
+    const slots = [];
     for (let hour = startHour; hour < endHour; hour++) {
       for (let minute = 0; minute < 60; minute += duration) {
         const time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
-        slots.push({
-          time,
-          available: Math.random() > 0.3, // 70% availability
-          duration
+        const [newH, newM] = time.split(':').map(Number);
+        const newStart = newH * 60 + newM;
+        const newEnd   = newStart + duration;
+
+        const hasOverlap = booked.some(appt => {
+          const [eH, eM] = appt.appointmentTime.split(':').map(Number);
+          const eStart = eH * 60 + eM;
+          const eEnd   = eStart + (appt.duration || duration);
+          return newStart < eEnd && newEnd > eStart;
         });
+
+        slots.push({ time, available: !hasOverlap, duration });
       }
     }
-    
-    return slots.filter(slot => slot.available);
+    return slots;
   }
 
   /**
-   * Check if a specific time slot is available
+   * Check if a specific time slot is available for a doctor.
+   * Checks all active appointment statuses, not just scheduled/rescheduled.
    */
   async _checkSlotAvailability(doctorId, date, time, duration) {
     try {
-      const existingAppointment = await Appointment.findOne({
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const existing = await Appointment.find({
         doctor: doctorId,
-        appointmentDate: new Date(date),
-        appointmentTime: time,
-        status: { $in: ['scheduled', 'rescheduled'] }
+        appointmentDate: { $gte: startOfDay, $lte: endOfDay },
+        status: {
+          $in: [
+            'scheduled', 'confirmed', 'checked_in', 'in_queue',
+            'in-progress', 'in_consultation', 'late', 'delayed', 'skipped'
+          ]
+        }
+      }).select('appointmentTime duration').lean();
+
+      const [newH, newM] = time.split(':').map(Number);
+      const newStart = newH * 60 + newM;
+      const newEnd   = newStart + duration;
+
+      const conflict = existing.find(appt => {
+        const [eH, eM] = appt.appointmentTime.split(':').map(Number);
+        const eStart = eH * 60 + eM;
+        const eEnd   = eStart + (appt.duration || duration);
+        return newStart < eEnd && newEnd > eStart;
       });
 
-      return {
-        available: !existingAppointment,
-        reason: existingAppointment ? 'Time slot already booked' : null
-      };
-    } catch (error) {
+      return { available: !conflict, reason: conflict ? 'Time slot already booked' : null };
+    } catch {
       return { available: false, reason: 'Error checking availability' };
     }
   }

@@ -22,7 +22,7 @@ import {
   PrinterIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
-import api, { authAPI, userAPI, medicalRecordsAPI, healthCardAPI, queueAPI } from '../../services/api';
+import api, { authAPI, userAPI, medicalRecordsAPI, healthCardAPI, queueAPI, appointmentAPI } from '../../services/api';
 import socketService from '../../services/socket';
 import toast from 'react-hot-toast';
 
@@ -54,43 +54,53 @@ const formatTime = (t) => {
 };
 
 // ── Queue slip print helper ──────────────────────────────────────────────────
-const printQueueSlip = (queueEntry) => {
-  const { queueNumber, patient, doctor, room, department, estimatedWaitMinutes, checkInTime } = queueEntry;
+const printQueueSlip = (queueEntry, isWalkIn = false) => {
+  const { queueNumber, tokenType, patient, doctor, room, department, estimatedWaitMinutes, checkInTime, appointment } = queueEntry;
   const patientName = `${patient?.firstName || ''} ${patient?.lastName || ''}`.trim();
   const doctorName = `Dr. ${doctor?.firstName || ''} ${doctor?.lastName || ''}`.trim();
-  const time = new Date(checkInTime).toLocaleTimeString();
-  const date = new Date().toLocaleDateString();
+  const time = new Date(checkInTime).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit' });
+  const date = new Date().toLocaleDateString('en-LK');
+
+  const tokenColor = tokenType === 'E' ? '#dc2626' : tokenType === 'W' ? '#d97706' : '#2563eb';
+  const patientTypeLabel = tokenType === 'E' ? 'Emergency' : tokenType === 'W' ? 'Walk-in' : 'Appointment';
+  const importantMsg = (tokenType === 'W')
+    ? 'Your token number is used for calling. Appointment patients and emergency cases may be prioritized according to hospital policy. Please watch the display board.'
+    : 'Your token number is used for calling. Your selected time is a planned priority window. Live queue order may vary due to emergency cases, doctor availability, and consultation duration. Please watch the display board.';
 
   const slipHTML = `
-    <html><head><title>Queue Slip</title>
+    <html><head><title>Queue Token Slip</title>
     <style>
-      body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-      .queue-number { font-size: 72px; font-weight: bold; color: #2563eb; margin: 20px 0; }
-      .divider { border-top: 2px dashed #ccc; margin: 12px 0; }
-      .row { display: flex; justify-content: space-between; margin: 4px 0; font-size: 14px; }
+      body { font-family: Arial, sans-serif; text-align: center; padding: 20px; max-width: 320px; margin: 0 auto; }
+      .token-no { font-size: 80px; font-weight: bold; color: ${tokenColor}; margin: 16px 0; letter-spacing: 4px; }
+      .divider { border-top: 2px dashed #ccc; margin: 10px 0; }
+      .row { display: flex; justify-content: space-between; margin: 3px 0; font-size: 13px; }
       .label { color: #6b7280; }
-      .value { font-weight: 600; }
-      .title { font-size: 20px; font-weight: bold; color: #1f2937; }
-      .sub { font-size: 12px; color: #9ca3af; }
+      .value { font-weight: 600; color: #1f2937; }
+      .title { font-size: 18px; font-weight: bold; color: #1f2937; }
+      .sub { font-size: 11px; color: #9ca3af; }
+      .msg { font-size: 11px; color: #374151; margin-top: 8px; line-height: 1.4; border: 1px solid #e5e7eb; padding: 8px; border-radius: 4px; text-align: left; }
+      .badge { display: inline-block; background: ${tokenColor}20; color: ${tokenColor}; font-size: 11px; font-weight: bold; padding: 2px 10px; border-radius: 20px; margin-bottom: 4px; }
     </style></head>
     <body onload="window.print();window.close()">
       <div class="title">MediQueue OPD</div>
-      <div class="sub">Queue Ticket — ${date}</div>
+      <div class="sub">${date}</div>
       <div class="divider"></div>
-      <div class="queue-number">${queueNumber}</div>
+      <div class="badge">${patientTypeLabel}</div>
+      <div class="token-no">${queueNumber}</div>
       <div class="divider"></div>
       <div class="row"><span class="label">Patient:</span><span class="value">${patientName}</span></div>
       <div class="row"><span class="label">Doctor:</span><span class="value">${doctorName}</span></div>
       <div class="row"><span class="label">Room:</span><span class="value">${room}</span></div>
       <div class="row"><span class="label">Department:</span><span class="value">${department}</span></div>
-      <div class="row"><span class="label">Check-in Time:</span><span class="value">${time}</span></div>
-      <div class="row"><span class="label">Est. Wait:</span><span class="value">~${estimatedWaitMinutes} min</span></div>
+      ${appointment?.appointmentTime ? `<div class="row"><span class="label">Appt. Time:</span><span class="value">${appointment.appointmentTime}</span></div>` : ''}
+      <div class="row"><span class="label">Checked In:</span><span class="value">${time}</span></div>
+      <div class="row"><span class="label">Est. Wait:</span><span class="value">~${estimatedWaitMinutes || '?'} min</span></div>
       <div class="divider"></div>
-      <div class="sub">Please wait in the waiting area. Your number will appear on the display screen.</div>
+      <div class="msg">${importantMsg}</div>
     </body></html>
   `;
 
-  const win = window.open('', '_blank', 'width=350,height=600');
+  const win = window.open('', '_blank', 'width=370,height=650');
   if (win) { win.document.write(slipHTML); win.document.close(); }
 };
 
@@ -133,6 +143,12 @@ const ReceptionistDashboard = () => {
   const [queueLoading, setQueueLoading] = useState(false);
   const [queueFilter, setQueueFilter] = useState('all');
 
+  // ── Appointment Lookup tab state ──────────────────────────────────────────
+  const [apptLookupQuery, setApptLookupQuery] = useState({ reference: '', name: '', phone: '' });
+  const [apptLookupResults, setApptLookupResults] = useState([]);
+  const [apptLookupLoading, setApptLookupLoading] = useState(false);
+  const [eligibility, setEligibility] = useState(null); // result for selected appointment
+
   // ── Patient Search tab state ──────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -153,6 +169,7 @@ const ReceptionistDashboard = () => {
 
   const tabs = [
     { id: 'checkin', name: 'QR Check-in', icon: QrCodeIcon },
+    { id: 'apptlookup', name: 'Appointment Check-in', icon: CalendarIcon },
     { id: 'queue', name: "Today's Queue", icon: ClipboardDocumentListIcon },
     { id: 'search', name: 'Patient Search', icon: MagnifyingGlassIcon },
     { id: 'verify', name: 'Verify Identity', icon: ShieldCheckIcon },
@@ -202,12 +219,18 @@ const ReceptionistDashboard = () => {
     socketService.on('queue:updated', handleQueueEvent);
     socketService.on('queue:completed', handleQueueEvent);
     socketService.on('queue:called', handleQueueEvent);
+    socketService.on('queue:recalculated', handleQueueEvent);
+    socketService.on('queue:paused', handleQueueEvent);
+    socketService.on('queue:resumed', handleQueueEvent);
 
     return () => {
       socketService.off('queue:created', handleQueueEvent);
       socketService.off('queue:updated', handleQueueEvent);
       socketService.off('queue:completed', handleQueueEvent);
       socketService.off('queue:called', handleQueueEvent);
+      socketService.off('queue:recalculated', handleQueueEvent);
+      socketService.off('queue:paused', handleQueueEvent);
+      socketService.off('queue:resumed', handleQueueEvent);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
@@ -311,6 +334,20 @@ const ReceptionistDashboard = () => {
       const res = await queueAPI.validateQR(payload);
       if (res.data.success) {
         const data = res.data.data;
+        
+        // Ensure strictly only today's appointments are displayed
+        if (data.todaysAppointments) {
+          const now = new Date();
+          const localTodayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+          
+          data.todaysAppointments = data.todaysAppointments.filter(appt => {
+            if (!appt.appointmentDate) return false;
+            const d = new Date(appt.appointmentDate);
+            const apptDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            return apptDateStr === localTodayStr;
+          });
+        }
+
         setValidatedData(data);
         // Pre-fill form if there's a today appointment
         if (data.todaysAppointments?.length > 0) {
@@ -384,31 +421,86 @@ const ReceptionistDashboard = () => {
 
     try {
       setCheckInLoading(true);
-      const payload = {
-        patientId: validatedData.patient._id,
-        doctorId: checkInForm.doctorId,
-        room: checkInForm.room,
-        department: checkInForm.department,
-        appointmentId: checkInForm.appointmentId || undefined,
-        isWalkIn: !checkInForm.appointmentId,
-        notes: checkInForm.notes,
-        priority: checkInForm.priority
-      };
+      const hasAppointment = !!checkInForm.appointmentId;
+      let res;
 
-      const res = await queueAPI.checkIn(payload);
+      if (hasAppointment) {
+        // Use new appointment check-in endpoint
+        res = await queueAPI.checkInAppointment({
+          appointmentId: checkInForm.appointmentId,
+          patientId: validatedData.patient._id,
+          doctorId: checkInForm.doctorId,
+          room: checkInForm.room,
+          department: checkInForm.department,
+          notes: checkInForm.notes,
+          priority: checkInForm.priority
+        });
+      } else {
+        // Walk-in check-in
+        res = await queueAPI.checkInWalkIn({
+          patientId: validatedData.patient._id,
+          doctorId: checkInForm.doctorId,
+          room: checkInForm.room,
+          department: checkInForm.department,
+          notes: checkInForm.notes,
+          priority: checkInForm.priority,
+          isEmergency: checkInForm.priority === 'urgent'
+        });
+      }
+
       if (res.data.success) {
         const entry = res.data.data.queueEntry;
         setCompletedEntry(entry);
         setValidatedData(null);
         setQrInput('');
         setCheckInForm({ room: '', department: '', doctorId: '', appointmentId: '', isWalkIn: false, notes: '', priority: 'normal' });
-        toast.success(`Checked in! Queue number: ${entry.queueNumber}`);
-        printQueueSlip(entry);
+        toast.success(`Checked in! Token: ${entry.queueNumber}`);
+        printQueueSlip(entry, !hasAppointment);
       }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Check-in failed');
     } finally {
       setCheckInLoading(false);
+    }
+  };
+
+  const handleAppointmentLookup = async () => {
+    const { reference, name, phone } = apptLookupQuery;
+    if (!reference.trim() && !name.trim() && !phone.trim()) {
+      toast.error('Enter at least one search term');
+      return;
+    }
+    try {
+      setApptLookupLoading(true);
+      setApptLookupResults([]);
+      setEligibility(null);
+      const params = {};
+      if (reference.trim()) params.reference = reference.trim().toUpperCase();
+      if (name.trim()) params.name = name.trim();
+      if (phone.trim()) params.phone = phone.trim();
+      const res = await appointmentAPI.getAppointments(params);
+      // Fall back to the lookup endpoint for reference/name/phone searches
+      const lookupRes = await queueAPI.lookupAppointment(params);
+      if (lookupRes.data.success) {
+        setApptLookupResults(lookupRes.data.data.appointments || []);
+        if ((lookupRes.data.data.appointments || []).length === 0) {
+          toast.info('No matching appointments found for today');
+        }
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Lookup failed');
+    } finally {
+      setApptLookupLoading(false);
+    }
+  };
+
+  const handleCheckInFromLookup = async (appointment) => {
+    // Check eligibility first
+    try {
+      const res = await queueAPI.getCheckInEligibility(appointment._id, appointment.patient._id);
+      setEligibility({ ...res.data.data, appointment });
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Could not check eligibility');
     }
   };
 
@@ -789,31 +881,58 @@ const ReceptionistDashboard = () => {
                       </div>
                     )}
 
-                    {/* Today's appointment(s) */}
-                    {validatedData.todaysAppointments?.length > 0 && (
-                      <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-                        <p className="text-xs font-bold text-green-800 mb-2 uppercase tracking-wide">
-                          ✓ Appointment Found Today
+                    {/* All appointments — read-only */}
+                    {validatedData.allAppointments?.length > 0 ? (
+                      <div className="bg-white border border-gray-200 rounded-xl p-4">
+                        <p className="text-xs font-bold text-gray-700 mb-3 uppercase tracking-wide flex items-center gap-2">
+                          <CalendarIcon className="w-4 h-4 text-gray-500" />
+                          Appointments Found
+                          <span className="font-semibold text-gray-400 normal-case tracking-normal ml-1">
+                            ({validatedData.allAppointments.length})
+                          </span>
                         </p>
-                        {validatedData.todaysAppointments.map(appt => (
-                          <div key={appt._id} className="flex items-center justify-between text-sm">
-                            <div>
-                              <span className="font-semibold text-green-900">
-                                Dr. {appt.doctor?.firstName} {appt.doctor?.lastName}
-                              </span>
-                              <span className="text-green-700 ml-2">· {appt.doctor?.specialization}</span>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <ClockIcon className="w-4 h-4 text-green-600" />
-                              <span className="text-green-800 font-medium">{formatTime(appt.appointmentTime)}</span>
-                              {getStatusBadge(appt.status)}
-                            </div>
-                          </div>
-                        ))}
+                        <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                          {validatedData.allAppointments.map(appt => {
+                            return (
+                              <div
+                                key={appt._id}
+                                className="flex items-center justify-between text-sm px-3 py-2 rounded-lg bg-gray-50 border border-gray-100"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <span className="font-semibold text-gray-900">
+                                    Dr. {appt.doctor?.firstName} {appt.doctor?.lastName}
+                                  </span>
+                                  {appt.doctor?.specialization && (
+                                    <span className="text-gray-500 ml-1.5">· {appt.doctor.specialization}</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 ml-3 shrink-0">
+                                  <span className="text-gray-600 text-xs">
+                                    {new Date(appt.appointmentDate).toLocaleDateString('en-LK', {
+                                      day: '2-digit', month: 'short', year: 'numeric'
+                                    })}
+                                  </span>
+                                  <ClockIcon className="w-3.5 h-3.5 text-gray-400" />
+                                  <span className="font-medium text-gray-700">
+                                    {formatTime(appt.appointmentTime)}
+                                  </span>
+                                  {getStatusBadge(appt.status)}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                        <p className="text-xs font-bold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+                          <CalendarIcon className="w-4 h-4" />
+                          Appointments Found <span className="font-semibold">(0)</span>
+                        </p>
                       </div>
                     )}
 
-                    {/* Walk-in notice */}
+                    {/* Walk-in notice when no today's appointment */}
                     {validatedData.todaysAppointments?.length === 0 && (
                       <div className="flex items-center space-x-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
                         <IdentificationIcon className="w-5 h-5 text-blue-600" />
@@ -933,6 +1052,181 @@ const ReceptionistDashboard = () => {
             {/* ══════════════════════════════════════════════════════════════
                 TAB 2 — TODAY'S QUEUE
             ══════════════════════════════════════════════════════════════ */}
+            {/* ══════════════════════════════════════════════════════════════
+                TAB — APPOINTMENT CHECK-IN (non-QR / non-smartphone lookup)
+            ══════════════════════════════════════════════════════════════ */}
+            {activeTab === 'apptlookup' && (
+              <div className="space-y-5">
+                <div className="flex items-center gap-3 mb-2">
+                  <CalendarIcon className="w-6 h-6 text-blue-600" />
+                  <h2 className="text-xl font-bold text-gray-900">Appointment Check-in</h2>
+                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">Search by Reference · Name · Phone</span>
+                </div>
+
+                {/* Search form */}
+                <div className="bg-blue-50 border border-blue-100 rounded-2xl p-5">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Appointment Reference</label>
+                      <input value={apptLookupQuery.reference}
+                        onChange={e => setApptLookupQuery(p => ({ ...p, reference: e.target.value }))}
+                        placeholder="e.g. MQ-20240115-7A3B"
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-400 focus:border-transparent text-sm font-mono uppercase" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Patient Name</label>
+                      <input value={apptLookupQuery.name}
+                        onChange={e => setApptLookupQuery(p => ({ ...p, name: e.target.value }))}
+                        onKeyPress={e => e.key === 'Enter' && handleAppointmentLookup()}
+                        placeholder="First or last name"
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-400 focus:border-transparent text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Phone Number</label>
+                      <input value={apptLookupQuery.phone}
+                        onChange={e => setApptLookupQuery(p => ({ ...p, phone: e.target.value }))}
+                        onKeyPress={e => e.key === 'Enter' && handleAppointmentLookup()}
+                        placeholder="+94XXXXXXXXX"
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-400 focus:border-transparent text-sm" />
+                    </div>
+                  </div>
+                  <button onClick={handleAppointmentLookup} disabled={apptLookupLoading}
+                    className="mt-3 px-6 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 font-semibold flex items-center gap-2 text-sm shadow-md">
+                    {apptLookupLoading ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <MagnifyingGlassIcon className="w-4 h-4" />}
+                    Search Today's Appointments
+                  </button>
+                </div>
+
+                {/* Results */}
+                {apptLookupResults.length > 0 && (
+                  <div className="space-y-2">
+                    {apptLookupResults.map(appt => (
+                      <div key={appt._id} className="border-2 border-gray-200 rounded-xl p-4 bg-white hover:border-blue-300 transition-all">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-bold text-gray-900">{appt.patient?.firstName} {appt.patient?.lastName}</span>
+                              <span className="text-xs text-gray-500 font-mono bg-gray-100 px-2 py-0.5 rounded">{appt.appointmentReference}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                                appt.status === 'scheduled' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                              }`}>{appt.status}</span>
+                            </div>
+                            <p className="text-sm text-gray-600">
+                              Dr. {appt.doctor?.firstName} {appt.doctor?.lastName} · {appt.doctor?.specialization}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              {new Date(appt.appointmentDate).toLocaleDateString('en-LK')} at {appt.appointmentTime}
+                              {appt.patient?.phone && ` · ${appt.patient.phone}`}
+                            </p>
+                          </div>
+                          <button onClick={() => handleCheckInFromLookup(appt)}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-sm font-semibold shadow-sm">
+                            Check In
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Eligibility result + check-in form */}
+                {eligibility && (
+                  <div className={`rounded-2xl border-2 p-5 ${
+                    eligibility.eligible ? 'border-green-300 bg-green-50' :
+                    eligibility.alreadyCheckedIn ? 'border-yellow-300 bg-yellow-50' :
+                    'border-red-200 bg-red-50'
+                  }`}>
+                    <div className="flex items-center gap-2 mb-3">
+                      {eligibility.eligible ? (
+                        <CheckCircleIcon className="w-6 h-6 text-green-600" />
+                      ) : (
+                        <ExclamationTriangleIcon className="w-6 h-6 text-red-500" />
+                      )}
+                      <div>
+                        <p className="font-bold text-gray-900">
+                          {eligibility.appointment?.patient?.firstName || eligibility.appointment?.patient} — {' '}
+                          {eligibility.arrivalStatus === 'early' ? '⏰ Early' :
+                           eligibility.arrivalStatus === 'on_time' ? '✅ On Time' :
+                           eligibility.arrivalStatus === 'late' ? '⚠️ Late' :
+                           eligibility.arrivalStatus === 'too_early' ? '🕐 Too Early' : ''}
+                        </p>
+                        {eligibility.reason && <p className="text-sm text-gray-600">{eligibility.reason}</p>}
+                      </div>
+                    </div>
+
+                    {eligibility.eligible && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Room *</label>
+                          <select value={checkInForm.room} onChange={e => setCheckInForm(p => ({ ...p, room: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent">
+                            <option value="">Select Room</option>
+                            {ROOMS.map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Department *</label>
+                          <select value={checkInForm.department} onChange={e => setCheckInForm(p => ({ ...p, department: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent">
+                            <option value="">Select Department</option>
+                            {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Notes</label>
+                          <input value={checkInForm.notes} onChange={e => setCheckInForm(p => ({ ...p, notes: e.target.value }))}
+                            placeholder="Optional notes"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent" />
+                        </div>
+                        <div className="md:col-span-3 flex gap-2">
+                          <button
+                            disabled={checkInLoading || !checkInForm.room || !checkInForm.department}
+                            onClick={async () => {
+                              try {
+                                setCheckInLoading(true);
+                                const appt = eligibility.appointment;
+                                const res = await queueAPI.checkInAppointment({
+                                  appointmentId: appt._id,
+                                  patientId: appt.patient._id || appt.patient,
+                                  doctorId: appt.doctor._id || appt.doctor,
+                                  room: checkInForm.room,
+                                  department: checkInForm.department,
+                                  notes: checkInForm.notes,
+                                  priority: checkInForm.priority
+                                });
+                                if (res.data.success) {
+                                  toast.success(`Checked in! Token: ${res.data.data.token}`);
+                                  printQueueSlip(res.data.data.queueEntry, false);
+                                  setEligibility(null);
+                                  setApptLookupResults([]);
+                                  setApptLookupQuery({ reference: '', name: '', phone: '' });
+                                  setCheckInForm({ room: '', department: '', doctorId: '', appointmentId: '', isWalkIn: false, notes: '', priority: 'normal' });
+                                }
+                              } catch (err) {
+                                toast.error(err.response?.data?.message || 'Check-in failed');
+                              } finally {
+                                setCheckInLoading(false);
+                              }
+                            }}
+                            className="px-6 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-50 font-semibold text-sm shadow-md flex items-center gap-2">
+                            {checkInLoading ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <CheckCircleIcon className="w-4 h-4" />}
+                            Confirm Check-in & Print Token
+                          </button>
+                          <button onClick={() => setEligibility(null)}
+                            className="px-4 py-2 border border-gray-300 text-gray-600 rounded-xl text-sm hover:bg-gray-100">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+                TAB — TODAY'S QUEUE
+            ══════════════════════════════════════════════════════════════ */}
             {activeTab === 'queue' && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between mb-2">
@@ -942,12 +1236,12 @@ const ReceptionistDashboard = () => {
                     <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">{todaysQueue.length} entries</span>
                   </div>
                   <div className="flex items-center space-x-2">
-                    {['all', 'waiting', 'called', 'in-consultation', 'completed', 'no-show'].map(s => (
+                    {['all', 'waiting', 'ready', 'called', 'in_consultation', 'completed', 'no_show', 'temporarily_away', 'skipped'].map(s => (
                       <button key={s} onClick={() => setQueueFilter(s)}
                         className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                           queueFilter === s ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                         }`}>
-                        {s === 'all' ? 'All' : s}
+                        {s === 'all' ? 'All' : s.replace('_', ' ')}
                       </button>
                     ))}
                     <button onClick={fetchTodaysQueue} className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors">
@@ -968,54 +1262,79 @@ const ReceptionistDashboard = () => {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {todaysQueue.map(entry => (
-                      <div key={entry._id} className={`flex items-center justify-between p-4 rounded-xl border-2 transition-all ${
-                        entry.status === 'waiting' ? 'bg-blue-50 border-blue-200' :
-                        entry.status === 'called' ? 'bg-orange-50 border-orange-200' :
-                        entry.status === 'in-consultation' ? 'bg-purple-50 border-purple-200' :
-                        entry.status === 'completed' ? 'bg-green-50 border-green-100' :
-                        'bg-red-50 border-red-100'
-                      }`}>
-                        <div className="flex items-center space-x-4">
-                          <div className={`text-2xl font-black w-24 text-center px-2 py-1 rounded-lg ${
-                            entry.status === 'waiting' ? 'bg-blue-600 text-white' :
-                            entry.status === 'called' ? 'bg-orange-500 text-white' :
-                            entry.status === 'in-consultation' ? 'bg-purple-600 text-white' :
-                            entry.status === 'completed' ? 'bg-green-600 text-white' :
-                            'bg-red-500 text-white'
-                          }`}>
-                            {entry.queueNumber}
+                    {todaysQueue.map(entry => {
+                      const tokenBg = entry.tokenType === 'E' ? 'bg-red-600' : entry.tokenType === 'W' ? 'bg-amber-500' : 'bg-blue-600';
+                      const isActive = ['waiting', 'ready', 'called', 'emergency_waiting'].includes(entry.status);
+                      return (
+                        <div key={entry._id} className={`flex items-center justify-between p-4 rounded-xl border-2 transition-all ${
+                          entry.status === 'in_consultation' ? 'bg-purple-50 border-purple-200' :
+                          entry.status === 'ready' || entry.status === 'called' ? 'bg-orange-50 border-orange-200' :
+                          entry.status === 'waiting' || entry.status === 'emergency_waiting' ? 'bg-blue-50 border-blue-200' :
+                          entry.status === 'temporarily_away' ? 'bg-yellow-50 border-yellow-200' :
+                          entry.status === 'skipped' ? 'bg-gray-50 border-gray-200 opacity-70' :
+                          entry.status === 'completed' ? 'bg-green-50 border-green-100' :
+                          'bg-red-50 border-red-100'
+                        }`}>
+                          <div className="flex items-center gap-3">
+                            <div className={`text-xl font-black min-w-[80px] text-center px-2 py-1.5 rounded-lg text-white ${tokenBg}`}>
+                              {entry.queueNumber}
+                            </div>
+                            <div>
+                              <p className="font-semibold text-gray-900">
+                                {entry.patient?.firstName} {entry.patient?.lastName}
+                                {entry.isEmergency && <span className="ml-2 text-red-600 text-xs font-bold">🚨 EMERGENCY</span>}
+                                {entry.priority === 'urgent' && !entry.isEmergency && <span className="ml-2 text-red-500 text-xs font-bold">🔴 URGENT</span>}
+                                {entry.isWalkIn && <span className="ml-2 text-amber-600 text-xs font-medium">Walk-in</span>}
+                              </p>
+                              <p className="text-sm text-gray-500">
+                                Dr. {entry.doctor?.firstName} {entry.doctor?.lastName} · {entry.room} · Check-in: {entry.checkInTime ? new Date(entry.checkInTime).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-semibold text-gray-900">
-                              {entry.patient?.firstName} {entry.patient?.lastName}
-                              {entry.priority === 'urgent' && <span className="ml-2 text-red-500 text-xs font-bold">🔴 URGENT</span>}
-                              {entry.isWalkIn && <span className="ml-2 text-blue-500 text-xs font-medium">Walk-in</span>}
-                            </p>
-                            <p className="text-sm text-gray-500">
-                              Dr. {entry.doctor?.firstName} {entry.doctor?.lastName} · {entry.room} · Check-in: {entry.checkInTime ? new Date(entry.checkInTime).toLocaleTimeString() : '—'}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-3">
-                          {getStatusBadge(entry.status)}
-                          {(entry.status === 'waiting' || entry.status === 'called') && (
-                            <button
-                              onClick={async () => {
-                                try {
-                                  await queueAPI.markNoShow(entry._id);
-                                  toast.success('Marked as no-show');
-                                  fetchTodaysQueue();
-                                } catch { toast.error('Failed to update'); }
-                              }}
-                              className="text-xs text-red-500 hover:text-red-700 font-medium"
-                            >
-                              No-show
+                          <div className="flex items-center gap-2 flex-wrap justify-end">
+                            {getStatusBadge(entry.status)}
+                            {/* Reception actions */}
+                            {isActive && (
+                              <button onClick={async () => {
+                                try { await queueAPI.callPatient(entry._id); toast.success('Patient called'); fetchTodaysQueue(); }
+                                catch { toast.error('Failed'); }
+                              }} className="text-xs px-2 py-1 bg-orange-500 text-white rounded-lg hover:bg-orange-600">
+                                📢 Call
+                              </button>
+                            )}
+                            {['waiting', 'ready', 'called', 'emergency_waiting'].includes(entry.status) && (
+                              <button onClick={async () => {
+                                try { await queueAPI.markTemporarilyAway(entry._id); toast.success('Marked away'); fetchTodaysQueue(); }
+                                catch { toast.error('Failed'); }
+                              }} className="text-xs px-2 py-1 bg-yellow-100 text-yellow-700 border border-yellow-300 rounded-lg hover:bg-yellow-200">
+                                Away
+                              </button>
+                            )}
+                            {['temporarily_away', 'skipped'].includes(entry.status) && (
+                              <button onClick={async () => {
+                                try { await queueAPI.markReturned(entry._id); toast.success('Patient returned'); fetchTodaysQueue(); }
+                                catch { toast.error('Failed'); }
+                              }} className="text-xs px-2 py-1 bg-blue-100 text-blue-700 border border-blue-300 rounded-lg hover:bg-blue-200">
+                                ↩ Returned
+                              </button>
+                            )}
+                            {['waiting', 'ready', 'called'].includes(entry.status) && (
+                              <button onClick={async () => {
+                                try { await queueAPI.markNoShow(entry._id); toast.success('Marked no-show'); fetchTodaysQueue(); }
+                                catch { toast.error('Failed'); }
+                              }} className="text-xs px-2 py-1 border border-red-200 text-red-500 rounded-lg hover:bg-red-50">
+                                No-show
+                              </button>
+                            )}
+                            <button onClick={() => printQueueSlip(entry, entry.isWalkIn)}
+                              className="text-xs px-2 py-1 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-100 flex items-center gap-1">
+                              <PrinterIcon className="w-3 h-3" />
+                              Print
                             </button>
-                          )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

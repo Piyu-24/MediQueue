@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   CalendarIcon, 
   ClockIcon, 
@@ -13,11 +13,25 @@ import { useAuth } from '../../hooks/useAuth';
 import { userAPI, appointmentAPI } from '../../services/api';
 import toast from 'react-hot-toast';
 
+// Slot status → visual style mapping
+const SLOT_STYLES = {
+  AVAILABLE:          'border-gray-200 hover:border-blue-500 hover:bg-blue-50 text-gray-700 cursor-pointer',
+  LIMITED_AVAILABILITY:'border-amber-300 hover:border-amber-500 hover:bg-amber-50 text-amber-700 cursor-pointer',
+  FULLY_BOOKED:       'border-red-200 bg-red-50 text-red-400 cursor-not-allowed opacity-70',
+  PAST_SLOT:          'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed',
+  PATIENT_CONFLICT:   'border-orange-200 bg-orange-50 text-orange-400 cursor-not-allowed opacity-80',
+  DOCTOR_UNAVAILABLE: 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60',
+  SELECTED:           'border-blue-600 bg-blue-600 text-white shadow-lg scale-105',
+};
+
 const AppointmentBooking = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   
+  // Ref prevents double-submit across rapid re-renders or multiple open tabs
+  const submittingRef = useRef(false);
+
   // State management
   const [loading, setLoading] = useState(false);
   const [selectedStep, setSelectedStep] = useState(1);
@@ -25,36 +39,40 @@ const AppointmentBooking = () => {
   const [filteredDoctors, setFilteredDoctors] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSpecialization, setSelectedSpecialization] = useState('all');
-  
+
   // Booking details
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
   const [appointmentType, setAppointmentType] = useState('consultation');
   const [chiefComplaint, setChiefComplaint] = useState('');
-  const [availableSlots, setAvailableSlots] = useState([]);
+
+  // Slot availability from the new API (enriched status per slot)
+  const [slotGrid, setSlotGrid] = useState([]);     // all slots with status
   const [loadingSlots, setLoadingSlots] = useState(false);
-  // eslint-disable-next-line no-unused-vars
-  const [lockedSlots, _setLockedSlots] = useState([]);
-  const [reservedSlot, setReservedSlot] = useState(null);
-  const [reservationTimer, setReservationTimer] = useState(null);
-  const [slotReservationTime, setSlotReservationTime] = useState(0);
-  // eslint-disable-next-line no-unused-vars
-  const [_existingAppointment, setExistingAppointment] = useState(null);
+  const [slotError, setSlotError] = useState(null); // doctor-level unavailability message
+
+  // Reschedule context — pre-filled when navigating from dashboard
+  const [rescheduleFromId, setRescheduleFromId] = useState(null);
 
   // Fetch doctors on component mount
   useEffect(() => {
     fetchDoctors();
-    checkExistingAppointments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const doctorId = params.get('doctorId');
+    const doctorId        = params.get('doctorId');
+    const prefillComplaint = params.get('chiefComplaint');
+    const prefillType      = params.get('appointmentType');
+    const fromId           = params.get('rescheduleFrom');
+
+    if (fromId) setRescheduleFromId(fromId);
+    if (prefillComplaint) setChiefComplaint(decodeURIComponent(prefillComplaint));
+    if (prefillType) setAppointmentType(prefillType);
 
     if (!doctorId || doctors.length === 0) return;
-
     const matchedDoctor = doctors.find((doc) => doc._id === doctorId);
     if (matchedDoctor) {
       setSelectedDoctor(matchedDoctor);
@@ -62,15 +80,6 @@ const AppointmentBooking = () => {
     }
   }, [location.search, doctors]);
 
-  // Cleanup reservation timer on unmount
-  useEffect(() => {
-    return () => {
-      if (reservationTimer) {
-        clearInterval(reservationTimer);
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reservationTimer]);
 
   // Filter doctors when search or specialization changes
   useEffect(() => {
@@ -105,86 +114,7 @@ const AppointmentBooking = () => {
     }
   };
 
-  const checkExistingAppointments = async () => {
-    try {
-      const response = await appointmentAPI.getAppointments({
-        status: 'scheduled,confirmed',
-        patientId: user.id
-      });
-      
-      if (response.data.success) {
-        const appointments = response.data.data.appointments || [];
-        const futureAppointments = appointments.filter(apt => {
-          const appointmentDate = new Date(apt.appointmentDate);
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          return appointmentDate >= today;
-        });
-        
-        if (futureAppointments.length > 0) {
-          setExistingAppointment(futureAppointments[0]);
-          console.log('Found existing appointment:', futureAppointments[0]);
-        } else {
-          setExistingAppointment(null);
-        }
-      }
-    } catch (error) {
-      console.error('Error checking existing appointments:', error);
-      // Don't block the booking process if this fails
-      setExistingAppointment(null);
-    }
-  };
 
-  const reserveSlot = async (slot) => {
-    try {
-      // Reserve slot for 10 minutes
-      // eslint-disable-next-line no-unused-vars
-      const _reservationData = {
-        doctorId: selectedDoctor._id,
-        date: selectedDate,
-        time: slot,
-        patientId: user.id,
-        reservationDuration: 10 * 60 * 1000 // 10 minutes in milliseconds
-      };
-
-      // Simulate slot reservation API call
-      // In real implementation, this would call the backend
-      setReservedSlot(slot);
-      setSlotReservationTime(10 * 60); // 10 minutes in seconds
-      
-      // Start countdown timer
-      const timer = setInterval(() => {
-        setSlotReservationTime(prev => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            setReservedSlot(null);
-            setSelectedTime('');
-            toast.warning('Slot reservation expired. Please select again.');
-            fetchAvailableSlots(); // Refresh slots
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      
-      setReservationTimer(timer);
-      toast.success(`Slot reserved for 10 minutes`);
-      
-    } catch (error) {
-      console.error('Error reserving slot:', error);
-      toast.error('Failed to reserve slot');
-    }
-  };
-
-  const releaseSlot = () => {
-    if (reservationTimer) {
-      clearInterval(reservationTimer);
-      setReservationTimer(null);
-    }
-    setReservedSlot(null);
-    setSlotReservationTime(0);
-    setSelectedTime('');
-  };
 
   const filterDoctors = () => {
     let filtered = doctors;
@@ -209,73 +139,27 @@ const AppointmentBooking = () => {
   const fetchAvailableSlots = async () => {
     try {
       setLoadingSlots(true);
-      
-      // Generate standard time slots (9 AM to 5 PM, 15-minute intervals)
-      const generateTimeSlots = () => {
-        const slots = [];
-        const startHour = 9; // 9 AM
-        const endHour = 17; // 5 PM
-        const now = new Date();
-        const isToday = selectedDate === now.toISOString().split('T')[0];
-        
-        for (let hour = startHour; hour < endHour; hour++) {
-          for (let minute = 0; minute < 60; minute += 15) {
-            // Skip past time slots if the selected date is today
-            if (isToday) {
-              const slotTime = new Date();
-              slotTime.setHours(hour, minute, 0, 0);
-              
-              // Only add slots that are at least 30 minutes in the future
-              if (slotTime <= new Date(now.getTime() + 30 * 60000)) {
-                continue;
-              }
-            }
-            
-            const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
-            slots.push(timeString);
-          }
-        }
-        return slots;
-      };
+      setSlotError(null);
+      setSlotGrid([]);
+      setSelectedTime('');
 
-      // Get doctor's available slots (use standard slots if not specified)
-      let doctorSlots = [];
-      if (selectedDoctor.availability && selectedDoctor.availability[selectedDate]) {
-        doctorSlots = selectedDoctor.availability[selectedDate];
-      } else if (selectedDoctor.workingHours) {
-        // Use doctor's working hours to generate slots
-        doctorSlots = generateTimeSlots();
-      } else {
-        // Default slots
-        doctorSlots = generateTimeSlots();
-      }
-      
-      // Check which slots are already booked
-      try {
-        const response = await appointmentAPI.getAppointments({
-          doctorId: selectedDoctor._id,
-          date: selectedDate,
-          status: 'scheduled,confirmed'
-        });
-        
-        if (response.data.success) {
-          const appointments = response.data.data.appointments || [];
-          const bookedSlots = appointments.map(apt => apt.appointmentTime);
-          const availableSlots = doctorSlots.filter(slot => !bookedSlots.includes(slot));
-          setAvailableSlots(availableSlots);
+      const response = await appointmentAPI.getSlotAvailability(
+        selectedDoctor._id,
+        selectedDate,
+        user?._id || user?.id || null
+      );
+
+      if (response.data.success) {
+        const result = response.data.data;
+        if (!result.available && result.slots.length === 0) {
+          setSlotError(result.reason || 'Doctor is not available on this date');
         } else {
-          setAvailableSlots(doctorSlots);
+          setSlotGrid(result.slots || []);
         }
-      } catch (apiError) {
-        // If API fails, show all doctor's slots
-        console.log('API check failed, showing all doctor slots:', apiError);
-        setAvailableSlots(doctorSlots);
       }
-      
     } catch (error) {
-      console.error('Error fetching slots:', error);
-      setAvailableSlots([]);
-      toast.error('Failed to load available slots');
+      console.error('Error fetching slot availability:', error);
+      setSlotError('Unable to load slots. Please try again.');
     } finally {
       setLoadingSlots(false);
     }
@@ -292,43 +176,31 @@ const AppointmentBooking = () => {
     setSelectedTime(''); // Reset time when date changes
   };
 
-  const handleTimeSelect = async (time) => {
-    // Release any previously reserved slot
-    if (reservedSlot && reservedSlot !== time) {
-      releaseSlot();
-    }
-
-    // Check if slot is already locked by another user
-    if (lockedSlots.includes(time)) {
-      toast.error('This slot is currently being booked by another patient. Please select a different time.');
+  const handleTimeSelect = (time) => {
+    const slot = slotGrid.find(s => s.startTime === time);
+    if (slot && !slot.isSelectable) {
+      toast.error(slot.reason || 'This slot is not available');
       return;
     }
-
-    // Reserve the selected slot
     setSelectedTime(time);
-    await reserveSlot(time);
   };
 
   const handleContinueToConfirm = () => {
-    if (!selectedDate) {
-      toast.error('Please select a date');
+    if (!selectedDate) { toast.error('Please select a date'); return; }
+    if (!selectedTime) { toast.error('Please select a time slot'); return; }
+
+    // Verify selected slot is still selectable (guard against stale state)
+    const slot = slotGrid.find(s => s.startTime === selectedTime);
+    if (slot && !slot.isSelectable) {
+      toast.error(slot.reason || 'This slot is no longer available. Please select another.');
+      setSelectedTime('');
       return;
     }
-    if (!selectedTime) {
-      toast.error('Please select a time slot');
-      return;
-    }
-    if (!appointmentType) {
-      toast.error('Please select appointment type');
-      return;
-    }
-    if (!chiefComplaint.trim()) {
-      toast.error('Please describe your reason for visit');
-      return;
-    }
-    // Validate chief complaint length
+
+    if (!appointmentType) { toast.error('Please select appointment type'); return; }
+    if (!chiefComplaint.trim()) { toast.error('Please describe your reason for visit'); return; }
     if (chiefComplaint.trim().length < 10) {
-      toast.error('Please provide at least 10 characters for your reason (currently: ' + chiefComplaint.trim().length + ')');
+      toast.error(`Reason must be at least 10 characters (currently ${chiefComplaint.trim().length})`);
       return;
     }
     if (chiefComplaint.trim().length > 500) {
@@ -339,53 +211,53 @@ const AppointmentBooking = () => {
   };
 
   const handleBookAppointment = async () => {
+    // Prevent double-submit (covers rapid re-clicks and multiple open tabs in the
+    // same session — the server partial unique index is the final safety net)
+    if (submittingRef.current) return;
+
+    if (chiefComplaint.trim().length < 10) {
+      toast.error('Reason for visit must be at least 10 characters. Please provide more details.');
+      return;
+    }
+    if (chiefComplaint.trim().length > 500) {
+      toast.error('Reason for visit is too long. Maximum 500 characters allowed.');
+      return;
+    }
+
+    submittingRef.current = true;
+    setLoading(true);
+
     try {
-      setLoading(true);
-      
-      // Final validation check before submitting
-      if (chiefComplaint.trim().length < 10) {
-        toast.error('Reason for visit must be at least 10 characters. Please provide more details.');
-        setLoading(false);
-        return;
-      }
-      
-      if (chiefComplaint.trim().length > 500) {
-        toast.error('Reason for visit is too long. Maximum 500 characters allowed.');
-        setLoading(false);
-        return;
-      }
-      
       const appointmentData = {
         doctor: selectedDoctor._id,
         appointmentDate: selectedDate,
         appointmentTime: selectedTime,
-        duration: 15, // 15-minute slots
+        duration: 15,
         appointmentType,
-        chiefComplaint: chiefComplaint.trim()
+        chiefComplaint: chiefComplaint.trim(),
+        ...(rescheduleFromId && { rescheduledFromAppointmentId: rescheduleFromId })
       };
 
-      console.log('Sending appointment data:', appointmentData);
-
       const response = await appointmentAPI.createAppointment(appointmentData);
-      
+
       if (response.data.success) {
-        toast.success('Appointment scheduled successfully.');
-        
+        const msg = rescheduleFromId
+          ? 'Appointment rescheduled successfully.'
+          : 'Appointment scheduled successfully.';
+        toast.success(msg);
         setTimeout(() => {
           navigate('/dashboard?tab=overview', { replace: true });
         }, 2000);
       }
     } catch (error) {
-      console.error('Error booking appointment:', error);
-      console.error('Error details:', error.response?.data);
-      
-      // Show validation errors if available
+      console.error('Error booking appointment:', error.response?.data);
       if (error.response?.data?.errors) {
-        const errorMessages = error.response.data.errors.map(err => `${err.param}: ${err.msg}`).join(' | ');
-        toast.error(`Validation error: ${errorMessages}`);
+        const msgs = error.response.data.errors.map(e => e.msg).join(' | ');
+        toast.error(`Validation error: ${msgs}`);
       } else {
         toast.error(error.response?.data?.message || 'Failed to create appointment');
       }
+      submittingRef.current = false; // allow retry only on error
     } finally {
       setLoading(false);
     }
@@ -546,6 +418,17 @@ const AppointmentBooking = () => {
               </button>
             </div>
 
+            {/* Reschedule notice */}
+            {rescheduleFromId && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+                <span className="text-amber-500 text-lg">⚠</span>
+                <div>
+                  <p className="text-sm font-semibold text-amber-800">Rescheduling appointment</p>
+                  <p className="text-xs text-amber-700 mt-0.5">Your previous appointment details have been pre-filled. Select a new date and time slot.</p>
+                </div>
+              </div>
+            )}
+
             {/* Selected Doctor Info */}
             <div className="bg-blue-50 rounded-xl p-4 mb-6">
               <div className="flex items-center space-x-4">
@@ -576,107 +459,88 @@ const AppointmentBooking = () => {
               />
             </div>
 
-            {/* Time Slots */}
+            {/* Time Slots — rich visual availability grid */}
             {selectedDate && (
               <div className="mb-6">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    Select Time Slot
-                  </label>
-                  {availableSlots.length > 0 && (
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-gray-700">Select Time Slot</label>
+                  {slotGrid.length > 0 && (
                     <span className="text-xs text-blue-600 font-medium">
-                      {availableSlots.length} slots available (15 min each)
+                      {slotGrid.filter(s => s.isSelectable).length} of {slotGrid.length} slots available
                     </span>
                   )}
                 </div>
+
                 {loadingSlots ? (
                   <div className="text-center py-8">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                    <p className="text-gray-600 mt-2 text-sm">Loading available slots...</p>
+                    <p className="text-gray-600 mt-2 text-sm">Loading slot availability...</p>
                   </div>
-                ) : availableSlots.length > 0 ? (
+                ) : slotError ? (
+                  <div className="text-center py-8 bg-red-50 rounded-lg border border-red-200">
+                    <ClockIcon className="w-12 h-12 text-red-300 mx-auto mb-2" />
+                    <p className="text-red-600 font-medium">{slotError}</p>
+                    <p className="text-sm text-red-400 mt-1">Please select a different date or doctor</p>
+                  </div>
+                ) : slotGrid.length > 0 ? (
                   <>
-                    {/* Slot Reservation Timer */}
-                    {reservedSlot && slotReservationTime > 0 && (
-                      <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                        <p className="text-xs text-yellow-700">
-                          <ClockIcon className="w-4 h-4 inline mr-1" />
-                          Slot <strong>{reservedSlot}</strong> reserved for <strong>{Math.floor(slotReservationTime / 60)}:{(slotReservationTime % 60).toString().padStart(2, '0')}</strong> minutes. 
-                          Complete booking before it expires.
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                      <p className="text-xs text-blue-700">
-                        <ClockIcon className="w-4 h-4 inline mr-1" />
-                        Each appointment slot is <strong>15 minutes</strong>. Select your preferred time.
-                        <span className="block mt-1">🔒 Slots are reserved for 10 minutes after selection.</span>
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 max-h-96 overflow-y-auto p-2">
-                      {availableSlots.map((slot) => {
-                        const isSelected = selectedTime === slot;
-                        const isReserved = reservedSlot === slot;
-                        const isLocked = lockedSlots.includes(slot);
-                        const isDisabled = isLocked;
-                        
+                    <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 max-h-80 overflow-y-auto p-1">
+                      {slotGrid.map((slot) => {
+                        const isSelected = selectedTime === slot.startTime;
+                        const styleKey = isSelected ? 'SELECTED' : slot.status;
                         return (
-                          <button
-                            key={slot}
-                            onClick={() => !isDisabled && handleTimeSelect(slot)}
-                            disabled={isDisabled}
-                            className={`py-2 px-3 rounded-lg border-2 transition-all duration-200 text-sm font-medium relative ${
-                              isSelected && isReserved
-                                ? 'border-green-600 bg-green-600 text-white shadow-lg transform scale-105'
-                                : isSelected
-                                ? 'border-blue-600 bg-blue-600 text-white shadow-lg transform scale-105'
-                                : isLocked
-                                ? 'border-red-200 bg-red-50 text-red-400 cursor-not-allowed'
-                                : isDisabled
-                                ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
-                                : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50 text-gray-700 hover:shadow-md'
-                            }`}
-                          >
-                            {slot}
-                            {isReserved && (
-                              <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></span>
+                          <div key={slot.startTime} className="relative group">
+                            <button
+                              onClick={() => slot.isSelectable && handleTimeSelect(slot.startTime)}
+                              disabled={!slot.isSelectable}
+                              title={slot.reason || slot.status}
+                              className={`w-full py-2 px-1 rounded-lg border-2 transition-all duration-150 text-xs font-medium ${SLOT_STYLES[styleKey] || SLOT_STYLES.AVAILABLE}`}
+                            >
+                              <span className="block">{slot.startTime}</span>
+                              {slot.status === 'LIMITED_AVAILABILITY' && !isSelected && (
+                                <span className="block text-[10px] mt-0.5 text-amber-600">{slot.reason}</span>
+                              )}
+                              {slot.status === 'FULLY_BOOKED' && (
+                                <span className="block text-[10px] mt-0.5">Full</span>
+                              )}
+                              {slot.status === 'PAST_SLOT' && (
+                                <span className="block text-[10px] mt-0.5">Past</span>
+                              )}
+                              {slot.status === 'PATIENT_CONFLICT' && (
+                                <span className="block text-[10px] mt-0.5">Your slot</span>
+                              )}
+                              {slot.status === 'DOCTOR_UNAVAILABLE' && (
+                                <span className="block text-[10px] mt-0.5">Unavail.</span>
+                              )}
+                            </button>
+                            {/* Tooltip on hover for non-selectable slots */}
+                            {slot.reason && !slot.isSelectable && (
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap max-w-[160px] text-center">
+                                {slot.reason}
+                              </div>
                             )}
-                            {isLocked && (
-                              <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>
-                            )}
-                          </button>
+                          </div>
                         );
                       })}
                     </div>
-                    
-                    {/* Slot Legend */}
+
+                    {/* Legend */}
                     <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                      <p className="text-xs font-medium text-gray-700 mb-2">Slot Status Legend:</p>
-                      <div className="flex flex-wrap gap-4 text-xs">
-                        <div className="flex items-center space-x-1">
-                          <div className="w-3 h-3 bg-gray-200 border border-gray-300 rounded"></div>
-                          <span className="text-gray-600">Available</span>
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          <div className="w-3 h-3 bg-blue-600 rounded relative">
-                            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full border border-white"></span>
-                          </div>
-                          <span className="text-gray-600">Reserved (10 min)</span>
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          <div className="w-3 h-3 bg-red-50 border border-red-200 rounded relative">
-                            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
-                          </div>
-                          <span className="text-gray-600">Being Booked</span>
-                        </div>
+                      <p className="text-xs font-medium text-gray-600 mb-2">Slot Status:</p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
+                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded border-2 border-gray-300 inline-block"></span> Available</span>
+                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded border-2 border-amber-400 bg-amber-50 inline-block"></span> Limited</span>
+                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-600 inline-block"></span> Selected</span>
+                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-50 border border-red-200 inline-block"></span> Full</span>
+                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-50 border border-orange-200 inline-block"></span> Your slot</span>
+                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-100 border border-gray-200 inline-block"></span> Unavailable</span>
                       </div>
                     </div>
                   </>
                 ) : (
                   <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
                     <ClockIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                    <p className="text-gray-500">No available slots for this date</p>
+                    <p className="text-gray-500">No slots found for this date</p>
                     <p className="text-sm text-gray-400 mt-1">Please select a different date</p>
                   </div>
                 )}

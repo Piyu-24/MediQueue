@@ -30,6 +30,7 @@ const documentRoutes = require('./routes/documents');
 const chatbotRoutes = require('./routes/chatbot');
 const doctorRoutes = require('./routes/doctor');
 const queueRoutes = require('./routes/queue');
+const checkinRoutes = require('./routes/checkin');
 const leaveRoutes = require('./routes/leave');
 const notificationRoutes = require('./routes/notifications');
 
@@ -219,6 +220,7 @@ app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/doctor', doctorRoutes);
 app.use('/api/doctor', leaveRoutes);
 app.use('/api/queue', queueRoutes);
+app.use('/api/check-in', checkinRoutes);
 app.use('/api/notifications', notificationRoutes);
 
 // Socket.io connection handling
@@ -253,6 +255,16 @@ io.on('connection', (socket) => {
   socket.on('queue:subscribe-display', () => {
     socket.join('queue-display');
     console.log(`Display screen connected: ${socket.id}`);
+  });
+
+  // Doctor subscribes to their own queue channel
+  socket.on('queue:subscribe-doctor', (doctorId) => {
+    socket.join(`doctor-queue-${doctorId}`);
+  });
+
+  // Patient subscribes to their own status updates
+  socket.on('queue:subscribe-patient', (patientId) => {
+    socket.join(patientId);
   });
 
   socket.on('disconnect', () => {

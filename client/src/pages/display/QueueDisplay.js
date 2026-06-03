@@ -73,6 +73,9 @@ const QueueDisplay = () => {
       socket.on('queue:completed', fetchDisplay);
       socket.on('queue:updated', fetchDisplay);
       socket.on('queue:display:update', fetchDisplay);
+      socket.on('queue:recalculated', fetchDisplay);
+      socket.on('queue:paused', fetchDisplay);
+      socket.on('queue:resumed', fetchDisplay);
     } catch {
       // No socket — just poll
       pollingRef.current = setInterval(fetchDisplay, POLLING_INTERVAL_MS);
@@ -162,10 +165,21 @@ const QueueDisplay = () => {
   );
 };
 
+// ── Token color by type ───────────────────────────────────────────────────────
+const tokenBg = (tokenType, status) => {
+  if (status === 'in_consultation' || status === 'in-consultation') return 'from-purple-600 to-purple-700';
+  if (status === 'called') return 'from-orange-500 to-orange-600';
+  if (tokenType === 'E') return 'from-red-600 to-red-700';
+  if (tokenType === 'W') return 'from-amber-500 to-amber-600';
+  return 'from-blue-600 to-blue-700';
+};
+
 // ── Room Panel Component ──────────────────────────────────────────────────────
 const RoomPanel = ({ room }) => {
   const hasNowServing = !!room.nowServing;
+  const readyCount = room.readyZone?.length || 0;
   const upNextCount = room.upNext?.length || 0;
+  const isPaused = room.sessionStatus === 'paused';
 
   return (
     <div className="bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 flex flex-col">
@@ -183,17 +197,26 @@ const RoomPanel = ({ room }) => {
         </div>
       </div>
 
+      {/* Paused / Delay banner */}
+      {isPaused && (
+        <div className="bg-yellow-500/20 border-b border-yellow-500/30 px-5 py-2 flex items-center gap-2">
+          <span className="text-yellow-400 text-lg">⏸</span>
+          <p className="text-yellow-300 text-sm font-semibold">
+            Queue temporarily paused.
+            {room.delayMessage && ` ${room.delayMessage}`}
+          </p>
+        </div>
+      )}
+
       {/* Now Serving */}
       <div className={`px-5 py-6 flex-1 ${hasNowServing ? 'bg-gray-900' : 'bg-gray-950'}`}>
         <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Now Serving</p>
         {hasNowServing ? (
           <div className="flex items-center space-x-4">
-            <div className={`relative flex items-center justify-center rounded-2xl shadow-2xl ${
-              room.nowServing.status === 'in-consultation'
-                ? 'bg-gradient-to-br from-purple-600 to-purple-700'
-                : 'bg-gradient-to-br from-orange-500 to-orange-600'
+            <div className={`relative flex items-center justify-center rounded-2xl shadow-2xl bg-gradient-to-br ${
+              tokenBg(room.nowServing.tokenType, room.nowServing.status)
             }`} style={{ width: 140, height: 100 }}>
-              {room.nowServing.priority === 'urgent' && (
+              {(room.nowServing.priority === 'urgent' || room.nowServing.tokenType === 'E') && (
                 <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center">
                   <span className="text-white text-xs font-black">!</span>
                 </div>
@@ -205,11 +228,12 @@ const RoomPanel = ({ room }) => {
             </div>
             <div>
               <span className={`inline-block px-3 py-1 rounded-full text-sm font-bold ${
-                room.nowServing.status === 'in-consultation'
+                room.nowServing.status === 'in_consultation' || room.nowServing.status === 'in-consultation'
                   ? 'bg-purple-900 text-purple-300'
                   : 'bg-orange-900 text-orange-300'
               }`}>
-                {room.nowServing.status === 'in-consultation' ? '🩺 In Consultation' : '📢 Called'}
+                {(room.nowServing.status === 'in_consultation' || room.nowServing.status === 'in-consultation')
+                  ? '🩺 In Consultation' : '📢 Called'}
               </span>
               {room.completedCount > 0 && (
                 <p className="text-xs text-gray-600 mt-2">{room.completedCount} completed today</p>
@@ -223,18 +247,42 @@ const RoomPanel = ({ room }) => {
         )}
       </div>
 
-      {/* Up Next */}
+      {/* Please Be Ready — READY zone */}
+      {readyCount > 0 && (
+        <div className="px-5 py-3 border-t border-amber-700/40 bg-amber-900/20">
+          <p className="text-xs font-bold text-amber-400 uppercase tracking-widest mb-2">Please Be Ready</p>
+          <div className="flex flex-wrap gap-2">
+            {room.readyZone.map((entry, i) => (
+              <div key={i} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border ${
+                i === 0
+                  ? 'bg-amber-900/60 border-amber-600 text-amber-200'
+                  : 'bg-gray-800 border-gray-700 text-gray-400'
+              }`}>
+                {entry.tokenType === 'E' && <span className="text-red-400 text-xs">🚨</span>}
+                {entry.priority === 'urgent' && entry.tokenType !== 'E' && <span className="text-red-400 text-xs">🔴</span>}
+                <span className={`text-sm font-bold ${i === 0 ? 'text-amber-100' : 'text-gray-300'}`}>
+                  {entry.queueNumber}
+                </span>
+                <span className="text-xs text-gray-500">{entry.initials}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Waiting tokens */}
       {upNextCount > 0 && (
         <div className="px-5 py-4 border-t border-gray-800 bg-gray-900">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Up Next</p>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Waiting</p>
           <div className="flex flex-wrap gap-2">
             {room.upNext.map((entry, i) => (
-              <div key={i} className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl border ${
+              <div key={i} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border ${
                 i === 0
                   ? 'bg-blue-900/60 border-blue-700 text-blue-200'
                   : 'bg-gray-800 border-gray-700 text-gray-400'
               }`}>
-                {entry.priority === 'urgent' && <span className="text-red-400 text-xs">🔴</span>}
+                {entry.tokenType === 'E' && <span className="text-red-400 text-xs">🚨</span>}
+                {entry.priority === 'urgent' && entry.tokenType !== 'E' && <span className="text-red-400 text-xs">🔴</span>}
                 <span className={`text-sm font-bold ${i === 0 ? 'text-blue-100' : 'text-gray-300'}`}>
                   {entry.queueNumber}
                 </span>
@@ -244,6 +292,13 @@ const RoomPanel = ({ room }) => {
           </div>
         </div>
       )}
+
+      {/* Footer note */}
+      <div className="px-5 py-2 bg-gray-950 border-t border-gray-800">
+        <p className="text-xs text-gray-700 text-center leading-tight">
+          Queue order may change due to appointment priority, emergency cases, and doctor availability.
+        </p>
+      </div>
     </div>
   );
 };
