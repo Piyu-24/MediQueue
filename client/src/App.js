@@ -21,17 +21,15 @@ import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword from './pages/auth/ResetPassword';
 import VerifyEmail from './pages/auth/VerifyEmail';
 
-// Patient Pages
 import PatientDashboard from './pages/patient/PatientDashboardEnhanced';
-import Profile from './pages/patient/Profile';
-import ProfileEditor from './pages/patient/ProfileEditor';
+import Profile from './pages/shared/Profile';
+import ProfileEditor from './pages/shared/ProfileEditor';
 
 // Doctor Pages
 import DoctorDashboard from './pages/doctor/DoctorDashboardEnhanced';
 import PatientRecordsRouter from './pages/doctor/PatientRecordsRouter';
 import Appointments from './pages/doctor/Appointments';
 import AvailabilityManagement from './pages/doctor/AvailabilityManagement';
-import DoctorProfileEditor from './pages/doctor/ProfileEditor';
 
 // Staff Pages
 import StaffDashboard from './pages/staff/DashboardFull';
@@ -216,7 +214,7 @@ function App() {
               } />
               
               <Route path="/profile" element={
-                <ProtectedRoute allowedRoles={['patient']}>
+                <ProtectedRoute allowedRoles={['patient', 'doctor']}>
                   <Layout>
                     <Profile />
                   </Layout>
@@ -224,7 +222,7 @@ function App() {
               } />
               
               <Route path="/profile/edit" element={
-                <ProtectedRoute allowedRoles={['patient']}>
+                <ProtectedRoute allowedRoles={['patient', 'doctor']}>
                   <Layout>
                     <ProfileEditor />
                   </Layout>
@@ -271,14 +269,6 @@ function App() {
                 <ProtectedRoute allowedRoles={['doctor']}>
                   <Layout>
                     <AvailabilityManagement />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              
-              <Route path="/doctor/profile/edit" element={
-                <ProtectedRoute allowedRoles={['doctor']}>
-                  <Layout>
-                    <DoctorProfileEditor />
                   </Layout>
                 </ProtectedRoute>
               } />

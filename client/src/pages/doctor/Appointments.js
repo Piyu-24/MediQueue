@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  CalendarIcon, 
+import {
+  CalendarIcon,
   ClockIcon,
   UserIcon,
   PhoneIcon,
@@ -10,7 +10,6 @@ import {
   FunnelIcon,
   MagnifyingGlassIcon,
   ExclamationTriangleIcon,
-  PlusIcon,
   ArrowPathIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
@@ -25,9 +24,6 @@ const Appointments = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
-  const [appointmentNotes, setAppointmentNotes] = useState('');
-  const [prescription, setPrescription] = useState({ medications: [], instructions: '' });
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -343,7 +339,6 @@ const Appointments = () => {
                             onClick={() => {
                               setSelectedAppointment(appointment);
                               setShowDetailModal(true);
-                              setAppointmentNotes(appointment.notes || '');
                             }}
                             className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
                             title="View Details"
@@ -520,16 +515,12 @@ const Appointments = () => {
                       </div>
                     </div>
                     
-                    <div className="bg-gradient-to-r from-gray-50 to-gray-100 p-4 rounded-xl">
-                      <h3 className="font-semibold text-gray-900 mb-3">Appointment Notes</h3>
-                      <textarea
-                        value={appointmentNotes}
-                        onChange={(e) => setAppointmentNotes(e.target.value)}
-                        placeholder="Add notes for this appointment..."
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
-                        rows={4}
-                      />
-                    </div>
+                    {selectedAppointment.notes && (
+                      <div className="bg-gradient-to-r from-gray-50 to-gray-100 p-4 rounded-xl">
+                        <h3 className="font-semibold text-gray-900 mb-3">Appointment Notes</h3>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedAppointment.notes}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
                 
@@ -540,123 +531,12 @@ const Appointments = () => {
                   >
                     Close
                   </button>
-                  <button
-                    onClick={() => {
-                      setShowPrescriptionModal(true);
-                      setShowDetailModal(false);
-                    }}
-                    className="px-6 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium"
-                  >
-                    Add Prescription
-                  </button>
-                  <button
-                    onClick={() => {
-                      console.log('Saving appointment notes:', appointmentNotes);
-                      setShowDetailModal(false);
-                    }}
-                    className="px-6 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors font-medium"
-                  >
-                    Save Notes
-                  </button>
                 </div>
               </div>
             </div>
           </div>
         )}
         
-        {/* Prescription Modal */}
-        {showPrescriptionModal && selectedAppointment && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-bold text-gray-900">
-                    New Prescription - {selectedAppointment.patient ? 
-                      `${selectedAppointment.patient.firstName} ${selectedAppointment.patient.lastName}` : 
-                      'Unknown Patient'}
-                  </h2>
-                  <button
-                    onClick={() => setShowPrescriptionModal(false)}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    <XCircleIcon className="w-6 h-6 text-gray-500" />
-                  </button>
-                </div>
-              </div>
-              
-              <div className="p-6">
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Medications</label>
-                    <div className="space-y-3">
-                      <div className="flex space-x-3">
-                        <input
-                          type="text"
-                          placeholder="Medication name"
-                          className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Dosage"
-                          className="w-32 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Frequency"
-                          className="w-32 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                        />
-                        <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-                          <PlusIcon className="w-5 h-5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Special Instructions</label>
-                    <textarea
-                      value={prescription.instructions}
-                      onChange={(e) => setPrescription({...prescription, instructions: e.target.value})}
-                      placeholder="Enter special instructions for the patient..."
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
-                      rows={4}
-                    />
-                  </div>
-                  
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                    <div className="flex items-start space-x-2">
-                      <ExclamationTriangleIcon className="w-5 h-5 text-yellow-600 mt-0.5" />
-                      <div>
-                        <h4 className="font-medium text-yellow-800">Patient Allergies</h4>
-                        <p className="text-sm text-yellow-700 mt-1">
-                          {selectedAppointment.patient?.allergies?.join(', ') || 'No known allergies'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="flex justify-end space-x-3 mt-6 pt-6 border-t border-gray-200">
-                  <button
-                    onClick={() => setShowPrescriptionModal(false)}
-                    className="px-6 py-2 bg-gray-200 text-gray-800 rounded-xl hover:bg-gray-300 transition-colors font-medium"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      console.log('Saving prescription:', prescription);
-                      setShowPrescriptionModal(false);
-                    }}
-                    className="px-6 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors font-medium"
-                  >
-                    Save Prescription
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Summary Stats */}
         {filteredAppointments.length > 0 && (

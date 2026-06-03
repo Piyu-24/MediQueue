@@ -1,11 +1,74 @@
 const express = require('express');
-const { body, validationResult } = require('express-validator');
+const { body, query: queryValidator, validationResult } = require('express-validator');
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
+const { getSlotAvailability, getAvailableDoctors, checkBookingEligibility } = require('../services/AvailabilityService');
 
 const router = express.Router();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/appointments/doctors/available
+// Return available doctors for a department/date with slot summaries.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/doctors/available',
+  [
+    queryValidator('date').isISO8601().withMessage('Valid date is required (YYYY-MM-DD)'),
+    queryValidator('departmentId').optional().isString()
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+      }
+
+      const { date, departmentId } = req.query;
+      // patientId optional — used to surface PATIENT_CONFLICT
+      const patientId = req.query.patientId || null;
+
+      const doctors = await getAvailableDoctors(departmentId || null, date, patientId);
+
+      res.json({
+        success: true,
+        count: doctors.length,
+        data: { doctors, date }
+      });
+    } catch (error) {
+      console.error('Available doctors error:', error);
+      res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Server error' });
+    }
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/appointments/availability
+// Return slot-level availability grid for a doctor/date.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/availability',
+  [
+    queryValidator('doctorId').isMongoId().withMessage('Valid doctorId is required'),
+    queryValidator('date').isISO8601().withMessage('Valid date is required (YYYY-MM-DD)'),
+    queryValidator('patientId').optional().isMongoId()
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+      }
+
+      const { doctorId, date, patientId } = req.query;
+      const result = await getSlotAvailability(doctorId, date, patientId || null);
+
+      res.json({ success: true, data: result });
+    } catch (error) {
+      console.error('Slot availability error:', error);
+      res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Server error' });
+    }
+  }
+);
 
 // @desc    Get appointments
 // @route   GET /api/appointments
@@ -86,6 +149,70 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
+// @desc    Look up appointment by reference number, patient name, or phone (reception use)
+// @route   GET /api/appointments/lookup
+// @access  Private (receptionist, staff, admin)
+router.get('/lookup', auth, authorize('receptionist', 'staff', 'admin'), async (req, res) => {
+  try {
+    const { reference, name, phone, date } = req.query;
+
+    if (!reference && !name && !phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Provide at least one search parameter: reference, name, or phone'
+      });
+    }
+
+    let query = {};
+
+    if (reference) {
+      query.appointmentReference = reference.trim().toUpperCase();
+    }
+
+    // Date scoping — defaults to today if not provided (local date, not UTC)
+    const _now = new Date();
+    const localToday = `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`;
+    const searchDate = date || localToday;
+    const startOfDay = new Date(searchDate);
+    const endOfDay = new Date(searchDate);
+    endOfDay.setDate(endOfDay.getDate() + 1);
+    if (!reference) {
+      query.appointmentDate = { $gte: startOfDay, $lt: endOfDay };
+    }
+
+    query.status = { $in: ['scheduled', 'confirmed', 'checked_in', 'in_queue'] };
+
+    let appointments = await Appointment.find(query)
+      .populate('patient', 'firstName lastName phone email digitalHealthCardId')
+      .populate('doctor', 'firstName lastName specialization department')
+      .sort({ appointmentDate: 1, appointmentTime: 1 })
+      .limit(20);
+
+    // Filter by patient name or phone on populated fields
+    if (name) {
+      const nameLower = name.toLowerCase();
+      appointments = appointments.filter(a =>
+        a.patient &&
+        (`${a.patient.firstName} ${a.patient.lastName}`).toLowerCase().includes(nameLower)
+      );
+    }
+    if (phone) {
+      appointments = appointments.filter(a =>
+        a.patient && a.patient.phone && a.patient.phone.includes(phone.trim())
+      );
+    }
+
+    res.json({
+      success: true,
+      count: appointments.length,
+      data: { appointments }
+    });
+  } catch (error) {
+    console.error('Appointment lookup error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 // @desc    Get patient's doctor-unavailable appointments (pending reschedule)
 // @route   GET /api/appointments/pending-reschedule
 // @access  Private (Patient)
@@ -123,52 +250,87 @@ router.post('/', auth, authorize('patient'), [
   body('chiefComplaint').isLength({ min: 10, max: 500 }).withMessage('Chief complaint must be between 10-500 characters')
 ], async (req, res) => {
   try {
-    console.log('Received appointment request body:', JSON.stringify(req.body, null, 2));
-    
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.error('Validation errors:', JSON.stringify(errors.array(), null, 2));
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
     }
 
     const { doctor, appointmentDate, appointmentTime, duration = 30, appointmentType, chiefComplaint, symptoms } = req.body;
+    const patientId = req.user.id;
 
-    // Verify doctor exists
+    // Verify doctor exists and is active
     const doctorUser = await User.findOne({ _id: doctor, role: 'doctor', isActive: true });
     if (!doctorUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'Doctor not found'
-      });
+      return res.status(404).json({ success: false, message: 'Doctor not found or unavailable' });
     }
 
-    // Check for conflicts
-    const hasConflict = await Appointment.hasConflict(doctor, appointmentDate, appointmentTime, duration);
-    if (hasConflict) {
-      return res.status(400).json({
-        success: false,
-        message: 'This time slot is not available'
-      });
+    // Prevent booking in the past
+    const [h, m] = appointmentTime.split(':').map(Number);
+    const slotDateTime = new Date(appointmentDate);
+    slotDateTime.setHours(h, m, 0, 0);
+    if (slotDateTime <= new Date()) {
+      return res.status(400).json({ success: false, message: 'You cannot book an appointment in the past.' });
     }
 
-    // Create appointment with scheduled status
-    const appointment = await Appointment.create({
-      patient: req.user.id,
-      doctor,
-      appointmentDate,
-      appointmentTime,
-      duration: duration || 15,
-      appointmentType,
-      chiefComplaint,
-      symptoms: symptoms || [],
-      status: 'scheduled'
-    });
+    // Check doctor availability: working schedule, DoctorSlot blocks, slot capacity
+    const dateStr = new Date(appointmentDate).toISOString().split('T')[0];
+    const eligibility = await checkBookingEligibility(doctor, dateStr, appointmentTime, duration);
+    if (!eligibility.available) {
+      const statusCode = eligibility.reason?.includes('fully booked') ? 409 : 400;
+      return res.status(statusCode).json({ success: false, message: eligibility.reason });
+    }
 
-    // Populate the appointment
+    // Doctor-side time overlap (prevents overbooking within a single-capacity slot)
+    const doctorConflict = await Appointment.hasConflict(doctor, appointmentDate, appointmentTime, duration);
+    if (doctorConflict) {
+      return res.status(409).json({ success: false, message: 'This doctor is fully booked for the selected time slot.' });
+    }
+
+    // Patient-side conflict (prevents same patient booking overlapping slots)
+    const patientConflict = await Appointment.hasPatientConflict(patientId, appointmentDate, appointmentTime, duration);
+    if (patientConflict) {
+      return res.status(409).json({ success: false, message: 'You already have an overlapping appointment at this time.' });
+    }
+
+    // If this is a reschedule, validate the source appointment belongs to this patient
+    const { rescheduledFromAppointmentId } = req.body;
+    if (rescheduledFromAppointmentId) {
+      const sourceAppt = await Appointment.findOne({ _id: rescheduledFromAppointmentId, patient: patientId });
+      if (!sourceAppt) {
+        return res.status(404).json({ success: false, message: 'Source appointment not found for reschedule.' });
+      }
+    }
+
+    // Create appointment — partial unique index is the final DB-level guard
+    let appointment;
+    try {
+      appointment = await Appointment.create({
+        patient: patientId,
+        doctor,
+        appointmentDate,
+        appointmentTime,
+        duration,
+        appointmentType,
+        chiefComplaint,
+        symptoms: symptoms || [],
+        status: 'scheduled',
+        rescheduledFromAppointmentId: rescheduledFromAppointmentId || null
+      });
+    } catch (createErr) {
+      if (createErr.code === 11000) {
+        return res.status(409).json({ success: false, message: 'You already have an appointment at this time.' });
+      }
+      throw createErr;
+    }
+
+    // If this is a reschedule, update the old appointment to 'rescheduled'
+    if (rescheduledFromAppointmentId) {
+      await Appointment.findOneAndUpdate(
+        { _id: rescheduledFromAppointmentId, patient: patientId, status: 'doctor-unavailable' },
+        { status: 'rescheduled' }
+      );
+    }
+
     await appointment.populate([
       { path: 'patient', select: 'firstName lastName email phone' },
       { path: 'doctor', select: 'firstName lastName specialization department' }
@@ -176,15 +338,12 @@ router.post('/', auth, authorize('patient'), [
 
     res.status(201).json({
       success: true,
-      message: 'Appointment created successfully',
+      message: `Appointment booked successfully. Reference: ${appointment.appointmentReference}. Your live queue token will be issued after check-in at the hospital.`,
       data: { appointment }
     });
   } catch (error) {
     console.error('Create appointment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
@@ -267,6 +426,13 @@ router.get('/availability/:doctorId', async (req, res) => {
   }
 });
 
+// Statuses that mean the appointment slot is already in active hospital workflow —
+// date/time changes are blocked once the patient has passed these gates.
+const NON_RESCHEDULABLE_STATUSES = [
+  'checked_in', 'in_queue', 'in_consultation', 'in-progress',
+  'completed', 'cancelled', 'no-show', 'rescheduled', 'doctor-unavailable'
+];
+
 // @desc    Update appointment
 // @route   PUT /api/appointments/:id
 // @access  Private
@@ -275,10 +441,7 @@ router.put('/:id', auth, async (req, res) => {
     let appointment = await Appointment.findById(req.params.id);
 
     if (!appointment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Appointment not found'
-      });
+      return res.status(404).json({ success: false, message: 'Appointment not found' });
     }
 
     // Check authorization
@@ -288,49 +451,63 @@ router.put('/:id', auth, async (req, res) => {
       ['staff', 'manager', 'admin'].includes(req.user.role);
 
     if (!canEdit) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to update this appointment'
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized to update this appointment' });
     }
 
     // Allowed fields for update based on role
     const allowedUpdates = {
-      patient: ['appointmentDate', 'appointmentTime', 'chiefComplaint', 'symptoms', 'notes.patient'],
-      doctor: ['status', 'notes.doctor', 'prescription', 'vitalSigns', 'diagnosis', 'labTests', 'referrals', 'followUp'],
-      staff: ['status', 'checkIn', 'room', 'notes.staff'],
-      manager: ['status', 'room', 'department'],
-      admin: ['status', 'room', 'department', 'appointmentDate', 'appointmentTime']
+      patient:  ['appointmentDate', 'appointmentTime', 'chiefComplaint', 'symptoms', 'notes.patient'],
+      doctor:   ['status', 'notes.doctor', 'prescription', 'vitalSigns', 'diagnosis', 'labTests', 'referrals', 'followUp'],
+      staff:    ['status', 'checkIn', 'room', 'notes.staff'],
+      manager:  ['status', 'room', 'department'],
+      admin:    ['status', 'room', 'department', 'appointmentDate', 'appointmentTime']
     };
 
     const userAllowedUpdates = allowedUpdates[req.user.role] || [];
 
-    // If rescheduling, check for conflicts
+    // Rescheduling — only allowed when appointment is still schedulable
     if (req.body.appointmentDate || req.body.appointmentTime) {
+      // Non-admin roles cannot reschedule past the check-in gate
+      if (req.user.role !== 'admin' && NON_RESCHEDULABLE_STATUSES.includes(appointment.status)) {
+        return res.status(409).json({
+          success: false,
+          message: `Cannot reschedule an appointment with status '${appointment.status}'.`
+        });
+      }
+
       const newDate = req.body.appointmentDate || appointment.appointmentDate;
       const newTime = req.body.appointmentTime || appointment.appointmentTime;
-      const duration = appointment.duration;
+      const dur     = appointment.duration;
 
-      const hasConflict = await Appointment.hasConflict(
-        appointment.doctor,
-        newDate,
-        newTime,
-        duration,
-        appointment._id
+      // Prevent rescheduling to the past
+      const [rh, rm] = newTime.split(':').map(Number);
+      const newSlotDT = new Date(newDate);
+      newSlotDT.setHours(rh, rm, 0, 0);
+      if (newSlotDT <= new Date()) {
+        return res.status(400).json({ success: false, message: 'You cannot reschedule to a past date or time.' });
+      }
+
+      // Doctor-side conflict check (exclude self)
+      const doctorConflict = await Appointment.hasConflict(
+        appointment.doctor, newDate, newTime, dur, appointment._id
       );
+      if (doctorConflict) {
+        return res.status(409).json({ success: false, message: 'This doctor is fully booked for the selected time slot.' });
+      }
 
-      if (hasConflict) {
-        return res.status(400).json({
-          success: false,
-          message: 'This time slot is not available'
-        });
+      // Patient-side conflict check (exclude self)
+      const patientConflict = await Appointment.hasPatientConflict(
+        appointment.patient, newDate, newTime, dur, appointment._id
+      );
+      if (patientConflict) {
+        return res.status(409).json({ success: false, message: 'You already have an overlapping appointment at this time.' });
       }
 
       appointment.appointmentDate = newDate;
       appointment.appointmentTime = newTime;
     }
 
-    // Update other fields
+    // Apply other allowed field updates
     Object.keys(req.body).forEach(key => {
       if (userAllowedUpdates.includes(key) && req.body[key] !== undefined) {
         if (key.includes('.')) {
@@ -350,20 +527,18 @@ router.put('/:id', auth, async (req, res) => {
       { path: 'doctor', select: 'firstName lastName specialization department' }
     ]);
 
-    res.json({
-      success: true,
-      message: 'Appointment updated successfully',
-      data: { appointment }
-    });
+    res.json({ success: true, message: 'Appointment updated successfully', data: { appointment } });
   } catch (error) {
     console.error('Update appointment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 });
+
+// Statuses that cannot be cancelled (already in active workflow or terminal)
+const NON_CANCELLABLE_STATUSES = [
+  'checked_in', 'in_queue', 'in_consultation', 'in-progress',
+  'completed', 'cancelled', 'no-show', 'rescheduled'
+];
 
 // @desc    Cancel appointment
 // @route   DELETE /api/appointments/:id
@@ -373,10 +548,7 @@ router.delete('/:id', auth, async (req, res) => {
     const appointment = await Appointment.findById(req.params.id);
 
     if (!appointment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Appointment not found'
-      });
+      return res.status(404).json({ success: false, message: 'Appointment not found' });
     }
 
     // Check authorization
@@ -385,13 +557,17 @@ router.delete('/:id', auth, async (req, res) => {
       ['staff', 'manager', 'admin'].includes(req.user.role);
 
     if (!canCancel) {
-      return res.status(403).json({
+      return res.status(403).json({ success: false, message: 'Not authorized to cancel this appointment' });
+    }
+
+    // Non-admin roles cannot cancel once the patient is in the active workflow
+    if (req.user.role !== 'admin' && NON_CANCELLABLE_STATUSES.includes(appointment.status)) {
+      return res.status(409).json({
         success: false,
-        message: 'Not authorized to cancel this appointment'
+        message: `Cannot cancel an appointment with status '${appointment.status}'. Please contact reception.`
       });
     }
 
-    // Update appointment status to cancelled
     appointment.status = 'cancelled';
     appointment.cancellation = {
       cancelledBy: req.user.id,
@@ -421,37 +597,66 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
+// Valid status transitions for appointment (non-admin roles)
+const APPOINTMENT_TRANSITIONS = {
+  scheduled:          ['confirmed', 'cancelled', 'rescheduled', 'doctor-unavailable'],
+  confirmed:          ['checked_in', 'cancelled', 'rescheduled', 'doctor-unavailable'],
+  checked_in:         ['in_queue', 'cancelled'],
+  in_queue:           ['in_consultation', 'in-progress', 'skipped', 'no-show', 'delayed'],
+  'in-progress':      ['in_consultation', 'completed'],
+  in_consultation:    ['completed', 'skipped'],
+  delayed:            ['in_queue', 'cancelled', 'no-show'],
+  skipped:            ['in_queue', 'no-show', 'cancelled'],
+  late:               ['in_queue', 'no-show', 'cancelled'],
+  // Terminal statuses — no transitions allowed
+  completed:          [],
+  cancelled:          [],
+  'no-show':          [],
+  rescheduled:        [],
+  'doctor-unavailable': ['rescheduled', 'cancelled']
+};
+
 // @desc    Update appointment status
 // @route   PATCH /api/appointments/:id/status
 // @access  Private (Doctor, Staff, Admin)
-router.patch('/:id/status', 
-  auth, 
+router.patch('/:id/status',
+  auth,
   authorize('doctor', 'staff', 'admin'),
   [
-    body('status').isIn(['scheduled', 'confirmed', 'in-progress', 'completed', 'cancelled', 'no-show', 'doctor-unavailable'])
-      .withMessage('Invalid status')
+    body('status').isIn([
+      'scheduled', 'confirmed', 'checked_in', 'in_queue', 'in-progress',
+      'in_consultation', 'completed', 'cancelled', 'rescheduled',
+      'no-show', 'skipped', 'late', 'delayed', 'doctor-unavailable'
+    ]).withMessage('Invalid status')
   ],
   async (req, res) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: 'Validation failed',
-          errors: errors.array()
-        });
+        return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
       }
 
       const appointment = await Appointment.findById(req.params.id);
 
       if (!appointment) {
-        return res.status(404).json({
-          success: false,
-          message: 'Appointment not found'
-        });
+        return res.status(404).json({ success: false, message: 'Appointment not found' });
       }
 
-      appointment.status = req.body.status;
+      const newStatus = req.body.status;
+      const currentStatus = appointment.status;
+
+      // Admins can force any transition; everyone else must follow the transition graph
+      if (req.user.role !== 'admin') {
+        const allowed = APPOINTMENT_TRANSITIONS[currentStatus] || [];
+        if (!allowed.includes(newStatus)) {
+          return res.status(409).json({
+            success: false,
+            message: `Cannot transition appointment from '${currentStatus}' to '${newStatus}'.`
+          });
+        }
+      }
+
+      appointment.status = newStatus;
       await appointment.save();
 
       await appointment.populate([
@@ -485,39 +690,41 @@ router.patch('/:id/status',
   }
 );
 
-// @desc    Check-in appointment
+// @desc    Legacy check-in stub — real check-in is POST /api/check-in/appointment
 // @route   POST /api/appointments/:id/checkin
-// @access  Private (Patient, Staff)
-router.post('/:id/checkin', auth, async (req, res) => {
+// @access  Private (Staff, Admin)
+// This route only marks the appointment as confirmed (pre-arrival confirmation).
+// It does NOT create a QueueEntry or assign a token.
+// Use POST /api/check-in/appointment for the full check-in workflow.
+router.post('/:id/checkin', auth, authorize('receptionist', 'staff', 'admin'), async (req, res) => {
   try {
     const appointment = await Appointment.findById(req.params.id);
 
     if (!appointment) {
-      return res.status(404).json({
+      return res.status(404).json({ success: false, message: 'Appointment not found' });
+    }
+
+    if (['cancelled', 'completed', 'no-show', 'rescheduled'].includes(appointment.status)) {
+      return res.status(409).json({
         success: false,
-        message: 'Appointment not found'
+        message: `Cannot confirm an appointment with status '${appointment.status}'.`
       });
     }
 
-    // Check authorization
-    const canCheckIn =
-      appointment.patient.toString() === req.user.id ||
-      ['staff', 'admin'].includes(req.user.role);
-
-    if (!canCheckIn) {
-      return res.status(403).json({
+    if (['checked_in', 'in_queue', 'in_consultation', 'in-progress'].includes(appointment.status)) {
+      return res.status(409).json({
         success: false,
-        message: 'Not authorized to check-in'
+        message: 'Appointment is already checked in. Use POST /api/check-in/appointment for full check-in with queue entry.',
+        data: { currentStatus: appointment.status }
       });
     }
 
     appointment.checkIn = {
       time: new Date(),
       method: req.body.method || 'manual',
-      verifiedBy: req.user.role === 'staff' ? req.user.id : null
+      verifiedBy: req.user.id
     };
     appointment.status = 'confirmed';
-
     await appointment.save();
 
     await appointment.populate([
@@ -527,16 +734,12 @@ router.post('/:id/checkin', auth, async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Check-in successful',
+      message: 'Appointment confirmed. To assign a queue token, use POST /api/check-in/appointment.',
       data: { appointment }
     });
   } catch (error) {
     console.error('Check-in error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 });
 

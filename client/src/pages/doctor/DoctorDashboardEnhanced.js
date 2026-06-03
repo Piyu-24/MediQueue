@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   CalendarIcon,
   UserIcon,
@@ -13,7 +13,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { appointmentAPI, medicalRecordsAPI, queueAPI } from '../../services/api';
+import { appointmentAPI, medicalRecordsAPI, queueAPI, doctorAPI, notificationAPI } from '../../services/api';
 import socketService from '../../services/socket';
 import ConsultationNoteModal from '../../components/doctor/ConsultationNoteModal';
 import toast from 'react-hot-toast';
@@ -32,8 +32,11 @@ const DoctorDashboardEnhanced = () => {
   const [selectedPatient, _setSelectedPatient] = useState(null);
   const [patientRecords, setPatientRecords] = useState([]);
   const [availability, setAvailability] = useState({});
-  // eslint-disable-next-line no-unused-vars
-  const [_notifications, setNotifications] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const notifPanelRef = useRef(null);
   const [stats, setStats] = useState({
     today: 0,
     pending: 0,
@@ -47,17 +50,36 @@ const DoctorDashboardEnhanced = () => {
     { id: 'overview', name: 'Overview', icon: ChartBarIcon },
     { id: 'queue', name: 'Live Queue', icon: UserIcon },
     { id: 'availability', name: 'Availability', icon: ClockIcon },
-    { id: 'notifications', name: 'Notifications', icon: BellIcon }
   ];
 
   const [liveQueue, setLiveQueue] = useState([]);
   const [queueLoading, setQueueLoading] = useState(false);
+  const [queueSession, setQueueSession] = useState(null);
+  const [pauseMessage, setPauseMessage] = useState('');
+  const [showPauseInput, setShowPauseInput] = useState(false);
   // Consultation note modal
   const [noteModalEntry, setNoteModalEntry] = useState(null);
+
+  const fetchNotifications = useCallback(async () => {
+    try {
+      setNotifLoading(true);
+      const [notifRes, countRes] = await Promise.all([
+        notificationAPI.getNotifications({ limit: 20 }),
+        notificationAPI.getUnreadCount()
+      ]);
+      if (notifRes.data.success) setNotifications(notifRes.data.data.notifications || []);
+      if (countRes.data.success) setUnreadCount(countRes.data.data.count || 0);
+    } catch {
+      // Silent — not critical
+    } finally {
+      setNotifLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetchDoctorData();
     fetchAvailability();
+    fetchNotifications();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -65,6 +87,17 @@ const DoctorDashboardEnhanced = () => {
     if (activeTab === 'queue') fetchLiveQueue();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  // Close notification panel when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (notifPanelRef.current && !notifPanelRef.current.contains(e.target)) {
+        setShowNotifPanel(false);
+      }
+    };
+    if (showNotifPanel) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showNotifPanel]);
 
   // ── Socket.io: real-time queue updates for this doctor ───────────────────────
   useEffect(() => {
@@ -84,6 +117,7 @@ const DoctorDashboardEnhanced = () => {
             </div>
           </div>
         ), { duration: 6000 });
+        fetchNotifications();
       }
       // Always refresh if on queue tab
       if (activeTab === 'queue') fetchLiveQueue();
@@ -97,22 +131,41 @@ const DoctorDashboardEnhanced = () => {
     socketService.on('queue:updated', handleQueueUpdated);
     socketService.on('queue:completed', handleQueueUpdated);
     socketService.on('queue:called', handleQueueUpdated);
+    socketService.on('queue:recalculated', handleQueueUpdated);
+    socketService.on('queue:paused', handleQueueUpdated);
+    socketService.on('queue:resumed', handleQueueUpdated);
 
     return () => {
       socketService.off('queue:created', handleQueueCreated);
       socketService.off('queue:updated', handleQueueUpdated);
       socketService.off('queue:completed', handleQueueUpdated);
       socketService.off('queue:called', handleQueueUpdated);
+      socketService.off('queue:recalculated', handleQueueUpdated);
+      socketService.off('queue:paused', handleQueueUpdated);
+      socketService.off('queue:resumed', handleQueueUpdated);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?._id, activeTab]);
 
   const fetchLiveQueue = async () => {
+    if (!user?._id) return;
     try {
       setQueueLoading(true);
-      const res = await queueAPI.getQueue({ status: 'waiting,called,in-consultation,completed,no-show' });
+      const res = await queueAPI.getActiveQueue(user._id);
       if (res.data.success) {
-        setLiveQueue(res.data.data.queueEntries);
+        const view = res.data.data;
+        // Flatten into a single list ordered: current → ready → waiting → skipped/away
+        const ordered = [
+          ...(view.current || []),
+          ...(view.ready || []),
+          ...(view.waiting || []),
+          ...(view.skipped || []),
+          ...(view.away || []),
+          ...(view.completed || []),
+          ...(view.noShow || [])
+        ];
+        setLiveQueue(ordered);
+        setQueueSession(view.session || null);
       }
     } catch {
       toast.error('Failed to load queue');
@@ -121,16 +174,29 @@ const DoctorDashboardEnhanced = () => {
     }
   };
 
-  const handleQueueAction = async (id, action) => {
+  const handleQueueAction = async (id, action, extra = {}) => {
     try {
       const actionMap = {
-        call: () => queueAPI.callPatient(id),
-        start: () => queueAPI.startConsultation(id),
-        complete: () => queueAPI.completeConsultation(id),
-        'no-show': () => queueAPI.markNoShow(id)
+        call:             () => queueAPI.callPatient(id),
+        start:            () => queueAPI.startConsultation(id),
+        complete:         () => queueAPI.completeConsultation(id, extra.notes),
+        skip:             () => queueAPI.skipPatient(id, extra.reason),
+        'no-show':        () => queueAPI.markNoShow(id),
+        'away':           () => queueAPI.markTemporarilyAway(id),
+        'returned':       () => queueAPI.markReturned(id),
+        'pause':          () => queueAPI.pauseQueue(user._id, extra.message),
+        'resume':         () => queueAPI.resumeQueue(user._id)
       };
-      await actionMap[action]();
-      toast.success(`Patient ${action === 'call' ? 'called' : action === 'start' ? 'consultation started' : action === 'complete' ? 'consultation completed' : 'marked no-show'}`);
+      const fn = actionMap[action];
+      if (!fn) return;
+      await fn();
+      const labels = {
+        call: 'Patient called', start: 'Consultation started', complete: 'Consultation completed',
+        skip: 'Patient skipped', 'no-show': 'Marked as no-show',
+        away: 'Patient marked temporarily away', returned: 'Patient returned to queue',
+        pause: 'Queue paused', resume: 'Queue resumed'
+      };
+      toast.success(labels[action] || 'Done');
       fetchLiveQueue();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Action failed');
@@ -140,27 +206,27 @@ const DoctorDashboardEnhanced = () => {
 
 
   const fetchDoctorData = async () => {
-    const today = new Date().toISOString().split('T')[0];
-    
+    const today = new Date().toLocaleDateString('en-CA'); // local YYYY-MM-DD, not UTC
+
     try {
       setLoading(true);
-      
+
       // Fetch doctor's appointments
       const response = await appointmentAPI.getDoctorAppointments(user._id);
-      
+
       if (response.data.success) {
         const allAppointments = response.data.data.appointments || [];
-        
-        // Filter appointments by date
+
+        // Filter appointments by local date
         const todayAppts = allAppointments.filter(apt => {
-          const aptDate = new Date(apt.appointmentDate).toISOString().split('T')[0];
+          const aptDate = new Date(apt.appointmentDate).toLocaleDateString('en-CA');
           return aptDate === today;
         });
-        
+
+        // Strictly tomorrow and beyond — string comparison works for YYYY-MM-DD
         const upcomingAppts = allAppointments.filter(apt => {
-          const aptDate = new Date(apt.appointmentDate);
-          const todayDate = new Date(today);
-          return aptDate > todayDate;
+          const aptDate = new Date(apt.appointmentDate).toLocaleDateString('en-CA');
+          return aptDate > today;
         });
         
         setTodayAppointments(todayAppts);
@@ -225,13 +291,15 @@ const DoctorDashboardEnhanced = () => {
 
   const updateAvailability = async (newAvailability) => {
     try {
-      // Save to local storage for now
+      // Save to local storage for immediate UI update
       localStorage.setItem(`doctor_availability_${user._id}`, JSON.stringify(newAvailability));
       setAvailability(newAvailability);
-      toast.success('Availability updated successfully');
       
-      // TODO: Integrate with backend API when available
-      // const response = await userAPI.updateProfile(user._id, { availability: newAvailability });
+      // Integrate with backend API
+      const response = await doctorAPI.updateAvailability(newAvailability);
+      if (response.data.success) {
+        toast.success('Availability updated successfully');
+      }
     } catch (error) {
       console.error('Error updating availability:', error);
       toast.error('Failed to update availability');
@@ -326,13 +394,97 @@ const DoctorDashboardEnhanced = () => {
                 <p className="text-gray-600">{user?.specialization || 'General Medicine'}</p>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-3">
               <button
                 onClick={() => fetchDoctorData()}
                 className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <ArrowPathIcon className="w-5 h-5" />
               </button>
+
+              {/* Notification Bell */}
+              <div className="relative" ref={notifPanelRef}>
+                <button
+                  onClick={() => {
+                    const next = !showNotifPanel;
+                    setShowNotifPanel(next);
+                    if (next) fetchNotifications();
+                  }}
+                  className="relative p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                  title="Notifications"
+                >
+                  <BellIcon className="w-5 h-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold leading-none">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {showNotifPanel && (
+                  <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                      <h3 className="font-semibold text-gray-900 text-sm">Notifications</h3>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={async () => {
+                            try { await notificationAPI.markAllAsRead(); fetchNotifications(); }
+                            catch { /* silent */ }
+                          }}
+                          className="text-xs text-blue-600 hover:underline"
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-80 overflow-y-auto">
+                      {notifLoading ? (
+                        <div className="p-4 text-center text-gray-400 text-sm">Loading…</div>
+                      ) : notifications.length === 0 ? (
+                        <div className="p-6 text-center">
+                          <BellIcon className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                          <p className="text-gray-400 text-sm">No notifications</p>
+                        </div>
+                      ) : (
+                        notifications.map((n) => (
+                          <div
+                            key={n._id}
+                            className={`px-4 py-3 border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors ${!n.isRead ? 'bg-blue-50' : ''}`}
+                            onClick={async () => {
+                              if (!n.isRead) {
+                                try { await notificationAPI.markAsRead(n._id); fetchNotifications(); }
+                                catch { /* silent */ }
+                              }
+                            }}
+                          >
+                            <div className="flex items-start gap-2">
+                              {!n.isRead && (
+                                <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 flex-shrink-0" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-900 truncate">
+                                  {n.title || n.type || 'Notification'}
+                                </p>
+                                {(n.message || n.body) && (
+                                  <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
+                                    {n.message || n.body}
+                                  </p>
+                                )}
+                                <p className="text-xs text-gray-400 mt-1">
+                                  {new Date(n.createdAt).toLocaleDateString('en-LK', {
+                                    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+                                  })}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="text-right">
                 <p className="text-sm text-gray-500">Today</p>
                 <p className="text-lg font-semibold text-gray-900">
@@ -469,15 +621,6 @@ const DoctorDashboardEnhanced = () => {
                                   title="Confirm Appointment"
                                 >
                                   <CheckCircleIcon className="w-4 h-4" />
-                                </button>
-                              )}
-                              {appointment.status !== 'completed' && (
-                                <button
-                                  onClick={() => updateAppointmentStatus(appointment._id, 'completed')}
-                                  className="p-1 text-blue-600 hover:bg-blue-100 rounded"
-                                  title="Mark as Completed"
-                                >
-                                  <DocumentTextIcon className="w-4 h-4" />
                                 </button>
                               )}
                             </div>
@@ -688,150 +831,16 @@ const DoctorDashboardEnhanced = () => {
           </div>
         )}
 
-        {/* Availability Tab */}
         {/* Live Queue Tab */}
         {activeTab === 'queue' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center space-x-3">
-                <UserIcon className="w-6 h-6 text-blue-600" />
-                <h2 className="text-xl font-bold text-gray-900">My Live Queue</h2>
-                <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">
-                  {liveQueue.filter(e => ['waiting','called','in-consultation'].includes(e.status)).length} active
-                </span>
-              </div>
-              <button onClick={fetchLiveQueue} className="flex items-center space-x-1 px-3 py-1.5 text-sm text-gray-500 hover:text-blue-600 border border-gray-200 rounded-lg hover:border-blue-300 transition-all">
-                <ArrowPathIcon className={`w-4 h-4 ${queueLoading ? 'animate-spin' : ''}`} />
-                <span>Refresh</span>
-              </button>
-            </div>
-
-            {/* Stats mini bar */}
-            {liveQueue.length > 0 && (
-              <div className="grid grid-cols-4 gap-3">
-                {[
-                  { label: 'Waiting', count: liveQueue.filter(e => e.status === 'waiting').length, color: 'bg-blue-50 text-blue-700 border-blue-200' },
-                  { label: 'Called', count: liveQueue.filter(e => e.status === 'called').length, color: 'bg-orange-50 text-orange-700 border-orange-200' },
-                  { label: 'In Consultation', count: liveQueue.filter(e => e.status === 'in-consultation').length, color: 'bg-purple-50 text-purple-700 border-purple-200' },
-                  { label: 'Completed', count: liveQueue.filter(e => e.status === 'completed').length, color: 'bg-green-50 text-green-700 border-green-200' },
-                ].map(s => (
-                  <div key={s.label} className={`${s.color} border rounded-xl p-3 text-center`}>
-                    <p className="text-2xl font-black">{s.count}</p>
-                    <p className="text-xs font-medium">{s.label}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {queueLoading ? (
-              <div className="text-center py-12 text-gray-400">
-                <ArrowPathIcon className="w-8 h-8 animate-spin mx-auto mb-2" />
-                <p>Loading queue...</p>
-              </div>
-            ) : liveQueue.length === 0 ? (
-              <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-12 text-center">
-                <UserIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500 text-lg font-medium">No queue entries today</p>
-                <p className="text-gray-400 text-sm">Patients will appear here once checked in by reception</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {liveQueue.map(entry => (
-                  <div key={entry._id} className={`bg-white rounded-xl border-2 p-4 transition-all shadow-sm ${
-                    entry.status === 'waiting' ? 'border-blue-200' :
-                    entry.status === 'called' ? 'border-orange-300 shadow-orange-100' :
-                    entry.status === 'in-consultation' ? 'border-purple-300 shadow-purple-100' :
-                    entry.status === 'completed' ? 'border-gray-100 opacity-60' :
-                    'border-red-100 opacity-50'
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-4">
-                        <div className={`text-xl font-black px-3 py-2 rounded-lg min-w-[90px] text-center ${
-                          entry.status === 'waiting' ? 'bg-blue-600 text-white' :
-                          entry.status === 'called' ? 'bg-orange-500 text-white' :
-                          entry.status === 'in-consultation' ? 'bg-purple-600 text-white' :
-                          entry.status === 'completed' ? 'bg-gray-300 text-gray-600' :
-                          'bg-red-400 text-white'
-                        }`}>
-                          {entry.queueNumber}
-                        </div>
-                        <div>
-                          <div className="flex items-center space-x-2">
-                            <p className="font-semibold text-gray-900">
-                              {entry.patient?.firstName} {entry.patient?.lastName}
-                            </p>
-                            {entry.priority === 'urgent' && (
-                              <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">🔴 URGENT</span>
-                            )}
-                            {entry.isWalkIn && (
-                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Walk-in</span>
-                            )}
-                          </div>
-                          <p className="text-sm text-gray-500">
-                            {entry.room} · Check-in: {entry.checkInTime ? new Date(entry.checkInTime).toLocaleTimeString() : '—'}
-                            {entry.estimatedWaitMinutes > 0 && entry.status === 'waiting' && ` · Est. ${entry.estimatedWaitMinutes} min wait`}
-                          </p>
-                          {entry.notes && <p className="text-xs text-amber-600 mt-0.5">📝 {entry.notes}</p>}
-                        </div>
-                      </div>
-
-                      {/* Action buttons */}
-                      <div className="flex items-center space-x-2">
-                        {entry.status === 'waiting' && (
-                          <>
-                            <button onClick={() => handleQueueAction(entry._id, 'call')}
-                              className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-semibold hover:bg-orange-600 transition-all shadow-sm">
-                              📢 Call
-                            </button>
-                            <button onClick={() => handleQueueAction(entry._id, 'no-show')}
-                              className="px-3 py-2 border border-red-200 text-red-500 rounded-lg text-sm hover:bg-red-50 transition-all">
-                              No-show
-                            </button>
-                          </>
-                        )}
-                        {entry.status === 'called' && (
-                          <>
-                            <button onClick={() => handleQueueAction(entry._id, 'start')}
-                              className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 transition-all shadow-sm">
-                              🩺 Start
-                            </button>
-                            <button onClick={() => handleQueueAction(entry._id, 'no-show')}
-                              className="px-3 py-2 border border-red-200 text-red-500 rounded-lg text-sm hover:bg-red-50 transition-all">
-                              No-show
-                            </button>
-                          </>
-                        )}
-                        {entry.status === 'in-consultation' && (
-                          <button onClick={() => handleQueueAction(entry._id, 'complete')}
-                            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-all shadow-sm">
-                            ✓ Complete
-                          </button>
-                        )}
-                        {(entry.status === 'completed' || entry.status === 'no-show') && (
-                          <div className="flex items-center space-x-2">
-                            <span className={`text-xs font-semibold px-3 py-1.5 rounded-full ${
-                              entry.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
-                            }`}>
-                              {entry.status}
-                            </span>
-                            {entry.status === 'completed' && (
-                              <button
-                                onClick={() => setNoteModalEntry(entry)}
-                                className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition-all shadow-sm flex items-center space-x-1"
-                              >
-                                <DocumentTextIcon className="w-3.5 h-3.5" />
-                                <span>Write Notes</span>
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <LiveQueueTab
+            user={user}
+            liveQueue={liveQueue}
+            queueLoading={queueLoading}
+            onFetch={fetchLiveQueue}
+            onAction={handleQueueAction}
+            onNotes={setNoteModalEntry}
+          />
         )}
 
         {activeTab === 'availability' && (
@@ -1028,143 +1037,274 @@ const DoctorDashboardEnhanced = () => {
           </div>
         )}
 
-        {/* Notifications Tab */}
-        {activeTab === 'notifications' && (
-          <div className="space-y-6">
-            <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-900">Notifications</h2>
-                <button
-                  onClick={() => {
-                    // Mark all as read
-                    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-                    toast.success('All notifications marked as read');
-                  }}
-                  className="px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                >
-                  Mark All Read
-                </button>
-              </div>
-
-              <div className="space-y-4 max-h-96 overflow-y-auto">
-                {/* Mock notifications for demonstration */}
-                {[
-                  {
-                    id: 1,
-                    type: 'appointment',
-                    title: 'New Appointment Booked',
-                    message: 'John Doe has booked an appointment for tomorrow at 2:00 PM',
-                    time: '2 minutes ago',
-                    read: false
-                  },
-                  {
-                    id: 2,
-                    type: 'cancellation',
-                    title: 'Appointment Cancelled',
-                    message: 'Sarah Smith cancelled her appointment scheduled for today',
-                    time: '1 hour ago',
-                    read: false
-                  },
-                  {
-                    id: 3,
-                    type: 'reminder',
-                    title: 'Schedule Reminder',
-                    message: 'You have 3 appointments scheduled for tomorrow',
-                    time: '3 hours ago',
-                    read: true
-                  },
-                  {
-                    id: 4,
-                    type: 'system',
-                    title: 'System Update',
-                    message: 'New features have been added to the patient management system',
-                    time: '1 day ago',
-                    read: true
-                  }
-                ].map((notification) => (
-                  <div
-                    key={notification.id}
-                    className={`p-4 border rounded-lg transition-colors ${
-                      notification.read 
-                        ? 'border-gray-200 bg-white' 
-                        : 'border-blue-200 bg-blue-50'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start space-x-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                          notification.type === 'appointment' ? 'bg-green-100' :
-                          notification.type === 'cancellation' ? 'bg-red-100' :
-                          notification.type === 'reminder' ? 'bg-yellow-100' :
-                          'bg-blue-100'
-                        }`}>
-                          {notification.type === 'appointment' && <CalendarIcon className="w-5 h-5 text-green-600" />}
-                          {notification.type === 'cancellation' && <XCircleIcon className="w-5 h-5 text-red-600" />}
-                          {notification.type === 'reminder' && <ClockIcon className="w-5 h-5 text-yellow-600" />}
-                          {notification.type === 'system' && <BellIcon className="w-5 h-5 text-blue-600" />}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2">
-                            <h4 className="font-semibold text-gray-900">{notification.title}</h4>
-                            {!notification.read && (
-                              <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
-                            )}
-                          </div>
-                          <p className="text-gray-600 text-sm mt-1">{notification.message}</p>
-                          <p className="text-gray-400 text-xs mt-2">{notification.time}</p>
-                        </div>
-                      </div>
-                      <div className="flex space-x-2">
-                        {!notification.read && (
-                          <button
-                            onClick={() => {
-                              // Mark as read
-                              toast.success('Notification marked as read');
-                            }}
-                            className="p-1 text-blue-600 hover:bg-blue-100 rounded"
-                            title="Mark as read"
-                          >
-                            <CheckCircleIcon className="w-4 h-4" />
-                          </button>
-                        )}
-                        <button
-                          className="p-1 text-gray-400 hover:bg-gray-100 rounded"
-                          title="Delete notification"
-                        >
-                          <XCircleIcon className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Notification Settings */}
-              <div className="mt-8 pt-6 border-t border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Notification Preferences</h3>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-700">New Appointments</span>
-                    <input type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-700">Appointment Cancellations</span>
-                    <input type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-700">Schedule Reminders</span>
-                    <input type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-700">System Updates</span>
-                    <input type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
+    </div>
+  );
+};
+
+// ── Zone-Aware Live Queue Tab ─────────────────────────────────────────────────
+const TOKEN_COLORS = {
+  A: 'bg-blue-600 text-white',
+  W: 'bg-amber-500 text-white',
+  E: 'bg-red-600 text-white',
+};
+
+const ZONE_LABELS = {
+  CURRENT: { label: 'Now In Consultation', color: 'border-purple-400 bg-purple-50', badge: 'bg-purple-100 text-purple-800' },
+  READY:   { label: 'Ready Zone — Please Be Ready', color: 'border-orange-300 bg-orange-50', badge: 'bg-orange-100 text-orange-800' },
+  WAITING_POOL: { label: 'Waiting Pool', color: 'border-blue-200 bg-white', badge: 'bg-blue-100 text-blue-800' },
+};
+
+const QueueCard = ({ entry, onAction, onNotes }) => {
+  const tokenColor = TOKEN_COLORS[entry.tokenType] || 'bg-gray-600 text-white';
+  const isActive = ['waiting', 'ready', 'called', 'in_consultation', 'emergency_waiting'].includes(entry.status);
+
+  return (
+    <div className={`rounded-xl border-2 p-4 transition-all shadow-sm ${
+      entry.status === 'in_consultation' ? 'border-purple-300 bg-purple-50/30' :
+      entry.status === 'ready' || entry.status === 'called' ? 'border-orange-300 bg-orange-50/30' :
+      entry.status === 'emergency_waiting' ? 'border-red-400 bg-red-50/30' :
+      entry.status === 'temporarily_away' ? 'border-yellow-300 bg-yellow-50/30 opacity-75' :
+      entry.status === 'skipped' ? 'border-gray-200 bg-gray-50 opacity-60' :
+      entry.status === 'completed' ? 'border-gray-100 bg-gray-50 opacity-50' :
+      'border-blue-200 bg-white'
+    }`}>
+      <div className="flex items-center justify-between gap-3">
+        {/* Token badge */}
+        <div className={`text-xl font-black px-3 py-2 rounded-lg min-w-[80px] text-center shrink-0 ${tokenColor}`}>
+          {entry.queueNumber}
+        </div>
+
+        {/* Patient info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+            <span className="font-semibold text-gray-900 truncate">
+              {entry.patient?.firstName} {entry.patient?.lastName}
+            </span>
+            {entry.isEmergency && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">🚨 EMERGENCY</span>}
+            {entry.priority === 'urgent' && !entry.isEmergency && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">🔴 URGENT</span>}
+            {entry.isWalkIn && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Walk-in</span>}
+            {entry.isLate && <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Late</span>}
+            {entry.status === 'temporarily_away' && <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Away</span>}
+            {entry.status === 'skipped' && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Skipped</span>}
+          </div>
+          <p className="text-xs text-gray-500 truncate">
+            {entry.room}
+            {entry.appointmentTime && ` · Appt: ${entry.appointmentTime}`}
+            {' · '}Check-in: {entry.checkInTime ? new Date(entry.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+            {isActive && entry.estimatedWaitMinutes > 0 && ` · ~${entry.estimatedWaitMinutes} min wait`}
+          </p>
+          {entry.notes && <p className="text-xs text-amber-600 mt-0.5 truncate">📝 {entry.notes}</p>}
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+          {(entry.status === 'waiting' || entry.status === 'ready' || entry.status === 'emergency_waiting') && (
+            <>
+              <button onClick={() => onAction(entry._id, 'call')}
+                className="px-3 py-1.5 bg-orange-500 text-white rounded-lg text-xs font-semibold hover:bg-orange-600 transition-all">
+                📢 Call
+              </button>
+              <button onClick={() => onAction(entry._id, 'start')}
+                className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-semibold hover:bg-purple-700 transition-all">
+                🩺 Start
+              </button>
+              <button onClick={() => onAction(entry._id, 'skip')}
+                className="px-2 py-1.5 border border-yellow-300 text-yellow-700 rounded-lg text-xs hover:bg-yellow-50 transition-all">
+                Skip
+              </button>
+              <button onClick={() => onAction(entry._id, 'no-show')}
+                className="px-2 py-1.5 border border-red-200 text-red-500 rounded-lg text-xs hover:bg-red-50 transition-all">
+                No-show
+              </button>
+            </>
+          )}
+          {entry.status === 'called' && (
+            <>
+              <button onClick={() => onAction(entry._id, 'start')}
+                className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-semibold hover:bg-purple-700 transition-all">
+                🩺 Start
+              </button>
+              <button onClick={() => onAction(entry._id, 'away')}
+                className="px-2 py-1.5 border border-yellow-300 text-yellow-700 rounded-lg text-xs hover:bg-yellow-50 transition-all">
+                Away
+              </button>
+              <button onClick={() => onAction(entry._id, 'no-show')}
+                className="px-2 py-1.5 border border-red-200 text-red-500 rounded-lg text-xs hover:bg-red-50 transition-all">
+                No-show
+              </button>
+            </>
+          )}
+          {entry.status === 'in_consultation' && (
+            <button onClick={() => onAction(entry._id, 'complete')}
+              className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 transition-all">
+              ✓ Complete
+            </button>
+          )}
+          {(entry.status === 'temporarily_away' || entry.status === 'skipped') && (
+            <button onClick={() => onAction(entry._id, 'returned')}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 transition-all">
+              ↩ Returned
+            </button>
+          )}
+          {entry.status === 'completed' && (
+            <button onClick={() => onNotes(entry)}
+              className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition-all flex items-center gap-1">
+              <DocumentTextIcon className="w-3.5 h-3.5" />
+              Notes
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const LiveQueueTab = ({ user, liveQueue, queueLoading, onFetch, onAction, onNotes }) => {
+  const [pauseMsg, setPauseMsg] = React.useState('');
+  const [showPauseBox, setShowPauseBox] = React.useState(false);
+
+  const current    = liveQueue.filter(e => e.zone === 'CURRENT' || e.status === 'in_consultation');
+  const ready      = liveQueue.filter(e => (e.zone === 'READY' || e.status === 'ready' || e.status === 'called') && e.status !== 'in_consultation');
+  const waiting    = liveQueue.filter(e => e.zone === 'WAITING_POOL' && ['waiting', 'emergency_waiting'].includes(e.status));
+  const away       = liveQueue.filter(e => e.status === 'temporarily_away');
+  const skipped    = liveQueue.filter(e => e.status === 'skipped');
+  const completed  = liveQueue.filter(e => e.status === 'completed');
+
+  const activeCount = current.length + ready.length + waiting.length;
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <UserIcon className="w-6 h-6 text-blue-600" />
+          <h2 className="text-xl font-bold text-gray-900">My Live Queue</h2>
+          <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">{activeCount} active</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Pause / Resume */}
+          {showPauseBox ? (
+            <div className="flex items-center gap-2">
+              <input
+                value={pauseMsg}
+                onChange={e => setPauseMsg(e.target.value)}
+                placeholder="Reason for pause..."
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              />
+              <button
+                onClick={() => { onAction(null, 'pause', { message: pauseMsg }); setShowPauseBox(false); setPauseMsg(''); }}
+                className="px-3 py-1.5 bg-yellow-500 text-white rounded-lg text-sm font-semibold hover:bg-yellow-600 transition-all"
+              >
+                Confirm Pause
+              </button>
+              <button onClick={() => setShowPauseBox(false)} className="text-gray-400 hover:text-gray-600 text-sm">Cancel</button>
+            </div>
+          ) : (
+            <button onClick={() => setShowPauseBox(true)}
+              className="px-3 py-1.5 bg-yellow-100 text-yellow-700 border border-yellow-300 rounded-lg text-sm font-semibold hover:bg-yellow-200 transition-all">
+              ⏸ Pause Queue
+            </button>
+          )}
+          <button onClick={() => onAction(null, 'resume')}
+            className="px-3 py-1.5 bg-green-100 text-green-700 border border-green-300 rounded-lg text-sm font-semibold hover:bg-green-200 transition-all">
+            ▶ Resume
+          </button>
+          <button onClick={onFetch}
+            className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 hover:text-blue-600 border border-gray-200 rounded-lg hover:border-blue-300 transition-all">
+            <ArrowPathIcon className={`w-4 h-4 ${queueLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Stats bar */}
+      {liveQueue.length > 0 && (
+        <div className="grid grid-cols-5 gap-2">
+          {[
+            { label: 'In Consult', count: current.length, color: 'bg-purple-50 text-purple-700 border-purple-200' },
+            { label: 'Ready', count: ready.length, color: 'bg-orange-50 text-orange-700 border-orange-200' },
+            { label: 'Waiting', count: waiting.length, color: 'bg-blue-50 text-blue-700 border-blue-200' },
+            { label: 'Away/Skipped', count: away.length + skipped.length, color: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
+            { label: 'Completed', count: completed.length, color: 'bg-green-50 text-green-700 border-green-200' },
+          ].map(s => (
+            <div key={s.label} className={`${s.color} border rounded-xl p-2 text-center`}>
+              <p className="text-xl font-black">{s.count}</p>
+              <p className="text-xs font-medium leading-tight">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {queueLoading ? (
+        <div className="text-center py-12 text-gray-400">
+          <ArrowPathIcon className="w-8 h-8 animate-spin mx-auto mb-2" />
+          <p>Loading queue...</p>
+        </div>
+      ) : liveQueue.length === 0 ? (
+        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-12 text-center">
+          <UserIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <p className="text-gray-500 text-lg font-medium">No queue entries today</p>
+          <p className="text-gray-400 text-sm">Patients will appear here once checked in by reception</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {/* CURRENT zone */}
+          {current.length > 0 && (
+            <section>
+              <h3 className="text-xs font-bold text-purple-600 uppercase tracking-widest mb-2 flex items-center gap-2">
+                <span className="w-2 h-2 bg-purple-500 rounded-full animate-pulse inline-block"></span>
+                Now In Consultation
+              </h3>
+              <div className="space-y-2">{current.map(e => <QueueCard key={e._id} entry={e} onAction={onAction} onNotes={onNotes} />)}</div>
+            </section>
+          )}
+
+          {/* READY zone */}
+          {ready.length > 0 && (
+            <section>
+              <h3 className="text-xs font-bold text-orange-600 uppercase tracking-widest mb-2 flex items-center gap-2">
+                <span className="w-2 h-2 bg-orange-400 rounded-full inline-block"></span>
+                Ready Zone — Please Be Ready
+              </h3>
+              <div className="space-y-2">{ready.map(e => <QueueCard key={e._id} entry={e} onAction={onAction} onNotes={onNotes} />)}</div>
+            </section>
+          )}
+
+          {/* WAITING POOL */}
+          {waiting.length > 0 && (
+            <section>
+              <h3 className="text-xs font-bold text-blue-600 uppercase tracking-widest mb-2 flex items-center gap-2">
+                <span className="w-2 h-2 bg-blue-400 rounded-full inline-block"></span>
+                Waiting Pool ({waiting.length})
+              </h3>
+              <div className="space-y-2">{waiting.map(e => <QueueCard key={e._id} entry={e} onAction={onAction} onNotes={onNotes} />)}</div>
+            </section>
+          )}
+
+          {/* Away / Skipped */}
+          {(away.length > 0 || skipped.length > 0) && (
+            <section>
+              <h3 className="text-xs font-bold text-yellow-600 uppercase tracking-widest mb-2">
+                Temporarily Away / Skipped
+              </h3>
+              <div className="space-y-2">
+                {[...away, ...skipped].map(e => <QueueCard key={e._id} entry={e} onAction={onAction} onNotes={onNotes} />)}
+              </div>
+            </section>
+          )}
+
+          {/* Completed */}
+          {completed.length > 0 && (
+            <section>
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">
+                Completed Today ({completed.length})
+              </h3>
+              <div className="space-y-2">{completed.map(e => <QueueCard key={e._id} entry={e} onAction={onAction} onNotes={onNotes} />)}</div>
+            </section>
+          )}
+        </div>
+      )}
     </div>
   );
 };

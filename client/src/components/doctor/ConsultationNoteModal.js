@@ -176,17 +176,24 @@ const ConsultationNoteModal = ({ entry, doctor, onClose, onSaved }) => {
         .map((d) => `${d.code}: ${d.description}`)
         .join('; ');
 
+      const diagnosisDisplay = diagnosisText || form.chiefComplaint || 'Consultation';
       const payload = {
         patient: patient?._id,
         doctor: doctor._id,
         recordType: 'consultation',
+        // Required schema fields
+        title: `Consultation: ${form.chiefComplaint || 'General Visit'}`.substring(0, 120),
+        description: form.treatmentPlan || form.chiefComplaint || 'Consultation note',
         visitDate: new Date().toISOString(),
         chiefComplaint: form.chiefComplaint,
-        diagnosis: diagnosisText || 'See notes',
+        diagnosis: diagnosisDisplay,
         treatment: form.treatmentPlan,
         followUpDate: form.followUpDate || undefined,
         referral: form.referral || undefined,
-        notes: `Queue Entry: ${entry?.queueNumber || ''}`,
+        notes: [
+          entry?.queueNumber ? `Queue: ${entry.queueNumber}` : '',
+          form.referral ? `Referral: ${form.referral}` : ''
+        ].filter(Boolean).join(' | ') || undefined,
         medications: prescriptions
           .filter((r) => r.name)
           .map((r) => ({
@@ -204,7 +211,7 @@ const ConsultationNoteModal = ({ entry, doctor, onClose, onSaved }) => {
           patient,
           doctor,
           formData: {
-            diagnosisDisplay: diagnosisText,
+            diagnosisDisplay,
             treatmentPlan: form.treatmentPlan,
             followUpDate: form.followUpDate,
             queueNumber: entry?.queueNumber,

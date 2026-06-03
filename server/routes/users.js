@@ -49,10 +49,49 @@ const upload = multer({
 // @access  Private
 router.get('/profile', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.user.id).lean();
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Filter returned fields based on role
+    const filteredUser = {
+      _id: user._id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phone: user.phone,
+      phoneNumber: user.phoneNumber,
+      address: user.address,
+      dateOfBirth: user.dateOfBirth,
+      gender: user.gender,
+      role: user.role,
+      isActive: user.isActive,
+      isEmailVerified: user.isEmailVerified,
+      identityVerificationStatus: user.identityVerificationStatus,
+      digitalHealthCardId: user.digitalHealthCardId
+    };
+
+    if (user.role === 'patient') {
+      filteredUser.medicalInfo = user.medicalInfo;
+    } else if (user.role === 'doctor') {
+      filteredUser.specialization = user.specialization;
+      filteredUser.licenseNumber = user.licenseNumber;
+      filteredUser.department = user.department;
+      filteredUser.yearsOfExperience = user.yearsOfExperience;
+      filteredUser.consultationFee = user.consultationFee;
+      filteredUser.bio = user.bio;
+      filteredUser.languages = user.languages;
+      filteredUser.workingDays = user.workingDays;
+      filteredUser.workingHours = user.workingHours;
+      filteredUser.qualifications = user.qualifications;
+      filteredUser.availability = user.availability;
+      filteredUser.experience = user.experience;
+    }
+
     res.json({
       success: true,
-      data: { user }
+      data: { user: filteredUser }
     });
   } catch (error) {
     console.error('Get profile error:', error);
@@ -83,9 +122,35 @@ router.put('/profile', auth, [
       });
     }
 
+    // Filter allowed fields based on role
+    const allowedSharedFields = ['firstName', 'lastName', 'phone', 'address', 'dateOfBirth', 'gender'];
+    const updateData = {};
+
+    allowedSharedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+    if (req.user.role === 'patient') {
+      const allowedPatientFields = ['medicalInfo'];
+      allowedPatientFields.forEach(field => {
+        if (req.body[field] !== undefined) updateData[field] = req.body[field];
+      });
+    } else if (req.user.role === 'doctor') {
+      const allowedDoctorFields = [
+        'specialization', 'licenseNumber', 'department', 'yearsOfExperience',
+        'consultationFee', 'bio', 'languages', 'workingDays', 'workingHours',
+        'qualifications', 'availability', 'experience'
+      ];
+      allowedDoctorFields.forEach(field => {
+        if (req.body[field] !== undefined) updateData[field] = req.body[field];
+      });
+    }
+
     const user = await User.findByIdAndUpdate(
       req.user.id,
-      req.body,
+      { $set: updateData },
       { new: true, runValidators: true }
     );
 

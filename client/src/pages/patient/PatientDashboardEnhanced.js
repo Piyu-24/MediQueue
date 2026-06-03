@@ -121,6 +121,9 @@ const PatientDashboardEnhanced = () => {
     socketService.on('queue:checkedIn', handleCheckedIn);
     socketService.on('queue:updated', handleQueueUpdated);
     socketService.on('queue:completed', handleQueueUpdated);
+    socketService.on('queue:recalculated', handleQueueUpdated);
+    socketService.on('queue:paused', handleQueueUpdated);
+    socketService.on('queue:resumed', handleQueueUpdated);
     socketService.on('appointment:doctor-unavailable', handleDoctorUnavailable);
 
     return () => {
@@ -128,6 +131,9 @@ const PatientDashboardEnhanced = () => {
       socketService.off('queue:checkedIn', handleCheckedIn);
       socketService.off('queue:updated', handleQueueUpdated);
       socketService.off('queue:completed', handleQueueUpdated);
+      socketService.off('queue:recalculated', handleQueueUpdated);
+      socketService.off('queue:paused', handleQueueUpdated);
+      socketService.off('queue:resumed', handleQueueUpdated);
       socketService.off('appointment:doctor-unavailable', handleDoctorUnavailable);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -272,7 +278,12 @@ const PatientDashboardEnhanced = () => {
 
   const handleReschedule = (appointment) => {
     const doctorId = appointment.doctor?._id;
-    navigate(`/dashboard?tab=book-appointment${doctorId ? `&doctorId=${doctorId}` : ''}`);
+    const params = new URLSearchParams({ tab: 'book-appointment' });
+    if (doctorId) params.set('doctorId', doctorId);
+    if (appointment._id) params.set('rescheduleFrom', appointment._id);
+    if (appointment.chiefComplaint) params.set('chiefComplaint', encodeURIComponent(appointment.chiefComplaint));
+    if (appointment.appointmentType) params.set('appointmentType', appointment.appointmentType);
+    navigate(`/dashboard?${params.toString()}`);
   };
 
   return (
@@ -383,43 +394,73 @@ const PatientDashboardEnhanced = () => {
         {/* Tab Content */}
         {activeTab === 'overview' && (
           <>
-            {/* Queue Status Card (shown when patient is in queue today) */}
+            {/* Queue Status Card */}
             {(queueStatus?.inQueue || queueLoading) && (
               <div className="mb-8">
                 {queueLoading ? (
                   <div className="h-24 bg-blue-50 rounded-2xl animate-pulse" />
                 ) : (
                   <div className={`rounded-2xl p-6 border-2 shadow-lg ${
-                    queueStatus.status === 'in-consultation'
+                    queueStatus.status === 'in_consultation' || queueStatus.status === 'in-consultation'
                       ? 'bg-gradient-to-r from-purple-50 to-purple-100 border-purple-300'
                       : queueStatus.status === 'called'
                       ? 'bg-gradient-to-r from-orange-50 to-orange-100 border-orange-300'
+                      : queueStatus.status === 'ready'
+                      ? 'bg-gradient-to-r from-orange-50 to-amber-100 border-amber-300'
+                      : queueStatus.sessionStatus === 'paused'
+                      ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-300'
                       : 'bg-gradient-to-r from-blue-50 to-blue-100 border-blue-300'
                   }`}>
+                    {/* Paused / delay banner */}
+                    {queueStatus.sessionStatus === 'paused' && (
+                      <div className="mb-3 bg-yellow-200 text-yellow-900 text-sm font-semibold px-4 py-2 rounded-xl flex items-center gap-2">
+                        ⏸ Queue is temporarily paused.
+                        {queueStatus.delayMessage && ` ${queueStatus.delayMessage}`}
+                      </div>
+                    )}
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-5">
+                        {/* Token badge */}
                         <div className={`text-4xl font-black px-5 py-3 rounded-xl shadow-md ${
-                          queueStatus.status === 'in-consultation' ? 'bg-purple-600 text-white' :
+                          queueStatus.status === 'in_consultation' || queueStatus.status === 'in-consultation' ? 'bg-purple-600 text-white' :
                           queueStatus.status === 'called' ? 'bg-orange-500 text-white' :
+                          queueStatus.status === 'ready' ? 'bg-amber-500 text-white' :
+                          queueStatus.tokenType === 'E' ? 'bg-red-600 text-white' :
+                          queueStatus.tokenType === 'W' ? 'bg-amber-500 text-white' :
                           'bg-blue-600 text-white'
                         }`}>
                           {queueStatus.queueNumber}
                         </div>
                         <div>
-                          <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-1">Your Queue Status</p>
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-1">Your Queue Token</p>
                           <p className={`text-xl font-bold ${
-                            queueStatus.status === 'in-consultation' ? 'text-purple-800' :
+                            queueStatus.status === 'in_consultation' || queueStatus.status === 'in-consultation' ? 'text-purple-800' :
                             queueStatus.status === 'called' ? 'text-orange-800' :
+                            queueStatus.status === 'ready' ? 'text-amber-800' :
                             'text-blue-800'
                           }`}>
-                            {queueStatus.status === 'in-consultation' ? '🩺 In Consultation' :
+                            {(queueStatus.status === 'in_consultation' || queueStatus.status === 'in-consultation') ? '🩺 In Consultation' :
                              queueStatus.status === 'called' ? '📢 Please proceed to the room!' :
+                             queueStatus.status === 'ready' ? '✅ Please be ready — you are next!' :
+                             queueStatus.status === 'temporarily_away' ? '⏳ Temporarily Away — Please return' :
+                             queueStatus.zone === 'READY' ? '✅ Please be ready — you are next!' :
                              `Position ${queueStatus.position} in queue`}
                           </p>
                           <p className="text-sm text-gray-600 mt-1">
                             {queueStatus.room} · Dr. {queueStatus.doctor?.firstName} {queueStatus.doctor?.lastName}
-                            {queueStatus.status === 'waiting' && queueStatus.estimatedWaitMinutes > 0 &&
-                              ` · ~${queueStatus.estimatedWaitMinutes} min est. wait`}
+                          </p>
+                          {queueStatus.estimatedWaitMinutes > 0 &&
+                           !['in_consultation', 'in-consultation', 'called', 'ready'].includes(queueStatus.status) && (
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              Estimated wait: approximately {queueStatus.estimatedWaitMinutes} minutes. This may change due to emergencies, doctor delays, and consultation duration.
+                            </p>
+                          )}
+                          {queueStatus.appointmentReference && (
+                            <p className="text-xs text-gray-400 mt-0.5 font-mono">Ref: {queueStatus.appointmentReference}</p>
+                          )}
+                          {/* Standard message for all queued patients */}
+                          <p className="text-xs text-gray-400 mt-1 italic">
+                            Token No: {queueStatus.queueNumber}. Please watch the display board. Appointment patients, emergency cases, doctor delays, and consultation duration may affect waiting time.
                           </p>
                         </div>
                       </div>
@@ -569,15 +610,28 @@ const PatientDashboardEnhanced = () => {
                                   <span className="text-sm text-gray-600">{appointment.appointmentTime}</span>
                                 </div>
                               </div>
-                              <div className="mt-2 flex items-center space-x-2">
+                              <div className="mt-2 flex items-center flex-wrap gap-2">
                                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                   appointment.status === 'confirmed' ? 'bg-green-100 text-green-800' :
                                   appointment.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                                  appointment.status === 'in_queue' ? 'bg-teal-100 text-teal-800' :
                                   appointment.status === 'doctor-unavailable' ? 'bg-amber-100 text-amber-800' :
                                   'bg-gray-100 text-gray-800'
                                 }`}>
-                                  {appointment.status === 'doctor-unavailable' ? 'doctor unavailable' : appointment.status}
+                                  {appointment.status === 'doctor-unavailable' ? 'doctor unavailable' :
+                                   appointment.status === 'in_queue' ? 'in queue' : appointment.status}
                                 </span>
+                                {appointment.appointmentReference && (
+                                  <span className="text-xs text-gray-400 font-mono bg-gray-100 px-2 py-0.5 rounded">
+                                    {appointment.appointmentReference}
+                                  </span>
+                                )}
+                                {/* Show check-in message for scheduled/confirmed appointments */}
+                                {['scheduled', 'confirmed'].includes(appointment.status) && (
+                                  <span className="text-xs text-blue-600 italic">
+                                    Your live queue token will be issued after check-in at the hospital.
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
