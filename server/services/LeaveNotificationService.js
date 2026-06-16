@@ -64,14 +64,20 @@ class LeaveNotificationService {
 
     const now = new Date();
     const appointments = rawAppointments.filter((appointment) => {
+      // Block-based OPD appointments have no appointmentTime — include them for full-day leave,
+      // skip exact-time overlap check for partial-day leave
       const appointmentDateTime = new Date(appointment.appointmentDate);
-      const [hours, minutes] = appointment.appointmentTime.split(':').map(Number);
-      appointmentDateTime.setHours(hours, minutes, 0, 0);
+      if (appointment.appointmentTime) {
+        const [hours, minutes] = appointment.appointmentTime.split(':').map(Number);
+        appointmentDateTime.setHours(hours, minutes, 0, 0);
+      } else {
+        appointmentDateTime.setHours(23, 59, 59, 999);
+      }
 
       if (appointmentDateTime < now) return false;
 
       if (leaveType === 'PARTIAL_DAY') {
-        if (!leaveData.startTime || !leaveData.endTime) return false;
+        if (!leaveData.startTime || !leaveData.endTime || !appointment.appointmentTime) return false;
         return isTimeOverlap(appointment.appointmentTime, leaveData.startTime, leaveData.endTime);
       }
 

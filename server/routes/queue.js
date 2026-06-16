@@ -215,7 +215,7 @@ router.post('/validate-qr', auth, authorize('receptionist', 'staff', 'admin'), a
       Appointment.find({
         patient: patient._id,
         appointmentDate: { $gte: startOfDay, $lt: endOfDay },
-        status: { $in: ['scheduled', 'confirmed'] }
+        status: { $in: ['booked', 'scheduled', 'confirmed'] }
       }).populate('doctor', 'firstName lastName specialization department'),
       QueueEntry.find({
         patient: patient._id,
@@ -255,7 +255,7 @@ router.post('/validate-qr', auth, authorize('receptionist', 'staff', 'admin'), a
 // ALL STAFF — Get queue list with filters
 // GET /api/queue
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/', auth, authorize('receptionist', 'staff', 'doctor', 'admin', 'manager'), async (req, res) => {
+router.get('/', auth, authorize('receptionist', 'staff', 'doctor', 'admin'), async (req, res) => {
   try {
     const { date = localDateStr(), room, department, status, doctorId } = req.query;
     const query = { queueDate: date };
@@ -288,7 +288,7 @@ router.get('/', auth, authorize('receptionist', 'staff', 'doctor', 'admin', 'man
 // ALL STAFF — Get zone-aware queue view for a doctor
 // GET /api/queue/doctors/:doctorId/active
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/doctors/:doctorId/active', auth, authorize('receptionist', 'staff', 'doctor', 'admin', 'manager'), async (req, res) => {
+router.get('/doctors/:doctorId/active', auth, authorize('receptionist', 'staff', 'doctor', 'admin'), async (req, res) => {
   try {
     const { doctorId } = req.params;
     const queueDate = req.query.date || localDateStr();
@@ -354,12 +354,16 @@ router.get('/display', async (req, res) => {
         : '??.';
 
       const displayEntry = {
-        queueNumber: entry.queueNumber,
-        tokenType: entry.tokenType,
+        queueNumber:  entry.queueNumber,
+        tokenType:    entry.tokenType,
         initials,
-        status: entry.status,
-        priority: entry.priority,
-        zone: entry.zone
+        status:       entry.status,
+        priority:     entry.priority,
+        zone:         entry.zone,
+        isLate:       entry.isLate      || false,
+        isEmergency:  entry.isEmergency || false,
+        isWalkIn:     entry.isWalkIn    || false,
+        sortOrder:    entry.sortOrder   || 0
       };
 
       if (entry.status === 'in_consultation' || entry.status === 'called') {
@@ -441,7 +445,7 @@ router.get('/my-status', auth, authorize('patient'), async (req, res) => {
 // ADMIN / MANAGER — Queue stats
 // GET /api/queue/stats
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/stats', auth, authorize('admin', 'manager', 'staff', 'receptionist'), async (req, res) => {
+router.get('/stats', auth, authorize('admin', 'staff', 'receptionist'), async (req, res) => {
   try {
     const date = req.query.date || localDateStr();
 

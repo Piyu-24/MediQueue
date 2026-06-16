@@ -188,7 +188,7 @@ documentSchema.methods.hasAccess = function(userId, userRole) {
   }
   
   // Staff, doctors, and admins can access all documents
-  if (['staff', 'doctor', 'admin', 'manager'].includes(userRole)) {
+  if (['staff', 'doctor', 'admin'].includes(userRole)) {
     return true;
   }
   

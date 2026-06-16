@@ -55,7 +55,7 @@ class ApiService {
     this.axiosInstance.interceptors.request.use(
       (config) => {
         // Add auth token if available
-        const token = localStorage.getItem('token');
+        const token = sessionStorage.getItem('token');
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
@@ -87,7 +87,7 @@ class ApiService {
         // Handle common error scenarios
         if (error.response?.status === 401) {
           // Unauthorized - redirect to login
-          localStorage.removeItem('token');
+          sessionStorage.removeItem('token');
           window.location.href = '/login';
         } else if (error.response?.status === 403) {
           // Forbidden - show access denied message
@@ -251,10 +251,10 @@ class ApiService {
    */
   setAuthToken(token) {
     if (token) {
-      localStorage.setItem('token', token);
+      sessionStorage.setItem('token', token);
       this.axiosInstance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     } else {
-      localStorage.removeItem('token');
+      sessionStorage.removeItem('token');
       delete this.axiosInstance.defaults.headers.common['Authorization'];
     }
   }
@@ -264,7 +264,7 @@ class ApiService {
    * @returns {string|null} Current token
    */
   getAuthToken() {
-    return localStorage.getItem('token');
+    return sessionStorage.getItem('token');
   }
 
   /**

@@ -6,7 +6,7 @@ import {
   PrinterIcon,
   CheckCircleIcon,
 } from '@heroicons/react/24/outline';
-import { medicalRecordsAPI } from '../../services/api';
+import { medicalRecordsAPI, prescriptionAPI } from '../../services/api';
 import PrescriptionForm from './PrescriptionForm';
 import icd10Codes from '../../data/icd10_codes.json';
 import toast from 'react-hot-toast';
@@ -177,11 +177,12 @@ const ConsultationNoteModal = ({ entry, doctor, onClose, onSaved }) => {
         .join('; ');
 
       const diagnosisDisplay = diagnosisText || form.chiefComplaint || 'Consultation';
+      const activeMeds = prescriptions.filter((r) => r.name);
+
       const payload = {
         patient: patient?._id,
         doctor: doctor._id,
         recordType: 'consultation',
-        // Required schema fields
         title: `Consultation: ${form.chiefComplaint || 'General Visit'}`.substring(0, 120),
         description: form.treatmentPlan || form.chiefComplaint || 'Consultation note',
         visitDate: new Date().toISOString(),
@@ -194,17 +195,40 @@ const ConsultationNoteModal = ({ entry, doctor, onClose, onSaved }) => {
           entry?.queueNumber ? `Queue: ${entry.queueNumber}` : '',
           form.referral ? `Referral: ${form.referral}` : ''
         ].filter(Boolean).join(' | ') || undefined,
-        medications: prescriptions
-          .filter((r) => r.name)
-          .map((r) => ({
-            name: `${r.name}${r.form ? ` (${r.form})` : ''}`,
-            dosage: r.frequency,
-            duration: r.duration,
-            instructions: r.instructions,
-          })),
+        // 'medications' is mapped → MedicalRecord.prescriptions[] by the server route
+        medications: activeMeds.map((r) => ({
+          name: `${r.name}${r.form ? ` (${r.form})` : ''}`,
+          dosage: r.frequency,
+          duration: r.duration,
+          instructions: r.instructions,
+        })),
       };
 
       await medicalRecordsAPI.createRecord(payload);
+
+      // Persist medicines as a proper Prescription document so they appear in
+      // Patient Record → Prescription History across all future visits/doctors.
+      if (activeMeds.length > 0 && patient?._id) {
+        try {
+          await prescriptionAPI.createPrescription({
+            patientId:     patient._id,
+            diagnosis:     diagnosisDisplay,
+            indication:    diagnosisDisplay,
+            notes:         form.treatmentPlan || '',
+            appointmentId: entry?.appointment || undefined,
+            medications:   activeMeds.map((r) => ({
+              name:         r.name,
+              form:         r.form,
+              frequency:    r.frequency,
+              duration:     r.duration,
+              instructions: r.instructions,
+            })),
+          });
+        } catch (rxErr) {
+          console.error('Failed to persist prescription record:', rxErr);
+          toast.error('Consultation saved but prescription history could not be recorded');
+        }
+      }
 
       if (andPrint) {
         printPrescription({

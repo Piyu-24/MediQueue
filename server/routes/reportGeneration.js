@@ -10,7 +10,7 @@ const { body, validationResult } = require('express-validator');
 // @access  Private (Manager, Staff)
 router.post('/patient-visits', [
   auth,
-  authorize('manager', 'staff'),
+  authorize('staff', 'admin'),
   body('startDate').isISO8601().withMessage('Valid start date is required'),
   body('endDate').isISO8601().withMessage('Valid end date is required'),
   body('department').optional().isString(),
@@ -43,7 +43,7 @@ router.post('/patient-visits', [
 // @access  Private (Manager, Staff)
 router.post('/staff-utilization', [
   auth,
-  authorize('manager', 'staff'),
+  authorize('staff', 'admin'),
   body('startDate').isISO8601().withMessage('Valid start date is required'),
   body('endDate').isISO8601().withMessage('Valid end date is required'),
   body('department').optional().isString()
@@ -74,7 +74,7 @@ router.post('/staff-utilization', [
 // @access  Private (Manager)
 router.post('/comprehensive', [
   auth,
-  authorize('manager'),
+  authorize('admin'),
   body('startDate').isISO8601().withMessage('Valid start date is required'),
   body('endDate').isISO8601().withMessage('Valid end date is required')
 ], async (req, res) => {
@@ -104,7 +104,7 @@ router.post('/comprehensive', [
 // @access  Private (Manager, Staff)
 router.post('/generate-and-save', [
   auth,
-  authorize('manager', 'staff'),
+  authorize('staff', 'admin'),
   body('reportType').isIn(['patient-visits', 'staff-utilization', 'comprehensive']).withMessage('Valid report type is required'),
   body('title').notEmpty().withMessage('Report title is required'),
   body('startDate').isISO8601().withMessage('Valid start date is required'),
@@ -199,7 +199,7 @@ router.post('/generate-and-save', [
 // @desc    Test endpoint
 // @route   GET /api/report-generation/test
 // @access  Private (Manager, Staff)
-router.get('/test', auth, authorize('manager', 'staff'), (req, res) => {
+router.get('/test', auth, authorize('staff', 'admin'), (req, res) => {
   res.json({
     success: true,
     message: 'Report generation API is working',
@@ -211,7 +211,7 @@ router.get('/test', auth, authorize('manager', 'staff'), (req, res) => {
 // @desc    Get Available Report Types
 // @route   GET /api/report-generation/types
 // @access  Private (Manager, Staff)
-router.get('/types', auth, authorize('manager', 'staff'), (req, res) => {
+router.get('/types', auth, authorize('staff', 'admin'), (req, res) => {
   const reportTypes = [
     {
       id: 'patient-visits',

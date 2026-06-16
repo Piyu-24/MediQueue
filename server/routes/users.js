@@ -287,7 +287,7 @@ router.get('/nic-status', auth, async (req, res) => {
 // @desc    Get NIC document image
 // @route   GET /api/users/nic-document/:patientId
 // @access  Private (Manager, Staff, Receptionist)
-router.get('/nic-document/:patientId', auth, authorize('manager', 'staff', 'receptionist'), async (req, res) => {
+router.get('/nic-document/:patientId', auth, authorize('staff', 'receptionist', 'admin'), async (req, res) => {
   try {
     console.log('Fetching NIC document for patient:', req.params.patientId);
     
@@ -415,7 +415,7 @@ router.get('/doctors/:id', async (req, res) => {
 router.get('/:id/profile', auth, async (req, res) => {
   try {
     // Check if user is accessing their own profile or is admin/manager
-    if (req.user.id !== req.params.id && !['admin', 'manager'].includes(req.user.role)) {
+    if (req.user.id !== req.params.id && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -457,7 +457,7 @@ router.put('/:id/profile', auth, [
 ], async (req, res) => {
   try {
     // Check if user is updating their own profile or is admin/manager
-    if (req.user.id !== req.params.id && !['admin', 'manager'].includes(req.user.role)) {
+    if (req.user.id !== req.params.id && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -508,30 +508,25 @@ router.put('/:id/profile', auth, [
 // @desc    Search users (Admin/Manager/Receptionist)
 // @route   GET /api/users/search
 // @access  Private (Admin/Manager/Staff/Receptionist)
-router.get('/search', auth, authorize('admin', 'manager', 'staff', 'receptionist'), async (req, res) => {
+router.get('/search', auth, authorize('admin', 'staff', 'receptionist'), async (req, res) => {
   try {
     // Support both 'q' and 'query' parameters for backwards compatibility
-    const searchQuery = req.query.q || req.query.query;
+    const searchQuery = req.query.q || req.query.query || '';
     const { role, isActive } = req.query;
-    
-    if (!searchQuery) {
-      return res.status(400).json({
-        success: false,
-        message: 'Search query is required'
-      });
-    }
-    
-    // Build search filter with more fields
-    const searchFilter = {
-      $or: [
-        { firstName: { $regex: searchQuery, $options: 'i' } },
-        { lastName: { $regex: searchQuery, $options: 'i' } },
-        { email: { $regex: searchQuery, $options: 'i' } },
-        { phone: { $regex: searchQuery, $options: 'i' } },
-        { digitalHealthCardId: { $regex: searchQuery, $options: 'i' } },
-        { nicNumber: { $regex: searchQuery, $options: 'i' } }
-      ]
-    };
+
+    // Build search filter — empty query returns all users
+    const searchFilter = searchQuery.trim()
+      ? {
+          $or: [
+            { firstName: { $regex: searchQuery, $options: 'i' } },
+            { lastName: { $regex: searchQuery, $options: 'i' } },
+            { email: { $regex: searchQuery, $options: 'i' } },
+            { phone: { $regex: searchQuery, $options: 'i' } },
+            { digitalHealthCardId: { $regex: searchQuery, $options: 'i' } },
+            { nicNumber: { $regex: searchQuery, $options: 'i' } }
+          ]
+        }
+      : {};
     
     if (role) {
       searchFilter.role = role;
@@ -564,7 +559,7 @@ router.get('/search', auth, authorize('admin', 'manager', 'staff', 'receptionist
 // @desc    Get patients for identity verification
 // @route   GET /api/users/patients/verification
 // @access  Private (Manager, Staff, Receptionist)
-router.get('/patients/verification', auth, authorize('manager', 'staff', 'receptionist'), async (req, res) => {
+router.get('/patients/verification', auth, authorize('staff', 'receptionist', 'admin'), async (req, res) => {
   try {
     const { status } = req.query;
     
@@ -597,7 +592,7 @@ router.get('/patients/verification', auth, authorize('manager', 'staff', 'recept
 // @desc    Verify patient identity
 // @route   PUT /api/users/patients/:id/verify-identity
 // @access  Private (Manager, Staff, Receptionist)
-router.put('/patients/:id/verify-identity', auth, authorize('manager', 'staff', 'receptionist'), async (req, res) => {
+router.put('/patients/:id/verify-identity', auth, authorize('staff', 'receptionist', 'admin'), async (req, res) => {
   try {
     const { verificationStatus, verificationNote } = req.body;
 
@@ -644,7 +639,7 @@ router.put('/patients/:id/verify-identity', auth, authorize('manager', 'staff', 
 // @desc    Verify patient by Health Card ID
 // @route   GET /api/users/verify-health-card/:healthCardId
 // @access  Private (Staff, Manager, Receptionist)
-router.get('/verify-health-card/:healthCardId', auth, authorize('staff', 'manager', 'receptionist'), async (req, res) => {
+router.get('/verify-health-card/:healthCardId', auth, authorize('staff', 'receptionist', 'admin'), async (req, res) => {
   try {
     const { healthCardId } = req.params;
 
@@ -689,6 +684,36 @@ router.get('/verify-health-card/:healthCardId', auth, authorize('staff', 'manage
       message: 'Server error',
       error: error.message
     });
+  }
+});
+
+// @desc    Toggle user active status
+// @route   PATCH /api/users/:id/toggle-status
+// @access  Private (Admin only)
+router.patch('/:id/toggle-status', auth, authorize('admin'), async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password -resetPasswordToken -resetPasswordExpire');
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Prevent admin from deactivating themselves
+    if (user._id.toString() === req.user.id) {
+      return res.status(400).json({ success: false, message: 'You cannot deactivate your own account' });
+    }
+
+    user.isActive = !user.isActive;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: `User ${user.isActive ? 'activated' : 'deactivated'} successfully`,
+      data: { userId: user._id, isActive: user.isActive }
+    });
+  } catch (error) {
+    console.error('Toggle user status error:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 });
 

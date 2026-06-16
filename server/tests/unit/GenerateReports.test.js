@@ -37,7 +37,7 @@ describe('UC04 - Generate Reports', () => {
       firstName: 'Manager',
       lastName: 'Admin',
       email: 'manager@test.com',
-      role: 'manager'
+      role: 'admin'
     };
 
     mockDoctor = {

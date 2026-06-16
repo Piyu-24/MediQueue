@@ -54,7 +54,10 @@ const queueEventLogSchema = new mongoose.Schema({
       'QUEUE_RESUMED',
       'SORT_ORDER_CHANGED',
       'CANCELLED',
-      'ETA_UPDATED'
+      'ETA_UPDATED',
+      // New event types added for reception workflow
+      'MARKED_LATE',
+      'DOCTOR_REASSIGNED'
     ],
     index: true
   },

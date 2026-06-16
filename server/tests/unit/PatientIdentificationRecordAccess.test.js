@@ -72,7 +72,7 @@ describe('UC03 - Patient Identification and Record Access', () => {
       firstName: 'Manager',
       lastName: 'Admin',
       email: 'manager@test.com',
-      role: 'manager'
+      role: 'admin'
     };
 
     mockMedicalRecord = {

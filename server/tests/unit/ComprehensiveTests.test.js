@@ -431,7 +431,7 @@ describe('MediQueue System - Comprehensive Unit Tests (>80% Coverage)', () => {
 
       let result = await mockManagerController.searchPatients({
         query: { search: 'John', type: 'name' },
-        user: { role: 'manager' }
+        user: { role: 'admin' }
       });
       expect(result.success).toBe(true);
 
@@ -462,7 +462,7 @@ describe('MediQueue System - Comprehensive Unit Tests (>80% Coverage)', () => {
 
         result = await mockManagerController[reportType.method]({
           query: { startDate: '2024-01-01', endDate: '2024-01-31' },
-          user: { role: 'manager' }
+          user: { role: 'admin' }
         });
         expect(result.success).toBe(true);
         expect(result.report).toBeDefined();

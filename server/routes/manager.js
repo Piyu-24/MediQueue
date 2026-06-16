@@ -18,9 +18,9 @@ const logger = Logger.getLogger('ManagerRoutes');
 // @route   GET /api/manager/dashboard/overview
 // @access  Private (Manager only)
 // @validation None required
-router.get('/dashboard/overview', 
-  auth, 
-  authorize('manager'), 
+router.get('/dashboard/overview',
+  auth,
+  authorize('admin'),
   managerController.getDashboardOverview.bind(managerController)
 );
 
@@ -28,20 +28,20 @@ router.get('/dashboard/overview',
 // @route   GET /api/manager/reports/patient-visits
 // @access  Private (Manager, Staff)
 // @validation Date range and filter parameters
-router.get('/reports/patient-visits', 
-  auth, 
-  authorize('manager', 'staff'),
+router.get('/reports/patient-visits',
+  auth,
+  authorize('staff', 'admin'),
   ValidationHelper.validateDateRange(),
   managerController.getPatientVisitReport.bind(managerController)
 );
 
 // @desc    Get staff utilization report
 // @route   GET /api/manager/reports/staff-utilization
-// @access  Private (Manager, Staff)
+// @access  Private (Manager, Staff, Admin)
 // @validation Date range parameters
-router.get('/reports/staff-utilization', 
-  auth, 
-  authorize('manager', 'staff'),
+router.get('/reports/staff-utilization',
+  auth,
+  authorize('staff', 'admin'),
   ValidationHelper.validateDateRange(),
   managerController.getStaffUtilizationReport.bind(managerController)
 );

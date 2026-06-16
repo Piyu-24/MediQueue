@@ -58,7 +58,7 @@ class ValidationHelper {
         }),
       
       role: body('role')
-        .isIn(['patient', 'doctor', 'staff', 'manager', 'admin'])
+        .isIn(['patient', 'doctor', 'staff', 'admin'])
         .withMessage('Invalid user role')
     };
   }

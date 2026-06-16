@@ -139,9 +139,50 @@ const queueEntrySchema = new mongoose.Schema({
   isLate: { type: Boolean, default: false },
 
   // ── Appointment Context ───────────────────────────────────────────────────────
-  /** Scheduled appointment time (copied at check-in for ordering) */
+  /** Scheduled appointment time (copied at check-in for ordering; null for block-based) */
   appointmentTime: {
     type: String,
+    default: null
+  },
+  /** Original appointment token (e.g. "A014") — set at booking, copied here at check-in */
+  appointmentToken: {
+    type: String,
+    default: null,
+    uppercase: true
+  },
+  /** Original token sequence number — used for ordering late patients */
+  originalTokenNumber: {
+    type: Number,
+    default: null
+  },
+
+  // ── Time Block Context ────────────────────────────────────────────────────────
+  /** TimeBlock this entry belongs to (null for legacy exact-time entries) */
+  timeBlockId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'TimeBlock',
+    default: null,
+    index: true,
+    sparse: true
+  },
+  /** Department ObjectId ref (mirrors department string for new-flow entries) */
+  departmentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Department',
+    default: null,
+    index: true,
+    sparse: true
+  },
+
+  // ── Late Patient Insertion ────────────────────────────────────────────────────
+  /**
+   * When a late patient is inserted after the current consultation,
+   * this points to the QueueEntry that was CURRENT when the late patient arrived.
+   * Used for audit/display; the actual position is driven by sortOrder.
+   */
+  lateInsertedAfter: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'QueueEntry',
     default: null
   },
 

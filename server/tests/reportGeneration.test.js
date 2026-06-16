@@ -38,7 +38,7 @@ describe('UC04 - Generate Reports', () => {
       email: 'manager@test.com',
       password: 'TestPass123!',
       phone: '+1-555-0101',
-      role: 'manager',
+      role: 'admin',
       isActive: true,
       isEmailVerified: true
     });

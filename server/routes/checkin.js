@@ -1,11 +1,12 @@
-const express = require('express');
+const express    = require('express');
 const { body, validationResult } = require('express-validator');
-const rateLimit = require('express-rate-limit');
-const auth = require('../middleware/auth');
-const authorize = require('../middleware/authorize');
+const rateLimit  = require('express-rate-limit');
+const auth       = require('../middleware/auth');
+const authorize  = require('../middleware/authorize');
 const { getAppointmentEligibility, checkInAppointment, checkInWalkIn } = require('../services/CheckInService');
 const QueueEngine = require('../services/QueueEngine');
 const { localDateStr } = require('../services/TokenGenerator');
+const Appointment = require('../models/Appointment');
 
 const router = express.Router();
 
@@ -17,9 +18,18 @@ const checkinLimiter = rateLimit({
   legacyHeaders: false
 });
 
+const handleValidation = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+  }
+  next();
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/check-in/eligibility/:appointmentId
 // Check if a patient can check in for their appointment right now.
+// Also returns appointment token info for new-flow appointments.
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/eligibility/:appointmentId', auth, async (req, res) => {
   try {
@@ -37,26 +47,29 @@ router.get('/eligibility/:appointmentId', auth, async (req, res) => {
     res.json({
       success: true,
       data: {
-        eligible: result.eligible,
-        reason: result.reason,
-        arrivalStatus: result.arrivalStatus,
+        eligible:                result.eligible,
+        reason:                  result.reason,
+        arrivalStatus:           result.arrivalStatus,
         minutesUntilAppointment: result.minutesUntilAppointment,
-        alreadyCheckedIn: result.alreadyCheckedIn || false,
-        policy: result.policy
-          ? {
-              earlyCheckInMinutes: result.policy.earlyCheckInMinutes,
-              gracePeriodMinutes: result.policy.gracePeriodMinutes
-            }
-          : null,
-        appointment: result.appointment
-          ? {
-              appointmentReference: result.appointment.appointmentReference,
-              appointmentDate: result.appointment.appointmentDate,
-              appointmentTime: result.appointment.appointmentTime,
-              doctor: result.appointment.doctor,
-              status: result.appointment.status
-            }
-          : null
+        alreadyCheckedIn:        result.alreadyCheckedIn || false,
+        policy: result.policy ? {
+          earlyCheckInMinutes: result.policy.earlyCheckInMinutes,
+          gracePeriodMinutes:  result.policy.gracePeriodMinutes
+        } : null,
+        appointment: result.appointment ? {
+          appointmentReference: result.appointment.appointmentReference,
+          appointmentDate:      result.appointment.appointmentDate,
+          appointmentTime:      result.appointment.appointmentTime,
+          bookingType:          result.appointment.bookingType,
+          // Token info for new-flow appointments
+          appointmentToken:     result.appointment.appointmentToken,
+          tokenNumber:          result.appointment.tokenNumber,
+          reportingTime:        result.appointment.reportingTime,
+          timeBlockId:          result.appointment.timeBlockId,
+          departmentId:         result.appointment.departmentId,
+          doctor:               result.appointment.doctor,
+          status:               result.appointment.status
+        } : null
       }
     });
   } catch (error) {
@@ -67,7 +80,16 @@ router.get('/eligibility/:appointmentId', auth, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/check-in/appointment
-// Check in a booked appointment patient. Creates QueueEntry + updates Appointment.
+// Check in a booked appointment patient.
+//
+// NEW FLOW (block-based, bookingType='general_opd'):
+//   - appointment.appointmentToken already set at booking
+//   - doctorId assigned HERE by reception (required)
+//   - departmentId optional (derived from appointment if not provided)
+//
+// LEGACY FLOW (exact-time specialist):
+//   - doctorId is the same doctor from booking
+//   - A token generated at this point
 // ─────────────────────────────────────────────────────────────────────────────
 router.post(
   '/appointment',
@@ -77,27 +99,39 @@ router.post(
   [
     body('appointmentId').isMongoId().withMessage('Valid appointment ID required'),
     body('patientId').isMongoId().withMessage('Valid patient ID required'),
-    body('doctorId').isMongoId().withMessage('Valid doctor ID required'),
+    // doctorId is required — reception must assign a doctor even for General OPD
+    body('doctorId').isMongoId().withMessage('Valid doctor ID required — reception must assign a doctor at check-in'),
     body('room').notEmpty().withMessage('Room is required'),
-    body('department').notEmpty().withMessage('Department is required')
+    body('department').notEmpty().withMessage('Department name is required'),
+    // Optional new-flow fields
+    body('departmentId').optional().isMongoId().withMessage('Invalid departmentId'),
+    body('timeBlockId').optional().isMongoId().withMessage('Invalid timeBlockId')
   ],
+  handleValidation,
   async (req, res) => {
     try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
-      }
-
-      const { appointmentId, patientId, doctorId, room, department, notes, priority } = req.body;
+      const {
+        appointmentId,
+        patientId,
+        doctorId,
+        room,
+        department,
+        departmentId,
+        timeBlockId,
+        notes,
+        priority
+      } = req.body;
 
       const result = await checkInAppointment({
         appointmentId,
         patientId,
-        performedById: req.user.id,
+        performedById:   req.user.id,
         performedByRole: req.user.role,
         room,
         department,
         doctorId,
+        departmentId,
+        timeBlockId,
         notes,
         priority
       });
@@ -108,20 +142,27 @@ router.post(
       await QueueEngine.recalculate(doctorId, queueDate, io);
 
       const arrivalMsg = {
-        early: 'Patient checked in early. Token assigned.',
-        on_time: 'Patient checked in on time. Token assigned.',
-        late: 'Patient checked in late. Token assigned with late-arrival priority.'
-      }[result.arrivalStatus] || 'Patient checked in. Token assigned.';
+        early:   'Patient checked in early. Token activated.',
+        on_time: 'Patient checked in on time. Token activated.',
+        late:    `Patient checked in late. Token ${result.token} inserted according to late-arrival policy.`
+      }[result.arrivalStatus] || `Patient checked in. Token ${result.token} assigned.`;
+
+      const isNewFlow = !!result.appointment?.appointmentToken;
+      const patientMessage = result.arrivalStatus === 'late'
+        ? `You have checked in after your reporting time. Your token ${result.token} is still valid. You will be called after the current consultation according to hospital late-arrival policy.`
+        : `Your token ${result.token} is now active. Please watch the display board. You will be called according to hospital queue priority.`;
 
       res.status(201).json({
         success: true,
         message: arrivalMsg,
         data: {
-          queueEntry: result.queueEntry,
-          token: result.token,
-          arrivalStatus: result.arrivalStatus,
+          queueEntry:          result.queueEntry,
+          token:               result.token,
+          arrivalStatus:       result.arrivalStatus,
           estimatedWaitMinutes: result.estimatedWaitMinutes,
-          message: `Token No: ${result.token}. Please watch the display board. Appointment patients, emergency cases, doctor delays, and consultation duration may affect waiting time.`
+          isNewFlow,
+          patientMessage,
+          displayMessage: `Token No: ${result.token}. ${isNewFlow ? 'Token activated from booking.' : 'Token assigned at check-in.'} Please watch the display board.`
         }
       });
     } catch (error) {
@@ -129,7 +170,87 @@ router.post(
       res.status(error.statusCode || 500).json({
         success: false,
         message: error.message || 'Server error during check-in',
-        data: error.data
+        data:    error.data
+      });
+    }
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/check-in/appointment/by-token
+// Check in using an appointment token (e.g. scan token slip QR code).
+// Looks up the appointment by token string, then delegates to the normal check-in.
+// ─────────────────────────────────────────────────────────────────────────────
+router.post(
+  '/appointment/by-token',
+  checkinLimiter,
+  auth,
+  authorize('receptionist', 'staff', 'admin'),
+  [
+    body('appointmentToken').notEmpty().withMessage('Appointment token is required (e.g. A014)'),
+    body('doctorId').isMongoId().withMessage('Valid doctor ID required'),
+    body('room').notEmpty().withMessage('Room is required'),
+    body('department').notEmpty().withMessage('Department name is required'),
+    body('departmentId').optional().isMongoId()
+  ],
+  handleValidation,
+  async (req, res) => {
+    try {
+      const { appointmentToken, doctorId, room, department, departmentId, notes, priority } = req.body;
+
+      // Find appointment by token — only active (not yet checked-in) appointments
+      const appointment = await Appointment.findOne({
+        appointmentToken: appointmentToken.toUpperCase(),
+        status: { $in: ['booked', 'scheduled', 'confirmed'] }
+      }).populate('patient', 'firstName lastName phone');
+
+      if (!appointment) {
+        return res.status(404).json({
+          success: false,
+          message: `No active appointment found for token ${appointmentToken.toUpperCase()}. It may already be checked in or cancelled.`
+        });
+      }
+
+      const result = await checkInAppointment({
+        appointmentId:   appointment._id.toString(),
+        patientId:       appointment.patient._id.toString(),
+        performedById:   req.user.id,
+        performedByRole: req.user.role,
+        room,
+        department,
+        doctorId,
+        departmentId:    departmentId || appointment.departmentId?.toString(),
+        timeBlockId:     appointment.timeBlockId?.toString(),
+        notes,
+        priority
+      });
+
+      const queueDate = localDateStr();
+      const io = req.app.get('io');
+      await QueueEngine.recalculate(doctorId, queueDate, io);
+
+      res.status(201).json({
+        success: true,
+        message: `Token ${result.token} activated. Patient: ${appointment.patient.firstName} ${appointment.patient.lastName}.`,
+        data: {
+          queueEntry:           result.queueEntry,
+          token:                result.token,
+          arrivalStatus:        result.arrivalStatus,
+          estimatedWaitMinutes: result.estimatedWaitMinutes,
+          patient: {
+            id:        appointment.patient._id,
+            firstName: appointment.patient.firstName,
+            lastName:  appointment.patient.lastName,
+            phone:     appointment.patient.phone
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Token check-in error:', error);
+      res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || 'Server error during token check-in',
+        data:    error.data
       });
     }
   }
@@ -137,7 +258,8 @@ router.post(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/check-in/walk-in
-// Register and check in a walk-in patient.
+// Register and check in a walk-in patient (W token from shared A/W sequence).
+// departmentId is preferred over department string for proper token scoping.
 // ─────────────────────────────────────────────────────────────────────────────
 router.post(
   '/walk-in',
@@ -148,23 +270,21 @@ router.post(
     body('patientId').isMongoId().withMessage('Valid patient ID required'),
     body('doctorId').isMongoId().withMessage('Valid doctor ID required'),
     body('room').notEmpty().withMessage('Room is required'),
-    body('department').notEmpty().withMessage('Department is required')
+    body('department').notEmpty().withMessage('Department name is required'),
+    body('departmentId').optional().isMongoId().withMessage('Invalid departmentId')
   ],
+  handleValidation,
   async (req, res) => {
     try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
-      }
-
-      const { patientId, doctorId, room, department, notes, isEmergency, priority } = req.body;
+      const { patientId, doctorId, room, department, departmentId, notes, isEmergency, priority } = req.body;
 
       const result = await checkInWalkIn({
         patientId,
-        performedById: req.user.id,
+        performedById:   req.user.id,
         performedByRole: req.user.role,
         room,
         department,
+        departmentId,
         doctorId,
         notes,
         isEmergency: isEmergency === true,
@@ -175,20 +295,20 @@ router.post(
       const io = req.app.get('io');
       await QueueEngine.recalculate(doctorId, queueDate, io);
 
-      const patientTypeMsg = isEmergency
-        ? 'Emergency patient added to queue with highest priority.'
-        : 'Walk-in patient checked in. Token assigned.';
+      const isEmerg = isEmergency === true;
 
       res.status(201).json({
         success: true,
-        message: patientTypeMsg,
+        message: isEmerg
+          ? 'Emergency patient added to queue with highest priority.'
+          : 'Walk-in patient checked in. Token assigned.',
         data: {
-          queueEntry: result.queueEntry,
-          token: result.token,
+          queueEntry:           result.queueEntry,
+          token:                result.token,
           estimatedWaitMinutes: result.estimatedWaitMinutes,
-          message: isEmergency
+          patientMessage: isEmerg
             ? `Emergency Token: ${result.token}. Patient has been placed at the top of the queue.`
-            : `Token No: ${result.token}. Your token number is used for calling. Appointment patients and emergency cases may be prioritized according to hospital policy. Please watch the display board.`
+            : `Your walk-in token is ${result.token}. Walk-in patients are called based on doctor availability, appointment load, and urgency. Please watch the display board.`
         }
       });
     } catch (error) {
@@ -196,7 +316,7 @@ router.post(
       res.status(error.statusCode || 500).json({
         success: false,
         message: error.message || 'Server error during walk-in check-in',
-        data: error.data
+        data:    error.data
       });
     }
   }

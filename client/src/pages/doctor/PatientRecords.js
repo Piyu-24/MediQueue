@@ -23,7 +23,7 @@ const PatientRecords = () => {
   
   const [loading, setLoading] = useState(true);
   const [patientProfile, setPatientProfile] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('prescriptions');
   const [error, setError] = useState(null);
   const [documents, setDocuments] = useState([]);
   const [showTreatmentPlanModal, setShowTreatmentPlanModal] = useState(false);
@@ -72,7 +72,7 @@ const PatientRecords = () => {
       
       const response = await fetch(`/api/doctor/patients/${patientId}/profile`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${sessionStorage.getItem('token')}`
         }
       });
 
@@ -105,7 +105,7 @@ const PatientRecords = () => {
     try {
       const response = await fetch(`/api/documents/patient/${patientId}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${sessionStorage.getItem('token')}`
         }
       });
 
@@ -331,6 +331,12 @@ const PatientRecords = () => {
     }
   };
 
+  const getDiagnosisText = (diagnosis) => {
+    if (!diagnosis) return 'N/A';
+    if (typeof diagnosis === 'string') return diagnosis || 'N/A';
+    return diagnosis.primary || 'N/A';
+  };
+
   const getLinkedAppointment = (appointmentId) => {
     if (!appointmentId || !appointments) return null;
     
@@ -385,7 +391,7 @@ const PatientRecords = () => {
 
   const populateEditForm = (record) => {
     setEditFormData({
-      diagnosis: record.diagnosis?.primary || record.diagnosis || '',
+      diagnosis: getDiagnosisText(record.diagnosis).replace('N/A', ''),
       treatment: record.treatment || record.description || '',
       notes: record.notes || '',
       priority: record.priority || 'normal',
@@ -482,7 +488,7 @@ const PatientRecords = () => {
       const response = await fetch(`/api/medical-records/${recordId}`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${sessionStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(requestBody)
@@ -570,7 +576,7 @@ const PatientRecords = () => {
       const response = await fetch('/api/medical-records', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${sessionStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(requestBody)
@@ -767,7 +773,7 @@ const PatientRecords = () => {
           <div className="border-b border-gray-200">
             <nav className="flex space-x-8 px-6">
               {[
-                { id: 'overview', name: 'Medical Records', icon: DocumentTextIcon },
+                { id: 'prescriptions', name: 'Prescription History', icon: DocumentTextIcon },
                 { id: 'appointments', name: 'Appointments', icon: CalendarIcon },
                 { id: 'documents', name: 'Documents', icon: DocumentDuplicateIcon }
               ].map((tab) => {
@@ -885,7 +891,7 @@ const PatientRecords = () => {
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                             <div>
                               <p className="font-medium text-gray-700 mb-1">Diagnosis:</p>
-                              <p className="text-gray-600 truncate">{record.diagnosis?.primary || record.diagnosis || 'N/A'}</p>
+                              <p className="text-gray-600 truncate">{getDiagnosisText(record.diagnosis)}</p>
                             </div>
                             <div>
                               <p className="font-medium text-gray-700 mb-1">Treatment Plan:</p>
@@ -1233,6 +1239,65 @@ const PatientRecords = () => {
                     <DocumentDuplicateIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                     <p className="text-gray-500 text-lg">No documents found</p>
                     <p className="text-gray-400">Patient documents will appear here when uploaded</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Prescriptions Tab */}
+            {activeTab === 'prescriptions' && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-gray-900">Prescription History</h3>
+                </div>
+
+                {/* Formal Prescriptions */}
+                {patientProfile.prescriptions && patientProfile.prescriptions.length > 0 && (
+                  <div className="space-y-4">
+                    <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Formal Prescriptions</p>
+                    {patientProfile.prescriptions.map((rx) => (
+                      <div key={rx._id} className="border border-green-200 bg-green-50 rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <p className="font-semibold text-gray-900">
+                              Dr. {rx.doctor?.firstName} {rx.doctor?.lastName}
+                              {rx.doctor?.specialization && <span className="font-normal text-gray-500"> · {rx.doctor.specialization}</span>}
+                            </p>
+                            <p className="text-sm text-gray-500">{new Date(rx.prescribedDate).toLocaleDateString()}</p>
+                          </div>
+                          <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                            rx.status === 'active' ? 'bg-green-100 text-green-800' :
+                            rx.status === 'completed' ? 'bg-gray-100 text-gray-700' :
+                            rx.status === 'expired' ? 'bg-red-100 text-red-700' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>{rx.status}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {rx.medications.map((med, i) => (
+                            <div key={i} className="flex flex-wrap gap-2 text-sm bg-white border border-green-100 rounded-lg px-3 py-2">
+                              <span className="font-semibold text-gray-900">{med.drugName}</span>
+                              {med.strength && <span className="text-gray-600">· {med.strength}</span>}
+                              <span className="text-gray-600">· {med.dosageForm}</span>
+                              <span className="text-gray-600">· {med.dosage}</span>
+                              <span className="text-gray-600">· {med.frequency}</span>
+                              <span className="text-gray-600">· {med.duration}</span>
+                              {med.instructions && (
+                                <span className="w-full text-blue-700 mt-1">Instructions: {med.instructions}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {rx.notes && <p className="mt-2 text-sm text-gray-600"><strong>Notes:</strong> {rx.notes}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {(!patientProfile.prescriptions?.length) && (
+                  <div className="text-center py-12">
+                    <DocumentTextIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500 text-lg">No prescription history</p>
+                    <p className="text-gray-400">Prescriptions will appear here after consultation notes are saved with medications.</p>
                   </div>
                 )}
               </div>
@@ -1767,7 +1832,7 @@ const PatientRecords = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Diagnosis</label>
                   <p className="text-gray-900 bg-gray-50 p-3 rounded-lg">
-                    {selectedRecord.diagnosis?.primary || selectedRecord.diagnosis || 'N/A'}
+                    {getDiagnosisText(selectedRecord.diagnosis)}
                   </p>
                 </div>
 

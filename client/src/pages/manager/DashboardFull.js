@@ -51,7 +51,7 @@ const ManagerDashboard = () => {
   const fetchManagerData = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       
       // Use manager-specific dashboard overview endpoint
       try {

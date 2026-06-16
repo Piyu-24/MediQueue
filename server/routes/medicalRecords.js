@@ -68,7 +68,7 @@ router.get('/', auth, async (req, res) => {
     const { patientId, recordType, startDate, endDate, search } = req.query;
     
     // Only admin, manager, staff, and receptionist can filter by patient
-    if (patientId && ['admin', 'manager', 'staff', 'receptionist'].includes(req.user.role)) {
+    if (patientId && ['admin', 'staff', 'receptionist'].includes(req.user.role)) {
       query.patient = patientId;
     }
     
@@ -138,7 +138,7 @@ router.get('/:id', auth, async (req, res) => {
       record.patient._id.toString() === req.user.id ||
       record.doctor?._id.toString() === req.user.id ||
       record.createdBy._id.toString() === req.user.id ||
-      ['staff', 'manager', 'admin'].includes(req.user.role);
+      ['staff', 'admin'].includes(req.user.role);
     
     if (!isAuthorized) {
       return res.status(403).json({
@@ -234,6 +234,19 @@ router.post('/',
       const derivedDescription = req.body.description ||
         req.body.diagnosis || req.body.chiefComplaint || req.body.treatment || 'Consultation record';
 
+      // Map 'medications' (consultation form field) → 'prescriptions' (MedicalRecord schema field)
+      // so embedded drug history is stored even when the simplified consultation form is used.
+      if (otherFields.medications && !otherFields.prescriptions) {
+        otherFields.prescriptions = otherFields.medications.map(med => ({
+          medication:   med.name   || med.drugName || 'Unknown',
+          dosage:       med.dosage || med.frequency || '',
+          frequency:    med.frequency || '',
+          duration:     med.duration  || '',
+          instructions: med.instructions || ''
+        }));
+        delete otherFields.medications;
+      }
+
       // Create record
       const record = await MedicalRecord.create({
         patient,
@@ -278,7 +291,7 @@ router.post('/',
 // @access  Private (Doctor, Staff, Receptionist, Manager)
 router.post('/:id/documents', 
   auth, 
-  authorize('doctor', 'staff', 'receptionist', 'manager'),
+  authorize('doctor', 'staff', 'receptionist', 'admin'),
   upload.array('documents', 10), // Allow up to 10 files
   async (req, res) => {
     try {
@@ -456,7 +469,7 @@ router.delete('/:id', auth, authorize('admin'), async (req, res) => {
 // @desc    Get all medical records for a patient
 // @route   GET /api/medical-records/patient/:patientId
 // @access  Private (Doctor, Staff, Receptionist, Manager)
-router.get('/patient/:patientId', auth, authorize('doctor', 'staff', 'receptionist', 'manager', 'patient'), async (req, res) => {
+router.get('/patient/:patientId', auth, authorize('doctor', 'staff', 'receptionist', 'patient', 'admin'), async (req, res) => {
   try {
     const { patientId } = req.params;
     
@@ -504,7 +517,7 @@ router.get('/patient/:patientId/summary', auth, async (req, res) => {
     // Check authorization
     const isAuthorized = 
       patientId === req.user.id ||
-      ['doctor', 'staff', 'manager', 'admin'].includes(req.user.role);
+      ['doctor', 'staff', 'admin'].includes(req.user.role);
     
     if (!isAuthorized) {
       return res.status(403).json({

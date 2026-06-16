@@ -435,6 +435,7 @@ class AppointmentBookingService {
         const newEnd   = newStart + duration;
 
         const hasOverlap = booked.some(appt => {
+          if (!appt.appointmentTime) return false; // block-based appointments skipped
           const [eH, eM] = appt.appointmentTime.split(':').map(Number);
           const eStart = eH * 60 + eM;
           const eEnd   = eStart + (appt.duration || duration);
@@ -474,6 +475,7 @@ class AppointmentBookingService {
       const newEnd   = newStart + duration;
 
       const conflict = existing.find(appt => {
+        if (!appt.appointmentTime) return false; // block-based appointments skipped
         const [eH, eM] = appt.appointmentTime.split(':').map(Number);
         const eStart = eH * 60 + eM;
         const eEnd   = eStart + (appt.duration || duration);

@@ -178,7 +178,7 @@ reportSchema.methods.hasAccess = function(userId, userRole) {
   }
   
   // Admin and manager have access to all reports
-  if (['admin', 'manager'].includes(userRole)) {
+  if (userRole === 'admin') {
     return true;
   }
   
@@ -371,9 +371,11 @@ reportSchema.statics.generatePeakHoursReport = async function(dateFilter, parame
   
   const appointments = await Appointment.find(dateFilter);
   
-  // Group by hour
+  // Group by hour (block-based OPD appointments without exact time use hour 0)
   const hourlyData = appointments.reduce((acc, appointment) => {
-    const hour = parseInt(appointment.appointmentTime.split(':')[0]);
+    const hour = appointment.appointmentTime
+      ? parseInt(appointment.appointmentTime.split(':')[0])
+      : 0;
     acc[hour] = (acc[hour] || 0) + 1;
     return acc;
   }, {});

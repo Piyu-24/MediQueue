@@ -50,6 +50,7 @@ const DoctorDashboardEnhanced = () => {
     { id: 'overview', name: 'Overview', icon: ChartBarIcon },
     { id: 'queue', name: 'Live Queue', icon: UserIcon },
     { id: 'availability', name: 'Availability', icon: ClockIcon },
+    { id: 'records', name: 'Patient Records', icon: DocumentTextIcon, href: '/doctor/patient-records' },
   ];
 
   const [liveQueue, setLiveQueue] = useState([]);
@@ -105,7 +106,8 @@ const DoctorDashboardEnhanced = () => {
 
     const handleQueueCreated = (data) => {
       // Flash notification if the new entry is for this doctor
-      if (data?.queueEntry?.doctor === user._id || data?.queueEntry?.doctor?._id === user._id) {
+      const doctorId = data?.queueEntry?.doctor?._id?.toString() ?? data?.queueEntry?.doctor?.toString();
+      if (doctorId === user._id) {
         toast.custom((t) => (
           <div className={`bg-blue-600 text-white px-6 py-4 rounded-xl shadow-xl flex items-center space-x-3 ${
             t.visible ? 'animate-enter' : 'animate-leave'
@@ -505,7 +507,7 @@ const DoctorDashboardEnhanced = () => {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => tab.href ? navigate(tab.href) : setActiveTab(tab.id)}
                   className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
                     activeTab === tab.id
                       ? 'border-blue-500 text-blue-600'
@@ -1090,8 +1092,18 @@ const QueueCard = ({ entry, onAction, onNotes }) => {
           </div>
           <p className="text-xs text-gray-500 truncate">
             {entry.room}
-            {entry.appointmentTime && ` · Appt: ${entry.appointmentTime}`}
-            {' · '}Check-in: {entry.checkInTime ? new Date(entry.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+            {/* Block-based: show appointment token + session name */}
+            {entry.appointmentToken && (
+              <span className="ml-1 font-mono font-bold text-blue-600">[{entry.appointmentToken}]</span>
+            )}
+            {entry.appointment?.timeBlockId?.sessionName
+              ? ` · ${entry.appointment.timeBlockId.sessionName}`
+              : entry.appointmentTime
+              ? ` · Appt: ${entry.appointmentTime}`
+              : ''}
+            {' · '}Check-in: {entry.checkInTime
+              ? new Date(entry.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : '—'}
             {isActive && entry.estimatedWaitMinutes > 0 && ` · ~${entry.estimatedWaitMinutes} min wait`}
           </p>
           {entry.notes && <p className="text-xs text-amber-600 mt-0.5 truncate">📝 {entry.notes}</p>}
@@ -1151,7 +1163,7 @@ const QueueCard = ({ entry, onAction, onNotes }) => {
             <button onClick={() => onNotes(entry)}
               className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition-all flex items-center gap-1">
               <DocumentTextIcon className="w-3.5 h-3.5" />
-              Notes
+              Write Prescription
             </button>
           )}
         </div>
@@ -1166,12 +1178,19 @@ const LiveQueueTab = ({ user, liveQueue, queueLoading, onFetch, onAction, onNote
 
   const current    = liveQueue.filter(e => e.zone === 'CURRENT' || e.status === 'in_consultation');
   const ready      = liveQueue.filter(e => (e.zone === 'READY' || e.status === 'ready' || e.status === 'called') && e.status !== 'in_consultation');
-  const waiting    = liveQueue.filter(e => e.zone === 'WAITING_POOL' && ['waiting', 'emergency_waiting'].includes(e.status));
+  // Late patients in WAITING_POOL — sorted by sortOrder so they appear at top after CURRENT
+  const lateWaiting = liveQueue.filter(e =>
+    e.zone === 'WAITING_POOL' && ['waiting', 'emergency_waiting'].includes(e.status) && e.isLate
+  ).sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
+  // Normal waiting pool (non-late)
+  const waiting    = liveQueue.filter(e =>
+    e.zone === 'WAITING_POOL' && ['waiting', 'emergency_waiting'].includes(e.status) && !e.isLate
+  );
   const away       = liveQueue.filter(e => e.status === 'temporarily_away');
   const skipped    = liveQueue.filter(e => e.status === 'skipped');
   const completed  = liveQueue.filter(e => e.status === 'completed');
 
-  const activeCount = current.length + ready.length + waiting.length;
+  const activeCount = current.length + ready.length + lateWaiting.length + waiting.length;
 
   return (
     <div className="space-y-4">
@@ -1220,13 +1239,14 @@ const LiveQueueTab = ({ user, liveQueue, queueLoading, onFetch, onAction, onNote
 
       {/* Stats bar */}
       {liveQueue.length > 0 && (
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-6 gap-2">
           {[
-            { label: 'In Consult', count: current.length, color: 'bg-purple-50 text-purple-700 border-purple-200' },
-            { label: 'Ready', count: ready.length, color: 'bg-orange-50 text-orange-700 border-orange-200' },
-            { label: 'Waiting', count: waiting.length, color: 'bg-blue-50 text-blue-700 border-blue-200' },
-            { label: 'Away/Skipped', count: away.length + skipped.length, color: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
-            { label: 'Completed', count: completed.length, color: 'bg-green-50 text-green-700 border-green-200' },
+            { label: 'In Consult', count: current.length,               color: 'bg-purple-50 text-purple-700 border-purple-200' },
+            { label: 'Ready',      count: ready.length,                  color: 'bg-orange-50 text-orange-700 border-orange-200' },
+            { label: 'Late',       count: lateWaiting.length,            color: 'bg-amber-50 text-amber-700 border-amber-300' },
+            { label: 'Waiting',    count: waiting.length,                color: 'bg-blue-50 text-blue-700 border-blue-200' },
+            { label: 'Away/Skip',  count: away.length + skipped.length,  color: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
+            { label: 'Completed',  count: completed.length,              color: 'bg-green-50 text-green-700 border-green-200' },
           ].map(s => (
             <div key={s.label} className={`${s.color} border rounded-xl p-2 text-center`}>
               <p className="text-xl font-black">{s.count}</p>
@@ -1253,10 +1273,26 @@ const LiveQueueTab = ({ user, liveQueue, queueLoading, onFetch, onAction, onNote
           {current.length > 0 && (
             <section>
               <h3 className="text-xs font-bold text-purple-600 uppercase tracking-widest mb-2 flex items-center gap-2">
-                <span className="w-2 h-2 bg-purple-500 rounded-full animate-pulse inline-block"></span>
+                <span className="w-2 h-2 bg-purple-500 rounded-full animate-pulse inline-block" />
                 Now In Consultation
               </h3>
               <div className="space-y-2">{current.map(e => <QueueCard key={e._id} entry={e} onAction={onAction} onNotes={onNotes} />)}</div>
+            </section>
+          )}
+
+          {/* LATE — Next After Current (positioned by QueueEngine after current, before ready zone) */}
+          {lateWaiting.length > 0 && (
+            <section>
+              <h3 className="text-xs font-bold text-orange-700 uppercase tracking-widest mb-2 flex items-center gap-2">
+                <span className="w-2 h-2 bg-orange-500 rounded-full inline-block" />
+                ⏰ Late Arrivals — Next After Current
+                <span className="normal-case font-normal text-orange-500 text-[10px]">
+                  (arrived late — served next per hospital policy)
+                </span>
+              </h3>
+              <div className="space-y-2">
+                {lateWaiting.map(e => <QueueCard key={e._id} entry={e} onAction={onAction} onNotes={onNotes} />)}
+              </div>
             </section>
           )}
 
@@ -1264,18 +1300,18 @@ const LiveQueueTab = ({ user, liveQueue, queueLoading, onFetch, onAction, onNote
           {ready.length > 0 && (
             <section>
               <h3 className="text-xs font-bold text-orange-600 uppercase tracking-widest mb-2 flex items-center gap-2">
-                <span className="w-2 h-2 bg-orange-400 rounded-full inline-block"></span>
+                <span className="w-2 h-2 bg-orange-400 rounded-full inline-block" />
                 Ready Zone — Please Be Ready
               </h3>
               <div className="space-y-2">{ready.map(e => <QueueCard key={e._id} entry={e} onAction={onAction} onNotes={onNotes} />)}</div>
             </section>
           )}
 
-          {/* WAITING POOL */}
+          {/* WAITING POOL (normal, non-late) */}
           {waiting.length > 0 && (
             <section>
               <h3 className="text-xs font-bold text-blue-600 uppercase tracking-widest mb-2 flex items-center gap-2">
-                <span className="w-2 h-2 bg-blue-400 rounded-full inline-block"></span>
+                <span className="w-2 h-2 bg-blue-400 rounded-full inline-block" />
                 Waiting Pool ({waiting.length})
               </h3>
               <div className="space-y-2">{waiting.map(e => <QueueCard key={e._id} entry={e} onAction={onAction} onNotes={onNotes} />)}</div>

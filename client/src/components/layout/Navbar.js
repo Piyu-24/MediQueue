@@ -64,12 +64,6 @@ const Navbar = () => {
     { name: 'Patient Check-in', href: '/staff/patient-verification' },
   ];
 
-  const managerLinks = [
-    { name: 'Home', href: '/' },
-    { name: 'Dashboard', href: '/manager/dashboard' },
-    { name: 'Reports', href: '/manager/reports' },
-  ];
-
   const receptionistLinks = [
     { name: 'Home', href: '/' },
     { name: 'Dashboard', href: '/receptionist/dashboard' },
@@ -78,6 +72,7 @@ const Navbar = () => {
   const adminLinks = [
     { name: 'Home', href: '/' },
     { name: 'Dashboard', href: '/admin/dashboard' },
+    { name: 'Queue Display', href: '/display' },
   ];
 
   const getNavigationLinks = () => {
@@ -87,7 +82,6 @@ const Navbar = () => {
       case 'patient': return patientLinks;
       case 'doctor': return doctorLinks;
       case 'staff': return staffLinks;
-      case 'manager': return managerLinks;
       case 'receptionist': return receptionistLinks;
       case 'admin': return adminLinks;
       default: return publicLinks;
