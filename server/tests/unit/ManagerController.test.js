@@ -165,7 +165,7 @@ describe('ManagerController - >80% Coverage Tests', () => {
       query: {},
       params: {},
       body: {},
-      user: { id: 'manager123', role: 'manager' }
+      user: { id: 'manager123', role: 'admin' }
     };
     
     mockRes = {

@@ -8,6 +8,7 @@ const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss-clean');
 const hpp = require('hpp');
 const compression = require('compression');
+const cookieParser = require('cookie-parser');
 const path = require('path');
 const crypto = require('crypto');
 const { createServer } = require('http');
@@ -33,6 +34,10 @@ const queueRoutes = require('./routes/queue');
 const checkinRoutes = require('./routes/checkin');
 const leaveRoutes = require('./routes/leave');
 const notificationRoutes = require('./routes/notifications');
+const departmentRoutes = require('./routes/departments');
+const timeBlockRoutes = require('./routes/timeBlocks');
+const receptionRoutes = require('./routes/reception');
+const prescriptionRoutes = require('./routes/prescriptions');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -62,36 +67,15 @@ connectMongo(mongoose)
     console.warn(`MongoDB Atlas connection failed (${atlasErrorKind}); using local fallback.`);
   }
 
-  // Auto-setup healthcare manager user if it doesn't exist (only in development)
-  if (process.env.NODE_ENV === 'development') {
-    try {
-      const User = require('./models/User');
-      const existingManager = await User.findOne({ email: 'manager@mediqueue.lk' });
-      if (!existingManager) {
-        const generatedPassword = `Test${crypto.randomBytes(6).toString('hex')}A1!`;
-        const managerUser = new User({
-          firstName: 'Healthcare',
-          lastName: 'Manager',
-          email: 'manager@mediqueue.lk',
-          password: generatedPassword,
-          phone: '+1-555-0100',
-          role: 'manager',
-          isActive: true,
-          isEmailVerified: true,
-          address: {
-            street: '123 Healthcare Street',
-            city: 'Healthcare City',
-            state: 'HC',
-            zipCode: '12345',
-            country: 'USA'
-          }
-        });
-        await managerUser.save();
-        console.log(`Default healthcare manager user created. Password: ${generatedPassword}`);
-      }
-    } catch (error) {
-      console.error('Error auto-creating manager:', error.message);
+  // Migrate any legacy 'manager' role users to 'admin'
+  try {
+    const User = require('./models/User');
+    const result = await User.updateMany({ role: 'manager' }, { $set: { role: 'admin' } });
+    if (result.modifiedCount > 0) {
+      console.log(`Migrated ${result.modifiedCount} legacy manager user(s) to admin role.`);
     }
+  } catch (error) {
+    console.error('Error migrating manager users:', error.message);
   }
 })
 .catch(err => {
@@ -118,7 +102,7 @@ app.use(helmet({
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https://res.cloudinary.com", "http://localhost:5000", "http://localhost:3000"],
       scriptSrc: ["'self'", "'unsafe-inline'"],
-      connectSrc: ["'self'", "http://localhost:5000", "http://localhost:3000"]
+      connectSrc: ["'self'", "http://localhost:5000", "http://localhost:3000", "ws://localhost:5000", "ws://localhost:3000"]
     }
   }
 }));
@@ -138,6 +122,9 @@ app.use('/api', limiter);
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Cookie parsing (needed for httpOnly refresh token cookies)
+app.use(cookieParser());
 
 // Data sanitization against NoSQL query injection
 app.use(mongoSanitize());
@@ -222,6 +209,10 @@ app.use('/api/doctor', leaveRoutes);
 app.use('/api/queue', queueRoutes);
 app.use('/api/check-in', checkinRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/departments', departmentRoutes);
+app.use('/api/time-blocks', timeBlockRoutes);
+app.use('/api/reception', receptionRoutes);
+app.use('/api/prescriptions', prescriptionRoutes);
 
 // Socket.io connection handling
 io.on('connection', (socket) => {

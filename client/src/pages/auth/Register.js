@@ -332,11 +332,6 @@ const Register = () => {
                 </label>
               </div>
               
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mt-4">
-                <p className="text-xs text-amber-800">
-                  <strong>Note:</strong> Admin and staff accounts are pre-assigned by system administrators and cannot be created through registration.
-                </p>
-              </div>
             </div>
           </div>
         );

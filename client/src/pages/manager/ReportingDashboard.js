@@ -303,7 +303,7 @@ const ReportingDashboard = () => {
     
     try {
       // eslint-disable-next-line no-unused-vars
-      const _token = localStorage.getItem('token');
+      const _token = sessionStorage.getItem('token');
       
       // Generate a descriptive title
       const reportTypeNames = {

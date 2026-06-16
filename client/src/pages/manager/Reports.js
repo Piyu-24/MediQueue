@@ -338,7 +338,7 @@ const Reports = () => {
                     >
                       <ArrowDownTrayIcon className="w-5 h-5" />
                     </button>
-                    {user?.role === 'manager' && (
+                    {user?.role === 'admin' && (
                       <button
                         onClick={() => handleDelete(report._id)}
                         className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"

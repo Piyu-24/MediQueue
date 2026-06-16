@@ -91,6 +91,72 @@ const queuePolicySchema = new mongoose.Schema({
   sessionAutoCloseMinutes: {
     type: Number,
     default: 0
+  },
+
+  // ── Capacity Allocation ───────────────────────────────────────────────────────
+  // What percentage of totalCapacity to expose for online appointment booking
+  appointmentCapacityPercentage: {
+    type: Number,
+    default: 65,
+    min: [0, 'Cannot be negative'],
+    max: [100, 'Cannot exceed 100']
+  },
+  // What percentage to reserve for walk-ins (managed by reception)
+  walkInCapacityPercentage: {
+    type: Number,
+    default: 25,
+    min: [0, 'Cannot be negative'],
+    max: [100, 'Cannot exceed 100']
+  },
+  // What percentage to hold as emergency buffer (hidden from normal booking)
+  emergencyBufferPercentage: {
+    type: Number,
+    default: 5,
+    min: [0, 'Cannot be negative'],
+    max: [100, 'Cannot exceed 100']
+  },
+  // Hard cap on appointments per time block (overrides percentage if set)
+  maxAppointmentsPerBlock: {
+    type: Number,
+    default: null
+  },
+  // Hard cap on walk-ins per session
+  maxWalkInsPerSession: {
+    type: Number,
+    default: null
+  },
+
+  // ── Late Arrival Insertion ────────────────────────────────────────────────────
+  /**
+   * Where a late appointment patient is inserted once they check in:
+   *   'next_after_current' — becomes the next patient after the current consultation
+   *   'end_of_pool'        — sent to the end of the waiting pool
+   *   'after_ready_zone'   — inserted after the READY zone, before WAITING_POOL
+   */
+  lateArrivalInsertionRule: {
+    type: String,
+    enum: ['next_after_current', 'end_of_pool', 'after_ready_zone'],
+    default: 'next_after_current'
+  },
+
+  // ── Token Scope ───────────────────────────────────────────────────────────────
+  /**
+   * Determines how the A/W token counter is scoped:
+   *   'dept_date_session' — one counter per (department + date + time block)
+   *   'dept_date'         — one counter per (department + date), shared across blocks
+   *   'doctor_date'       — one counter per (doctor + date), for specialist queues
+   */
+  tokenScope: {
+    type: String,
+    enum: ['dept_date_session', 'dept_date', 'doctor_date'],
+    default: 'dept_date_session'
+  },
+
+  // ── No-Show Cutoff ────────────────────────────────────────────────────────────
+  /** Minutes after appointment time before patient is auto-marked no-show (0 = never auto) */
+  noShowCutoffMinutes: {
+    type: Number,
+    default: 0
   }
 
 }, {

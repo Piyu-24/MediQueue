@@ -147,8 +147,9 @@ const calcSlotStatus = (slot, { dateStr, doctorSlots, activeAppointments, patien
     capacity = matchingDS.maxPatients || defaultCapacity;
   }
 
-  // Count active appointments overlapping this slot
+  // Count active appointments overlapping this slot (block-based OPD appts skipped)
   const bookedCount = activeAppointments.filter(appt => {
+    if (!appt.appointmentTime) return false;
     const [aH, aM] = appt.appointmentTime.split(':').map(Number);
     const aStart = aH * 60 + aM;
     const aEnd   = aStart + (appt.duration || DEFAULT_SLOT_DURATION);
@@ -164,6 +165,7 @@ const calcSlotStatus = (slot, { dateStr, doctorSlots, activeAppointments, patien
   // Patient conflict check
   if (patientAppointments) {
     const conflict = patientAppointments.some(appt => {
+      if (!appt.appointmentTime) return false;
       const [aH, aM] = appt.appointmentTime.split(':').map(Number);
       const aStart = aH * 60 + aM;
       const aEnd   = aStart + (appt.duration || DEFAULT_SLOT_DURATION);

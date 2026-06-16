@@ -36,7 +36,7 @@ const userSchema = new mongoose.Schema({
   // Role and Status
   role: {
     type: String,
-    enum: ['patient', 'doctor', 'staff', 'manager', 'receptionist', 'admin'],
+    enum: ['patient', 'doctor', 'staff', 'receptionist', 'admin'],
     default: 'patient'
   },
   isActive: {
@@ -245,7 +245,13 @@ const userSchema = new mongoose.Schema({
     type: String,
     sparse: true
   },
-  
+
+  // Whether the patient uses a smartphone (affects reception workflow for bookings)
+  hasSmartphone: {
+    type: Boolean,
+    default: true
+  },
+
   // Security
   passwordResetToken: String,
   passwordResetExpires: Date,

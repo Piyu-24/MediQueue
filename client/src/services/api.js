@@ -1,29 +1,34 @@
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 
+// Token helpers — use sessionStorage (tab-scoped, not persisted across sessions)
+// Refresh token is stored as httpOnly cookie set by the server.
+export const tokenStorage = {
+  getToken: () => sessionStorage.getItem('token'),
+  setToken: (t) => sessionStorage.setItem('token', t),
+  clearToken: () => sessionStorage.removeItem('token'),
+};
+
 // Create axios instance
 const api = axios.create({
   baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
+  withCredentials: true, // sends httpOnly refresh-token cookie automatically
 });
 
-// Request interceptor to add auth token
+// Request interceptor — attach access token from sessionStorage
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = tokenStorage.getToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Response interceptor to handle token refresh
+// Response interceptor — silent token refresh on 401
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -33,27 +38,21 @@ api.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-        const refreshToken = localStorage.getItem('refreshToken');
-        if (refreshToken) {
-          const response = await axios.post(
-            `${process.env.REACT_APP_API_URL}/auth/refresh`,
-            { refreshToken }
-          );
+        // withCredentials sends the httpOnly refreshToken cookie automatically
+        const response = await axios.post(
+          `${process.env.REACT_APP_API_URL || 'http://localhost:5000/api'}/auth/refresh`,
+          {},
+          { withCredentials: true }
+        );
 
-          if (response.data.success) {
-            const { token, refreshToken: newRefreshToken } = response.data.data;
-            localStorage.setItem('token', token);
-            localStorage.setItem('refreshToken', newRefreshToken);
-            
-            // Retry original request
-            originalRequest.headers.Authorization = `Bearer ${token}`;
-            return api(originalRequest);
-          }
+        if (response.data.success) {
+          const { token } = response.data.data;
+          tokenStorage.setToken(token);
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return api(originalRequest);
         }
-      } catch (refreshError) {
-        // Refresh failed, redirect to login
-        localStorage.removeItem('token');
-        localStorage.removeItem('refreshToken');
+      } catch {
+        tokenStorage.clearToken();
         window.location.href = '/login';
       }
     }
@@ -71,7 +70,8 @@ export const authAPI = {
   forgotPassword: (email) => api.post('/auth/forgot-password', email),
   resetPassword: (token, password) => api.put(`/auth/reset-password/${token}`, password),
   verifyEmail: (token) => api.get(`/auth/verify-email/${token}`),
-  refreshToken: (refreshToken) => api.post('/auth/refresh', { refreshToken }),
+  refreshToken: () => api.post('/auth/refresh'),
+  reAuthenticate: (password) => api.post('/auth/re-authenticate', { password }),
 };
 
 // User API endpoints
@@ -84,7 +84,19 @@ export const userAPI = {
   }),
   getDoctors: (params) => api.get('/users/doctors', { params }),
   getDoctorById: (id) => api.get(`/users/doctors/${id}`),
-  searchUsers: (query) => api.get(`/users/search`, { params: { q: query } }),
+  searchUsers: (query, params) => api.get('/users/search', { params: { q: query || '', ...params } }),
+};
+
+// Admin API endpoints
+export const adminAPI = {
+  toggleUserStatus: (userId) => api.patch(`/users/${userId}/toggle-status`),
+};
+
+// Manager/Health-monitoring API endpoints (now accessible to admin too)
+export const managerAPI = {
+  getDashboardOverview: () => api.get('/manager/dashboard/overview'),
+  getPatientVisitReport: (params) => api.get('/manager/reports/patient-visits', { params }),
+  getStaffUtilizationReport: (params) => api.get('/manager/reports/staff-utilization', { params }),
 };
 
 // Doctor API endpoints
@@ -99,35 +111,67 @@ export const appointmentAPI = {
   createAppointment: (appointmentData) => api.post('/appointments', appointmentData),
   updateAppointment: (id, appointmentData) => api.put(`/appointments/${id}`, appointmentData),
   cancelAppointment: (id, reason) => api.delete(`/appointments/${id}`, { data: { reason } }),
-  // Legacy slot check — use getSlotAvailability for full status grid
-  checkAvailability: (doctorId, date) => api.get(`/appointments/availability/${doctorId}`, {
-    params: { date }
-  }),
-  // Rich availability: full slot grid with status per slot
+  checkAvailability: (doctorId, date) => api.get(`/appointments/availability/${doctorId}`, { params: { date } }),
+  // Slot-based availability (specialist booking)
   getSlotAvailability: (doctorId, date, patientId) =>
     api.get('/appointments/availability', { params: { doctorId, date, patientId } }),
-  // Doctor list with availability summary for a department/date
+  // Block-based availability (General OPD booking)
+  getBlockAvailability: (departmentId, date, doctorId) =>
+    api.get('/appointments/availability', { params: { departmentId, date, doctorId, blockBased: 'true' } }),
   getAvailableDoctors: (date, departmentId, patientId) =>
     api.get('/appointments/doctors/available', { params: { date, departmentId, patientId } }),
   updateStatus: (id, status) => api.patch(`/appointments/${id}/status`, { status }),
   checkIn: (id, method) => api.post(`/appointments/${id}/checkin`, { method }),
   getDoctorAppointments: (doctorId, params) => api.get(`/appointments/doctor/${doctorId}`, { params }),
   getPatientAppointments: (patientId, params) => api.get(`/appointments/patient/${patientId}`, { params }),
-  getPendingReschedule: () => api.get('/appointments/pending-reschedule')
+  getPendingReschedule: () => api.get('/appointments/pending-reschedule'),
+};
+
+// Department API endpoints
+export const departmentAPI = {
+  getDepartments: (params) => api.get('/departments', { params }),
+  getDepartmentById: (id) => api.get(`/departments/${id}`),
+  createDepartment: (data) => api.post('/departments', data),
+  updateDepartment: (id, data) => api.patch(`/departments/${id}`, data),
+};
+
+// Time Block API endpoints
+export const timeBlockAPI = {
+  getBlocks: (params) => api.get('/time-blocks', { params }),
+  getBlockById: (id) => api.get(`/time-blocks/${id}`),
+  createBlock: (data) => api.post('/time-blocks', data),
+  generateBlocks: (data) => api.post('/time-blocks/generate', data),
+  updateBlock: (id, data) => api.patch(`/time-blocks/${id}`, data),
+  deleteBlock: (id) => api.delete(`/time-blocks/${id}`),
+};
+
+// Reception API endpoints
+export const receptionAPI = {
+  searchPatients: (q, by = 'all', date) =>
+    api.get('/reception/patients/search', { params: { q, by, date } }),
+  registerPatient: (data) => api.post('/reception/patients', data),
+  searchAppointments: (params) => api.get('/reception/appointments/search', { params }),
+  checkInAppointment: (appointmentId, data) => api.post(`/reception/check-in/${appointmentId}`, data),
+  walkIn: (data) => api.post('/reception/walk-in', data),
+  assignDoctor: (data) => api.post('/reception/assign-doctor', data),
+  markNoShow: (id, reason) => api.patch(`/reception/queue/${id}/no-show`, { reason }),
+  markTemporarilyAway: (id) => api.patch(`/reception/queue/${id}/temporarily-away`),
+  markReturned: (id) => api.patch(`/reception/queue/${id}/returned`),
+  markLate: (id, reason) => api.patch(`/reception/queue/${id}/late`, { reason }),
+  generateHealthCard: (patientId) => api.post(`/reception/health-card/${patientId}/generate`),
+  printHealthCard: (patientId) => api.post(`/reception/health-card/${patientId}/print`),
+  getTodayQueue: (params) => api.get('/reception/queue/today', { params }),
+  getAvailableDoctors: (params) => api.get('/reception/doctors/available', { params }),
 };
 
 // Notification API endpoints
 export const notificationAPI = {
   getNotifications: (params) => api.get('/notifications', { params }),
   getUnreadCount: () => api.get('/notifications/unread-count'),
-
-  // keep one naming style consistently
   markAsRead: (id) => api.patch(`/notifications/${id}/read`),
   markAllAsRead: () => api.patch('/notifications/read-all'),
-
   deleteNotification: (id) => api.delete(`/notifications/${id}`),
-  updatePreferences: (preferences) =>
-    api.put('/notifications/preferences', preferences),
+  updatePreferences: (preferences) => api.put('/notifications/preferences', preferences),
 };
 
 // Doctor leave API endpoints
@@ -139,15 +183,21 @@ export const leaveAPI = {
 
 // Medical Records API endpoints
 export const medicalRecordsAPI = {
-  getRecords: (patientId) => api.get(`/medical-records`, { params: { patientId } }),
+  getRecords: (patientId) => api.get('/medical-records', { params: { patientId } }),
   createRecord: (recordData) => api.post('/medical-records', recordData),
   updateRecord: (id, recordData) => api.put(`/medical-records/${id}`, recordData),
   deleteRecord: (id) => api.delete(`/medical-records/${id}`),
   uploadDocument: (recordId, formData) => api.post(`/medical-records/${recordId}/document`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
-  downloadDocument: (recordId, documentId) => api.get(`/medical-records/${recordId}/document/${documentId}`, {
-  }),
+  downloadDocument: (recordId, documentId) => api.get(`/medical-records/${recordId}/document/${documentId}`),
+};
+
+// Prescription API endpoints
+export const prescriptionAPI = {
+  getPatientPrescriptions: (patientId) => api.get(`/prescriptions/patient/${patientId}`),
+  getPrescription: (id) => api.get(`/prescriptions/${id}`),
+  createPrescription: (data) => api.post('/prescriptions', data),
 };
 
 // Health Card API endpoints
@@ -160,27 +210,21 @@ export const healthCardAPI = {
   getAccessLog: (cardId) => api.get(`/health-cards/${cardId}/access-log`),
   getAllCards: (params) => api.get('/health-cards', { params }),
 };
+
 // Queue API endpoints
 export const queueAPI = {
-  // ── Legacy check-in (QR flow in receptionist dashboard) ──────────────────
   checkIn: (data) => api.post('/queue/checkin', data),
   validateQR: (data) => api.post('/queue/validate-qr', data),
-
-  // ── New check-in endpoints ────────────────────────────────────────────────
   getCheckInEligibility: (appointmentId, patientId) =>
     api.get(`/check-in/eligibility/${appointmentId}`, { params: { patientId } }),
   checkInAppointment: (data) => api.post('/check-in/appointment', data),
   checkInWalkIn: (data) => api.post('/check-in/walk-in', data),
-
-  // ── Queue retrieval ───────────────────────────────────────────────────────
   getQueue: (params) => api.get('/queue', { params }),
   getActiveQueue: (doctorId, date) =>
     api.get(`/queue/doctors/${doctorId}/active`, { params: { date } }),
   getDisplay: (date) => api.get('/queue/display', { params: { date } }),
   getMyStatus: () => api.get('/queue/my-status'),
   getStats: (date) => api.get('/queue/stats', { params: { date } }),
-
-  // ── Doctor actions ────────────────────────────────────────────────────────
   callPatient: (id) => api.patch(`/queue/${id}/call`),
   startConsultation: (id) => api.patch(`/queue/${id}/start`),
   completeConsultation: (id, notes) => api.patch(`/queue/${id}/complete`, { notes }),
@@ -188,12 +232,8 @@ export const queueAPI = {
   markNoShow: (id) => api.patch(`/queue/${id}/no-show`),
   pauseQueue: (doctorId, message) => api.patch(`/queue/session/${doctorId}/pause`, { message }),
   resumeQueue: (doctorId) => api.patch(`/queue/session/${doctorId}/resume`),
-
-  // ── Reception actions ─────────────────────────────────────────────────────
   markTemporarilyAway: (id) => api.patch(`/queue/${id}/temporarily-away`),
   markReturned: (id) => api.patch(`/queue/${id}/returned`),
-
-  // ── Appointment lookup for reception ─────────────────────────────────────
   lookupAppointment: (params) => api.get('/appointments/lookup', { params }),
 };
 
@@ -204,14 +244,11 @@ export const documentAPI = {
   }),
   getPatientDocuments: (patientId, params) => api.get(`/documents/patient/${patientId}`, { params }),
   getDocument: (documentId) => api.get(`/documents/${documentId}`),
-  downloadDocument: (documentId) => api.get(`/documents/${documentId}/download`, {
-    responseType: 'blob'
-  }),
+  downloadDocument: (documentId) => api.get(`/documents/${documentId}/download`, { responseType: 'blob' }),
   shareDocument: (documentId, shareData) => api.post(`/documents/${documentId}/share`, shareData),
   deleteDocument: (documentId) => api.delete(`/documents/${documentId}`),
   getDocumentTypes: () => api.get('/documents/meta/types'),
 };
-
 
 // Report API endpoints
 export const reportAPI = {
@@ -219,16 +256,13 @@ export const reportAPI = {
   getAppointmentReports: (params) => api.get('/reports/appointments', { params }),
   getUserReports: (params) => api.get('/reports/users', { params }),
   getDepartmentReports: (params) => api.get('/reports/departments', { params }),
-  exportReport: (type, params) => api.get(`/reports/export/${type}`, { 
-    params, 
-    responseType: 'blob' 
-  }),
+  exportReport: (type, params) => api.get(`/reports/export/${type}`, { params, responseType: 'blob' }),
 };
 
 // Alias for backward compatibility
 export const reportsAPI = reportAPI;
 
-// Chatbot API endpoints // NEW
+// Chatbot API endpoints
 export const chatbotAPI = {
   sendMessage: (messageData) => api.post('/chatbot/message', messageData),
   getChatHistory: () => api.get('/chatbot/history'),
@@ -237,7 +271,6 @@ export const chatbotAPI = {
   checkEmergency: (messageData) => api.post('/chatbot/emergency-check', messageData),
 };
 
-// Utility function to handle API errors
 export const handleApiError = (error) => {
   if (error.response?.data?.message) {
     toast.error(error.response.data.message);
@@ -246,7 +279,6 @@ export const handleApiError = (error) => {
   } else {
     toast.error('An unexpected error occurred');
   }
-  
   console.error('API Error:', error);
   return error;
 };

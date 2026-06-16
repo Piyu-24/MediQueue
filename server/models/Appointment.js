@@ -16,10 +16,11 @@ const appointmentSchema = new mongoose.Schema({
     ref: 'User',
     required: [true, 'Patient is required']
   },
+  // doctor is optional for General OPD bookings (assigned at check-in by reception)
   doctor: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'Doctor is required']
+    default: null
   },
 
   // Appointment Details
@@ -29,7 +30,9 @@ const appointmentSchema = new mongoose.Schema({
   },
   appointmentTime: {
     type: String,
-    required: [true, 'Appointment time is required'],
+    // No longer required — new block-based bookings use timeBlockId instead.
+    // Legacy exact-time appointments still store this field.
+    default: null,
     match: [/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Please provide time in HH:MM format']
   },
   duration: {
@@ -44,7 +47,10 @@ const appointmentSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: [
-      'scheduled',          // booked, not yet checked in
+      // ── New flow statuses ──────────────────────────────────────────────────
+      'booked',             // token issued at booking; patient not yet checked in
+      // ── Legacy / backward-compat statuses ─────────────────────────────────
+      'scheduled',          // legacy initial status (exact-time bookings)
       'confirmed',          // legacy / doctor confirmed
       'checked_in',         // patient arrived at hospital
       'in_queue',           // QueueEntry created, patient waiting
@@ -207,6 +213,63 @@ const appointmentSchema = new mongoose.Schema({
   // Room/Location
   room: String,
   department: String,
+
+  // ── Time-Block Booking Fields (new flow) ──────────────────────────────────────
+  // departmentId: ObjectId ref to Department model (new bookings; legacy keeps string `department`)
+  departmentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Department',
+    default: null,
+    index: true,
+    sparse: true
+  },
+  // Time block selected at booking (replaces exact appointmentTime for new flow)
+  timeBlockId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'TimeBlock',
+    default: null,
+    index: true,
+    sparse: true
+  },
+
+  // ── Token Fields (new flow) ───────────────────────────────────────────────────
+  // Appointment token issued at booking time (e.g. "A014")
+  appointmentToken: {
+    type: String,
+    default: null,
+    uppercase: true,
+    trim: true,
+    index: true,
+    sparse: true
+  },
+  // Raw sequence number (numeric portion of token)
+  tokenNumber: {
+    type: Number,
+    default: null
+  },
+  // Token prefix: 'A' for appointment (always A at booking)
+  tokenPrefix: {
+    type: String,
+    enum: ['A', 'W', 'E'],
+    default: 'A'
+  },
+
+  // ── Booking Type ──────────────────────────────────────────────────────────────
+  // 'general_opd'  — patient chose department/block; doctor assigned at check-in
+  // 'specialist'   — patient chose a specific doctor (legacy and new flow)
+  bookingType: {
+    type: String,
+    enum: ['general_opd', 'specialist'],
+    default: 'specialist'
+  },
+
+  // ── Reporting Time ────────────────────────────────────────────────────────────
+  // When the patient should arrive (calculated at booking: block.startTime - offset)
+  reportingTime: {
+    type: String,
+    default: null,
+    match: [/^([01]\d|2[0-3]):[0-5]\d$/, 'Format HH:MM']
+  },
   
   // Rating and Feedback
   rating: {
@@ -258,6 +321,10 @@ appointmentSchema.index({ patient: 1, appointmentDate: 1 });
 appointmentSchema.index({ doctor: 1, appointmentDate: 1 });
 appointmentSchema.index({ status: 1, appointmentDate: 1 });
 appointmentSchema.index({ appointmentDate: 1, appointmentTime: 1 });
+// New-flow indexes
+appointmentSchema.index({ departmentId: 1, appointmentDate: 1, status: 1 });
+appointmentSchema.index({ timeBlockId: 1, status: 1 });
+appointmentSchema.index({ bookingType: 1, status: 1, appointmentDate: 1 });
 
 // Compound index for doctor availability checking
 appointmentSchema.index({
@@ -288,9 +355,32 @@ appointmentSchema.index(
 // Pre-save middleware — only enforce future-date rule on NEW appointments
 appointmentSchema.pre('save', function(next) {
   if (this.isNew) {
-    const appointmentDateTime = this.appointmentDateTime;
-    if (appointmentDateTime && appointmentDateTime <= new Date()) {
-      return next(new Error('Appointment must be scheduled for a future date and time'));
+    // Block-based OPD bookings store the block's startTime in appointmentTime so that
+    // field is always "in the past" once the session has started.  For those we only
+    // check that the calendar date is today or future — same-day booking is valid.
+    const isBlockBased = !!(this.timeBlockId || this.bookingType === 'general_opd');
+
+    if (isBlockBased) {
+      if (this.appointmentDate) {
+        const apptDate = new Date(this.appointmentDate);
+        apptDate.setHours(23, 59, 59, 999);
+        if (apptDate < new Date()) {
+          return next(new Error('Appointment must be scheduled for today or a future date'));
+        }
+      }
+    } else {
+      // Exact-time specialist booking — full datetime must be in the future
+      const appointmentDateTime = this.appointmentDateTime;
+      if (appointmentDateTime && appointmentDateTime <= new Date()) {
+        return next(new Error('Appointment must be scheduled for a future date and time'));
+      }
+      if (!appointmentDateTime && this.appointmentDate) {
+        const apptDate = new Date(this.appointmentDate);
+        apptDate.setHours(23, 59, 59, 999);
+        if (apptDate <= new Date()) {
+          return next(new Error('Appointment must be scheduled for a future date'));
+        }
+      }
     }
   }
   next();
@@ -380,6 +470,8 @@ function _overlapsAny(time, duration, appointments) {
   const newEnd   = newStart + duration;
 
   for (const appt of appointments) {
+    // Block-based appointments have no appointmentTime — skip overlap check for them
+    if (!appt.appointmentTime) continue;
     const [eH, eM] = appt.appointmentTime.split(':').map(Number);
     const eStart = eH * 60 + eM;
     const eEnd   = eStart + appt.duration;

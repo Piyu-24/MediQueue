@@ -10,7 +10,7 @@ const router = express.Router();
 // @desc    Get dashboard statistics
 // @route   GET /api/reports/dashboard
 // @access  Private (Manager)
-router.get('/dashboard', auth, authorize('manager'), async (req, res) => {
+router.get('/dashboard', auth, authorize('admin'), async (req, res) => {
   try {
     // Get total counts
     const totalPatients = await User.countDocuments({ role: 'patient', isActive: true });
@@ -49,7 +49,7 @@ router.get('/dashboard', auth, authorize('manager'), async (req, res) => {
 // @desc    Get appointment reports
 // @route   GET /api/reports/appointments
 // @access  Private (Manager/Admin)
-router.get('/appointments', auth, authorize('manager', 'admin'), async (req, res) => {
+router.get('/appointments', auth, authorize('admin'), async (req, res) => {
   try {
     const { startDate, endDate, doctorId, department } = req.query;
     
@@ -144,7 +144,7 @@ router.get('/users', auth, authorize('admin'), async (req, res) => {
 // @desc    Export report
 // @route   GET /api/reports/export/:type
 // @access  Private (Manager/Admin)
-router.get('/export/:type', auth, authorize('manager', 'admin'), async (req, res) => {
+router.get('/export/:type', auth, authorize('admin'), async (req, res) => {
   try {
     const { type } = req.params;
     const { format = 'json' } = req.query;
@@ -181,7 +181,7 @@ router.get('/export/:type', auth, authorize('manager', 'admin'), async (req, res
 // @desc    Generate report preview
 // @route   GET /api/reports/generate/:reportType
 // @access  Private (Manager)
-router.get('/generate/:reportType', auth, authorize('manager'), async (req, res) => {
+router.get('/generate/:reportType', auth, authorize('admin'), async (req, res) => {
   try {
     const { reportType } = req.params;
     const { startDate, endDate, department, staffRole } = req.query;
@@ -306,7 +306,7 @@ router.get('/generate/:reportType', auth, authorize('manager'), async (req, res)
 // @desc    Download report as PDF
 // @route   GET /api/reports/download/:reportType
 // @access  Private (Manager)
-router.get('/download/:reportType', auth, authorize('manager'), async (req, res) => {
+router.get('/download/:reportType', auth, authorize('admin'), async (req, res) => {
   try {
     const { reportType } = req.params;
     const { startDate, endDate } = req.query;
@@ -337,7 +337,7 @@ Implement with pdfkit or similar library.`;
 // @desc    Get peak hours prediction
 // @route   GET /api/reports/peak-hours
 // @access  Private (Manager)
-router.get('/peak-hours', auth, authorize('manager'), async (req, res) => {
+router.get('/peak-hours', auth, authorize('admin'), async (req, res) => {
   try {
     const { timeframe = '24h' } = req.query;
     
@@ -453,7 +453,7 @@ router.get('/peak-hours', auth, authorize('manager'), async (req, res) => {
 // @desc    Log report generation event
 // @route   POST /api/reports/log
 // @access  Private (Manager)
-router.post('/log', auth, authorize('manager'), async (req, res) => {
+router.post('/log', auth, authorize('admin'), async (req, res) => {
   try {
     const { reportType, dateRange, filters, generatedBy } = req.body;
 

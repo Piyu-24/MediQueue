@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from 'react-query';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './contexts/AuthContext';
 import { useAuth } from './hooks/useAuth';
+import LockScreen from './components/auth/LockScreen';
+import useInactivityTimer from './hooks/useInactivityTimer';
 
 // Components
 import Navbar from './components/layout/Navbar';
@@ -36,9 +38,6 @@ import StaffDashboard from './pages/staff/DashboardFull';
 import PatientVerification from './pages/staff/PatientVerification';
 
 // Manager Pages
-import ManagerDashboard from './pages/manager/DashboardFull';
-import Reports from './pages/manager/Reports';
-
 // Receptionist Pages
 import ReceptionistDashboard from './pages/receptionist/ReceptionistDashboard';
 
@@ -73,6 +72,24 @@ const queryClient = new QueryClient({
   },
 });
 
+// Inactivity timer + lock screen — only active when a user is authenticated
+const SessionGuard = ({ children }) => {
+  const { isAuthenticated, isLocked, lockScreen } = useAuth();
+
+  useInactivityTimer({
+    timeoutMs: 1 * 60 * 1000, // 1 minute (change back to 10 * 60 * 1000 for production)
+    onTimeout: lockScreen,
+    enabled: isAuthenticated && !isLocked,
+  });
+
+  return (
+    <>
+      {children}
+      {isLocked && <LockScreen />}
+    </>
+  );
+};
+
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   const { user, loading } = useAuth();
@@ -106,7 +123,6 @@ const PublicRoute = ({ children }) => {
       patient: '/dashboard',
       doctor: '/doctor/dashboard',
       staff: '/staff/dashboard',
-      manager: '/manager/dashboard',
       receptionist: '/receptionist/dashboard',
       admin: '/admin/dashboard'
     };
@@ -132,6 +148,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <SessionGuard>
           <div className="App">
             <Routes>
               {/* Public Routes */}
@@ -214,15 +231,15 @@ function App() {
               } />
               
               <Route path="/profile" element={
-                <ProtectedRoute allowedRoles={['patient', 'doctor']}>
+                <ProtectedRoute allowedRoles={['patient', 'doctor', 'staff', 'receptionist', 'admin']}>
                   <Layout>
                     <Profile />
                   </Layout>
                 </ProtectedRoute>
               } />
-              
+
               <Route path="/profile/edit" element={
-                <ProtectedRoute allowedRoles={['patient', 'doctor']}>
+                <ProtectedRoute allowedRoles={['patient', 'doctor', 'staff', 'receptionist', 'admin']}>
                   <Layout>
                     <ProfileEditor />
                   </Layout>
@@ -231,7 +248,7 @@ function App() {
 
               {/* Shared Routes */}
               <Route path="/appointments/:id" element={
-                <ProtectedRoute allowedRoles={['patient', 'doctor', 'staff', 'manager']}>
+                <ProtectedRoute allowedRoles={['patient', 'doctor', 'staff', 'admin']}>
                   <Layout>
                     <AppointmentDetails />
                   </Layout>
@@ -286,23 +303,6 @@ function App() {
                 <ProtectedRoute allowedRoles={['staff']}>
                   <Layout>
                     <PatientVerification />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-
-              {/* Manager Routes */}
-              <Route path="/manager/dashboard" element={
-                <ProtectedRoute allowedRoles={['manager']}>
-                  <Layout showFooter={false}>
-                    <ManagerDashboard />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              
-              <Route path="/manager/reports" element={
-                <ProtectedRoute allowedRoles={['manager']}>
-                  <Layout showFooter={false}>
-                    <Reports />
                   </Layout>
                 </ProtectedRoute>
               } />
@@ -376,6 +376,7 @@ function App() {
               }}
             />
           </div>
+          </SessionGuard>
         </Router>
       </AuthProvider>
     </QueryClientProvider>

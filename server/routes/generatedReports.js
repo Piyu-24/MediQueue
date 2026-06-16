@@ -8,7 +8,7 @@ const { body, validationResult } = require('express-validator');
 // @desc    Get all generated reports
 // @route   GET /api/generated-reports
 // @access  Private (Manager, Staff)
-router.get('/', auth, authorize('manager', 'staff'), async (req, res) => {
+router.get('/', auth, authorize('staff', 'admin'), async (req, res) => {
   try {
     const { 
       reportType, 
@@ -85,7 +85,7 @@ router.get('/', auth, authorize('manager', 'staff'), async (req, res) => {
 // @desc    Get single generated report
 // @route   GET /api/generated-reports/:id
 // @access  Private (Manager, Staff)
-router.get('/:id', auth, authorize('manager', 'staff'), async (req, res) => {
+router.get('/:id', auth, authorize('staff', 'admin'), async (req, res) => {
   try {
     const report = await GeneratedReport.findById(req.params.id)
       .populate('generatedBy', 'firstName lastName email role');
@@ -115,7 +115,7 @@ router.get('/:id', auth, authorize('manager', 'staff'), async (req, res) => {
 // @access  Private (Manager, Staff)
 router.post('/', [
   auth,
-  authorize('manager', 'staff'),
+  authorize('staff', 'admin'),
   body('title').notEmpty().withMessage('Report title is required'),
   body('reportType').isIn([
     'patient-visit', 'staff-utilization', 'financial-summary', 
@@ -183,7 +183,7 @@ router.post('/', [
 // @access  Private (Manager, Staff)
 router.put('/:id', [
   auth,
-  authorize('manager', 'staff'),
+  authorize('staff', 'admin'),
   body('title').optional().notEmpty().withMessage('Report title cannot be empty'),
   body('description').optional().isString().withMessage('Description must be a string')
 ], async (req, res) => {
@@ -233,7 +233,7 @@ router.put('/:id', [
 // @desc    Delete generated report
 // @route   DELETE /api/generated-reports/:id
 // @access  Private (Manager)
-router.delete('/:id', auth, authorize('manager'), async (req, res) => {
+router.delete('/:id', auth, authorize('admin'), async (req, res) => {
   try {
     const report = await GeneratedReport.findById(req.params.id);
     if (!report) {
@@ -261,7 +261,7 @@ router.delete('/:id', auth, authorize('manager'), async (req, res) => {
 // @desc    Download generated report
 // @route   GET /api/generated-reports/:id/download
 // @access  Private (Manager, Staff)
-router.get('/:id/download', auth, authorize('manager', 'staff'), async (req, res) => {
+router.get('/:id/download', auth, authorize('staff', 'admin'), async (req, res) => {
   try {
     const report = await GeneratedReport.findById(req.params.id);
     if (!report) {
@@ -301,7 +301,7 @@ router.get('/:id/download', auth, authorize('manager', 'staff'), async (req, res
 // @desc    Get report statistics
 // @route   GET /api/generated-reports/stats/overview
 // @access  Private (Manager)
-router.get('/stats/overview', auth, authorize('manager'), async (req, res) => {
+router.get('/stats/overview', auth, authorize('admin'), async (req, res) => {
   try {
     const totalReports = await GeneratedReport.countDocuments({ isArchived: false });
     const totalDownloads = await GeneratedReport.aggregate([

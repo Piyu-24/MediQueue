@@ -107,7 +107,8 @@ const PatientDashboardEnhanced = () => {
     const handleCheckedIn = () => fetchQueueStatus();
     const handleQueueUpdated = (data) => {
       // Only refresh if it looks like it might be for this patient
-      if (data?.queueEntry?.patient === user._id || !data?.queueEntry) {
+      const patientId = data?.queueEntry?.patient?._id?.toString() ?? data?.queueEntry?.patient?.toString();
+      if (!data?.queueEntry || patientId === user._id) {
         fetchQueueStatus();
       }
     };
@@ -161,7 +162,7 @@ const PatientDashboardEnhanced = () => {
       
       // Fetch appointments - get all statuses to show both upcoming and history
       const appointmentsRes = await appointmentAPI.getAppointments({
-        status: 'scheduled,confirmed,cancelled,completed,no-show,doctor-unavailable'
+        status: 'booked,scheduled,confirmed,cancelled,completed,no-show,doctor-unavailable'
       });
       
       if (appointmentsRes.data.success) {
@@ -175,11 +176,13 @@ const PatientDashboardEnhanced = () => {
         const now = new Date();
         
         const activeUpcoming = allAppts.filter(apt => {
-          // Combine date and time for accurate comparison
           const apptDate = new Date(apt.appointmentDate);
-          const [hours, minutes] = apt.appointmentTime.split(':');
-          apptDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-          
+          if (apt.appointmentTime) {
+            const [hours, minutes] = apt.appointmentTime.split(':');
+            apptDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+          } else {
+            apptDate.setHours(23, 59, 59, 999);
+          }
           return apptDate > now && !['cancelled', 'completed', 'no-show', 'doctor-unavailable'].includes(apt.status);
         }).length;
         
@@ -231,10 +234,14 @@ const PatientDashboardEnhanced = () => {
 
   // Handle appointment cancellation — requires >2 hours in the future
   const canCancelAppointment = (appointment) => {
-    if (!['scheduled', 'confirmed'].includes(appointment.status)) return false;
+    if (!['booked', 'scheduled', 'confirmed'].includes(appointment.status)) return false;
     const apptDate = new Date(appointment.appointmentDate);
-    const [hours, minutes] = appointment.appointmentTime.split(':');
-    apptDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+    if (appointment.appointmentTime) {
+      const [hours, minutes] = appointment.appointmentTime.split(':');
+      apptDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+    } else {
+      apptDate.setHours(23, 59, 59, 999);
+    }
     const twoHoursFromNow = new Date(Date.now() + 2 * 60 * 60 * 1000);
     return apptDate > twoHoursFromNow;
   };
@@ -243,7 +250,7 @@ const PatientDashboardEnhanced = () => {
     setCancelModal({
       open: true,
       appointmentId: appointment._id,
-      appointmentTitle: `Dr. ${appointment.doctor?.firstName} ${appointment.doctor?.lastName} on ${formatDate(appointment.appointmentDate)} at ${appointment.appointmentTime}`,
+      appointmentTitle: `${appointment.doctor ? `Dr. ${appointment.doctor.firstName} ${appointment.doctor.lastName}` : (appointment.department || 'OPD')} on ${formatDate(appointment.appointmentDate)}${appointment.appointmentTime ? ` at ${appointment.appointmentTime}` : ''}`,
     });
   };
 
@@ -353,7 +360,7 @@ const PatientDashboardEnhanced = () => {
                 <p className="text-sm font-semibold text-amber-900">Action Required</p>
                 <p className="text-sm text-amber-800">
                   Dr. {unavailableAppointments[0]?.doctor?.firstName} {unavailableAppointments[0]?.doctor?.lastName}'s appointment on{' '}
-                  {formatDate(unavailableAppointments[0]?.appointmentDate)} at {unavailableAppointments[0]?.appointmentTime} needs rescheduling.
+                  {formatDate(unavailableAppointments[0]?.appointmentDate)}{unavailableAppointments[0]?.appointmentTime ? ` at ${unavailableAppointments[0].appointmentTime}` : ''} needs rescheduling.
                 </p>
               </div>
             </div>
@@ -573,11 +580,13 @@ const PatientDashboardEnhanced = () => {
                 {(() => {
                   const now = new Date();
                   const upcomingAppts = appointments.filter(apt => {
-                    // Combine date and time for accurate comparison
                     const apptDate = new Date(apt.appointmentDate);
-                    const [hours, minutes] = apt.appointmentTime.split(':');
-                    apptDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-                    
+                    if (apt.appointmentTime) {
+                      const [hours, minutes] = apt.appointmentTime.split(':');
+                      apptDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+                    } else {
+                      apptDate.setHours(23, 59, 59, 999);
+                    }
                     return apptDate > now && !['cancelled', 'completed', 'no-show'].includes(apt.status);
                   });
                   
@@ -595,41 +604,78 @@ const PatientDashboardEnhanced = () => {
                             </div>
                             <div>
                               <h3 className="text-lg font-bold text-gray-900 mb-1">
-                                {appointment.doctor?.firstName} {appointment.doctor?.lastName}
+                                {appointment.doctor
+                                  ? `Dr. ${appointment.doctor.firstName} ${appointment.doctor.lastName}`
+                                  : appointment.departmentId?.name || appointment.department || 'General OPD'}
                               </h3>
                               <p className="text-sm text-blue-700 font-medium mb-1">
-                                {appointment.doctor?.specialization} • {appointment.appointmentType}
+                                {appointment.doctor?.specialization
+                                  ? `${appointment.doctor.specialization} • ${appointment.appointmentType}`
+                                  : appointment.appointmentType}
                               </p>
-                              <div className="flex items-center space-x-4">
+                              <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mt-1">
                                 <div className="flex items-center space-x-2">
                                   <CalendarIcon className="w-4 h-4 text-gray-500" />
                                   <span className="text-sm text-gray-600">{formatDate(appointment.appointmentDate)}</span>
                                 </div>
-                                <div className="flex items-center space-x-2">
-                                  <ClockIcon className="w-4 h-4 text-gray-500" />
-                                  <span className="text-sm text-gray-600">{appointment.appointmentTime}</span>
-                                </div>
+                                {/* Time: show block session name or exact time */}
+                                {appointment.timeBlockId?.sessionName ? (
+                                  <div className="flex items-center space-x-2">
+                                    <ClockIcon className="w-4 h-4 text-gray-500" />
+                                    <span className="text-sm text-gray-600">{appointment.timeBlockId.sessionName}</span>
+                                  </div>
+                                ) : appointment.appointmentTime ? (
+                                  <div className="flex items-center space-x-2">
+                                    <ClockIcon className="w-4 h-4 text-gray-500" />
+                                    <span className="text-sm text-gray-600">{appointment.appointmentTime}</span>
+                                  </div>
+                                ) : null}
                               </div>
                               <div className="mt-2 flex items-center flex-wrap gap-2">
+                                {/* Status badge */}
                                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                  appointment.status === 'confirmed' ? 'bg-green-100 text-green-800' :
-                                  appointment.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
-                                  appointment.status === 'in_queue' ? 'bg-teal-100 text-teal-800' :
-                                  appointment.status === 'doctor-unavailable' ? 'bg-amber-100 text-amber-800' :
+                                  appointment.status === 'booked'            ? 'bg-blue-100 text-blue-800' :
+                                  appointment.status === 'confirmed'         ? 'bg-green-100 text-green-800' :
+                                  appointment.status === 'scheduled'         ? 'bg-blue-100 text-blue-800' :
+                                  appointment.status === 'in_queue'          ? 'bg-teal-100 text-teal-800' :
+                                  appointment.status === 'doctor-unavailable'? 'bg-amber-100 text-amber-800' :
                                   'bg-gray-100 text-gray-800'
                                 }`}>
                                   {appointment.status === 'doctor-unavailable' ? 'doctor unavailable' :
                                    appointment.status === 'in_queue' ? 'in queue' : appointment.status}
                                 </span>
+
+                                {/* Appointment token badge — shown for block-based bookings */}
+                                {appointment.appointmentToken && (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-600 text-white">
+                                    🎫 {appointment.appointmentToken}
+                                  </span>
+                                )}
+
                                 {appointment.appointmentReference && (
                                   <span className="text-xs text-gray-400 font-mono bg-gray-100 px-2 py-0.5 rounded">
                                     {appointment.appointmentReference}
                                   </span>
                                 )}
-                                {/* Show check-in message for scheduled/confirmed appointments */}
-                                {['scheduled', 'confirmed'].includes(appointment.status) && (
+
+                                {/* Reporting time for block-based appointments */}
+                                {appointment.reportingTime && appointment.status === 'booked' && (
+                                  <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                                    Arrive by {appointment.reportingTime}
+                                  </span>
+                                )}
+
+                                {/* Check-in message for legacy appointments */}
+                                {['scheduled', 'confirmed'].includes(appointment.status) && !appointment.appointmentToken && (
                                   <span className="text-xs text-blue-600 italic">
-                                    Your live queue token will be issued after check-in at the hospital.
+                                    Token issued at check-in
+                                  </span>
+                                )}
+
+                                {/* Token not yet activated message */}
+                                {appointment.status === 'booked' && appointment.appointmentToken && (
+                                  <span className="text-xs text-gray-500 italic">
+                                    Token activates after check-in
                                   </span>
                                 )}
                               </div>

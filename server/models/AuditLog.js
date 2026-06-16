@@ -14,7 +14,7 @@ const auditLogSchema = new mongoose.Schema({
   },
   userRole: {
     type: String,
-    enum: ['patient', 'doctor', 'staff', 'manager', 'admin', 'receptionist'],
+    enum: ['patient', 'doctor', 'staff', 'admin', 'receptionist'],
     required: [true, 'User role is required']
   },
   
@@ -23,7 +23,12 @@ const auditLogSchema = new mongoose.Schema({
     type: String,
     enum: [
       'LOGIN',
-      'LOGOUT', 
+      'LOGOUT',
+      'FAILED_LOGIN',
+      'ACCOUNT_LOCKED',
+      'REAUTH_SUCCESS',
+      'REAUTH_FAILED',
+      'PASSWORD_CHANGE',
       'VIEW_PATIENT_RECORD',
       'UPDATE_PATIENT_RECORD',
       'CREATE_TREATMENT_NOTE',

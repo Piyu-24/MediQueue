@@ -22,7 +22,7 @@ import {
   PrinterIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
-import api, { authAPI, userAPI, medicalRecordsAPI, healthCardAPI, queueAPI, appointmentAPI } from '../../services/api';
+import api, { authAPI, userAPI, medicalRecordsAPI, healthCardAPI, queueAPI, appointmentAPI, receptionAPI } from '../../services/api';
 import socketService from '../../services/socket';
 import toast from 'react-hot-toast';
 
@@ -140,8 +140,12 @@ const ReceptionistDashboard = () => {
 
   // ── Today's Queue tab state ───────────────────────────────────────────────
   const [todaysQueue, setTodaysQueue] = useState([]);
+  const [bookedNotArrived, setBookedNotArrived] = useState([]);
+  const [queueSummary, setQueueSummary] = useState(null);
   const [queueLoading, setQueueLoading] = useState(false);
   const [queueFilter, setQueueFilter] = useState('all');
+  // Doctor assignment modal state
+  const [assignDoctorEntry, setAssignDoctorEntry] = useState(null);
 
   // ── Appointment Lookup tab state ──────────────────────────────────────────
   const [apptLookupQuery, setApptLookupQuery] = useState({ reference: '', name: '', phone: '' });
@@ -237,52 +241,47 @@ const ReceptionistDashboard = () => {
 
   // ── Walk-in patient full registration ────────────────────────────────────
   const handleNewWalkIn = async () => {
-    const { firstName, lastName, phone, email, dateOfBirth } = walkInForm;
+    const { firstName, lastName, phone, dateOfBirth } = walkInForm;
     if (!firstName.trim() || !lastName.trim()) { toast.error('First and last name are required'); return; }
-    if (!phone.trim() && !email.trim()) { toast.error('Phone or email is required'); return; }
+    if (!phone.trim()) { toast.error('Phone number is required'); return; }
 
     try {
       setWalkInLoading(true);
 
-      // 1. Create patient account
-      const tempEmail = email.trim() || `walkin.${phone.replace(/\s/g, '')}.${Date.now()}@mediqueue.local`;
-      const tempPassword = `WalkIn@${Math.random().toString(36).slice(2, 10)}`;
-      const registerRes = await authAPI.register({
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        email: tempEmail,
-        password: tempPassword,
-        phone: phone.trim() || undefined,
-        dateOfBirth: dateOfBirth || undefined,
-        gender: walkInForm.gender,
-        role: 'patient',
-        identityVerificationStatus: 'pending', // deferred verification
+      // Use the new reception endpoint — registers patient + auto-issues health card in one call
+      const registerRes = await receptionAPI.registerPatient({
+        firstName:    firstName.trim(),
+        lastName:     lastName.trim(),
+        phone:        phone.trim(),
+        nicNumber:    walkInForm.nic?.trim() || undefined,
+        dateOfBirth:  dateOfBirth || undefined,
+        gender:       walkInForm.gender,
+        hasSmartphone: false,
       });
 
       if (!registerRes.data.success) throw new Error(registerRes.data.message);
-      const newPatient = registerRes.data.data.user;
+      const { patient, healthCard } = registerRes.data.data;
 
-      // 2. Create health card
-      const cardRes = await healthCardAPI.createHealthCard({ patient: newPatient._id });
-      const cardNumber = cardRes.data.data?.healthCard?.cardNumber;
-
-      // 3. Set QR field to new card number so receptionist can immediately check them in
       setShowWalkInForm(false);
       setWalkInForm({ firstName: '', lastName: '', phone: '', email: '', dateOfBirth: '', gender: 'male', nic: '' });
-      setQrInput(cardNumber || '');
+
+      // Auto-fill the QR / card input so the receptionist can proceed to check-in
+      setQrInput(healthCard.cardNumber);
 
       toast.success(
-        `Walk-in registered! Health Card: ${cardNumber || 'issued'}. Please complete check-in below.`,
+        `Registered! Health Card: ${healthCard.cardNumber}. QR field pre-filled — complete check-in below.`,
         { duration: 8000 }
       );
 
-      // Auto-validate
-      if (cardNumber) {
-        setTimeout(() => handleValidateQR(cardNumber), 300);
-      }
+      // Auto-validate the new card
+      setTimeout(() => handleValidateQR(healthCard.cardNumber), 300);
     } catch (err) {
-      console.error('Walk-in registration error:', err);
-      toast.error(err.response?.data?.message || err.message || 'Registration failed');
+      // If patient already exists, surface the existing patient ID so reception can proceed
+      if (err.response?.status === 409 && err.response?.data?.data?.existingPatientId) {
+        toast.error(err.response.data.message + ' Use Patient Search to find them.');
+      } else {
+        toast.error(err.response?.data?.message || err.message || 'Registration failed');
+      }
     } finally {
       setWalkInLoading(false);
     }
@@ -291,12 +290,33 @@ const ReceptionistDashboard = () => {
   const fetchTodaysQueue = async () => {
     try {
       setQueueLoading(true);
-      const params = {};
-      if (queueFilter !== 'all') params.status = queueFilter;
-      const res = await queueAPI.getQueue(params);
-      if (res.data.success) setTodaysQueue(res.data.data.queueEntries);
+      // Use the richer reception endpoint that includes booked-not-arrived appointments
+      const res = await receptionAPI.getTodayQueue({});
+      if (res.data.success) {
+        const data = res.data.data;
+        // Combine all active queue entries for the main list
+        const allEntries = [
+          ...(data.queue?.current   || []),
+          ...(data.queue?.ready     || []),
+          ...(data.queue?.waiting   || []),
+          ...(data.queue?.lateQueue || []),
+          ...(data.queue?.walkIns   || []),
+          ...(data.queue?.emergencies || [])
+        ];
+        // Deduplicate by _id
+        const seen = new Set();
+        const unique = allEntries.filter(e => { if (seen.has(e._id)) return false; seen.add(e._id); return true; });
+        setTodaysQueue(unique);
+        // Store booked-not-arrived for display
+        setBookedNotArrived(data.appointments?.bookedNotArrived || []);
+        setQueueSummary(data.summary || null);
+      }
     } catch {
-      toast.error('Failed to load queue');
+      // Fallback to legacy queue endpoint
+      try {
+        const res = await queueAPI.getQueue({});
+        if (res.data.success) setTodaysQueue(res.data.data.queueEntries || []);
+      } catch { toast.error('Failed to load queue'); }
     } finally {
       setQueueLoading(false);
     }
@@ -356,7 +376,7 @@ const ReceptionistDashboard = () => {
             ...prev,
             doctorId: appt.doctor?._id || '',
             appointmentId: appt._id,
-            department: appt.doctor?.department || DEPARTMENTS[0]
+            department: appt.doctor?.department || appt.department || DEPARTMENTS[0]
           }));
         }
         if (data.alreadyCheckedIn) {
@@ -465,8 +485,8 @@ const ReceptionistDashboard = () => {
   };
 
   const handleAppointmentLookup = async () => {
-    const { reference, name, phone } = apptLookupQuery;
-    if (!reference.trim() && !name.trim() && !phone.trim()) {
+    const { token, reference, name, phone } = apptLookupQuery;
+    if (!token?.trim() && !reference?.trim() && !name?.trim() && !phone?.trim()) {
       toast.error('Enter at least one search term');
       return;
     }
@@ -474,16 +494,18 @@ const ReceptionistDashboard = () => {
       setApptLookupLoading(true);
       setApptLookupResults([]);
       setEligibility(null);
+
+      // Use the new reception search endpoint (includes appointmentToken search)
       const params = {};
-      if (reference.trim()) params.reference = reference.trim().toUpperCase();
-      if (name.trim()) params.name = name.trim();
-      if (phone.trim()) params.phone = phone.trim();
-      const res = await appointmentAPI.getAppointments(params);
-      // Fall back to the lookup endpoint for reference/name/phone searches
-      const lookupRes = await queueAPI.lookupAppointment(params);
-      if (lookupRes.data.success) {
-        setApptLookupResults(lookupRes.data.data.appointments || []);
-        if ((lookupRes.data.data.appointments || []).length === 0) {
+      if (token?.trim())     params.token     = token.trim().toUpperCase();
+      if (reference?.trim()) params.reference = reference.trim().toUpperCase();
+      if (name?.trim())      params.name      = name.trim();
+      if (phone?.trim())     params.phone     = phone.trim();
+
+      const res = await receptionAPI.searchAppointments(params);
+      if (res.data.success) {
+        setApptLookupResults(res.data.data || []);
+        if ((res.data.data || []).length === 0) {
           toast.info('No matching appointments found for today');
         }
       }
@@ -953,7 +975,7 @@ const ReceptionistDashboard = () => {
                             <label className="block text-xs font-semibold text-gray-600 mb-1">Department *</label>
                             <select
                               value={checkInForm.department}
-                              onChange={e => setCheckInForm(p => ({ ...p, department: e.target.value }))}
+                              onChange={e => setCheckInForm(p => ({ ...p, department: e.target.value, doctorId: '' }))}
                               className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                             >
                               <option value="">Select department</option>
@@ -977,32 +999,36 @@ const ReceptionistDashboard = () => {
                           {/* Doctor selector */}
                           <div className="md:col-span-2">
                             <label className="block text-xs font-semibold text-gray-600 mb-1">Doctor *</label>
-                            {validatedData.todaysAppointments?.length > 0 ? (
-                              <select
-                                value={checkInForm.doctorId}
-                                onChange={e => {
-                                  const appt = validatedData.todaysAppointments.find(a => a.doctor?._id === e.target.value);
-                                  setCheckInForm(p => ({
-                                    ...p,
-                                    doctorId: e.target.value,
-                                    appointmentId: appt?._id || ''
-                                  }));
-                                }}
-                                className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                              >
-                                <option value="">Select doctor</option>
-                                {validatedData.todaysAppointments.map(a => (
-                                  <option key={a.doctor?._id} value={a.doctor?._id}>
-                                    Dr. {a.doctor?.firstName} {a.doctor?.lastName} — {formatTime(a.appointmentTime)}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <DoctorSearchInput
-                                value={checkInForm.doctorId}
-                                onChange={doctorId => setCheckInForm(p => ({ ...p, doctorId }))}
-                              />
-                            )}
+                            {(() => {
+                              const apptWithDoctor = (validatedData.todaysAppointments || []).filter(a => a.doctor?._id);
+                              return apptWithDoctor.length > 0 ? (
+                                <select
+                                  value={checkInForm.doctorId}
+                                  onChange={e => {
+                                    const appt = apptWithDoctor.find(a => a.doctor._id === e.target.value);
+                                    setCheckInForm(p => ({
+                                      ...p,
+                                      doctorId: e.target.value,
+                                      appointmentId: appt?._id || ''
+                                    }));
+                                  }}
+                                  className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                >
+                                  <option value="">Select doctor</option>
+                                  {apptWithDoctor.map(a => (
+                                    <option key={a.doctor._id} value={a.doctor._id}>
+                                      Dr. {a.doctor.firstName} {a.doctor.lastName} — {formatTime(a.appointmentTime)}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <DoctorSearchInput
+                                  value={checkInForm.doctorId}
+                                  onChange={doctorId => setCheckInForm(p => ({ ...p, doctorId }))}
+                                  department={checkInForm.department}
+                                />
+                              );
+                            })()}
                           </div>
 
                           {/* Priority */}
@@ -1060,11 +1086,34 @@ const ReceptionistDashboard = () => {
                 <div className="flex items-center gap-3 mb-2">
                   <CalendarIcon className="w-6 h-6 text-blue-600" />
                   <h2 className="text-xl font-bold text-gray-900">Appointment Check-in</h2>
-                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">Search by Reference · Name · Phone</span>
+                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">Token · Reference · Name · Phone</span>
+                </div>
+
+                {/* ── Quick check-in by appointment token ── */}
+                <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-5 text-white mb-4">
+                  <p className="text-sm font-bold mb-3 flex items-center gap-2">
+                    <span className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-xs">⚡</span>
+                    Quick Token Check-in — type the appointment token from the patient's slip
+                  </p>
+                  <div className="flex gap-3">
+                    <input
+                      value={apptLookupQuery.token || ''}
+                      onChange={e => setApptLookupQuery(p => ({ ...p, token: e.target.value.toUpperCase() }))}
+                      onKeyPress={e => e.key === 'Enter' && handleAppointmentLookup()}
+                      placeholder="e.g.  A014"
+                      className="flex-1 px-4 py-3 rounded-xl text-gray-900 font-mono text-lg font-bold uppercase placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-white"
+                    />
+                    <button onClick={handleAppointmentLookup} disabled={apptLookupLoading}
+                      className="px-6 py-3 bg-white text-blue-700 rounded-xl font-bold hover:bg-blue-50 disabled:opacity-50 flex items-center gap-2 shadow-md">
+                      {apptLookupLoading ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <CheckCircleIcon className="w-5 h-5" />}
+                      Find & Check In
+                    </button>
+                  </div>
                 </div>
 
                 {/* Search form */}
                 <div className="bg-blue-50 border border-blue-100 rounded-2xl p-5">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Or search by patient details</p>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-1">Appointment Reference</label>
@@ -1103,24 +1152,48 @@ const ReceptionistDashboard = () => {
                     {apptLookupResults.map(appt => (
                       <div key={appt._id} className="border-2 border-gray-200 rounded-xl p-4 bg-white hover:border-blue-300 transition-all">
                         <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center flex-wrap gap-2 mb-1">
                               <span className="font-bold text-gray-900">{appt.patient?.firstName} {appt.patient?.lastName}</span>
+                              {/* Appointment token badge — shown for block-based bookings */}
+                              {appt.appointmentToken && (
+                                <span className="text-sm font-black bg-blue-600 text-white px-3 py-0.5 rounded-full tracking-wider">
+                                  {appt.appointmentToken}
+                                </span>
+                              )}
                               <span className="text-xs text-gray-500 font-mono bg-gray-100 px-2 py-0.5 rounded">{appt.appointmentReference}</span>
                               <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                                appt.status === 'scheduled' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                                appt.status === 'booked'     ? 'bg-blue-100 text-blue-700' :
+                                appt.status === 'scheduled'  ? 'bg-blue-100 text-blue-700' :
+                                appt.status === 'confirmed'  ? 'bg-green-100 text-green-700' :
+                                appt.status === 'checked_in' ? 'bg-teal-100 text-teal-700' :
+                                'bg-gray-100 text-gray-700'
                               }`}>{appt.status}</span>
                             </div>
-                            <p className="text-sm text-gray-600">
-                              Dr. {appt.doctor?.firstName} {appt.doctor?.lastName} · {appt.doctor?.specialization}
-                            </p>
+                            {/* Doctor or Department */}
+                            {appt.doctor ? (
+                              <p className="text-sm text-gray-600">
+                                Dr. {appt.doctor.firstName} {appt.doctor.lastName} · {appt.doctor.specialization}
+                              </p>
+                            ) : (
+                              <p className="text-sm text-gray-600">
+                                {appt.departmentId?.name || appt.department || 'General OPD'} — doctor assigned at check-in
+                              </p>
+                            )}
+                            {/* Time: block or exact */}
                             <p className="text-sm text-gray-500">
-                              {new Date(appt.appointmentDate).toLocaleDateString('en-LK')} at {appt.appointmentTime}
+                              {new Date(appt.appointmentDate).toLocaleDateString('en-LK')}
+                              {appt.timeBlockId?.sessionName
+                                ? ` · ${appt.timeBlockId.sessionName}`
+                                : appt.appointmentTime
+                                ? ` at ${appt.appointmentTime}`
+                                : ''}
+                              {appt.reportingTime && ` · Arrive by ${formatTime(appt.reportingTime)}`}
                               {appt.patient?.phone && ` · ${appt.patient.phone}`}
                             </p>
                           </div>
                           <button onClick={() => handleCheckInFromLookup(appt)}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-sm font-semibold shadow-sm">
+                            className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-sm font-semibold shadow-sm shrink-0">
                             Check In
                           </button>
                         </div>
@@ -1233,7 +1306,12 @@ const ReceptionistDashboard = () => {
                   <div className="flex items-center space-x-3">
                     <ClipboardDocumentListIcon className="w-6 h-6 text-blue-600" />
                     <h2 className="text-xl font-bold text-gray-900">Today's Queue</h2>
-                    <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">{todaysQueue.length} entries</span>
+                    <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">{todaysQueue.length} active</span>
+                    {bookedNotArrived.length > 0 && (
+                      <span className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-1 rounded-full">
+                        {bookedNotArrived.length} booked not arrived
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center space-x-2">
                     {['all', 'waiting', 'ready', 'called', 'in_consultation', 'completed', 'no_show', 'temporarily_away', 'skipped'].map(s => (
@@ -1250,6 +1328,67 @@ const ReceptionistDashboard = () => {
                   </div>
                 </div>
 
+                {/* Summary stats */}
+                {queueSummary && (
+                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 mb-4">
+                    {[
+                      { label: 'Booked', value: queueSummary.totalBooked,     color: 'bg-blue-50 text-blue-700 border-blue-200' },
+                      { label: 'Active',  value: queueSummary.activeInQueue,   color: 'bg-teal-50 text-teal-700 border-teal-200' },
+                      { label: 'Done',    value: queueSummary.completed,       color: 'bg-green-50 text-green-700 border-green-200' },
+                      { label: 'Walk-ins',value: queueSummary.walkIns,         color: 'bg-amber-50 text-amber-700 border-amber-200' },
+                      { label: 'No-show', value: queueSummary.noShows,         color: 'bg-red-50 text-red-700 border-red-200' },
+                      { label: 'Emerg',   value: queueSummary.emergencies,     color: 'bg-purple-50 text-purple-700 border-purple-200' },
+                    ].map(s => (
+                      <div key={s.label} className={`rounded-xl border p-2 text-center ${s.color}`}>
+                        <p className="text-xl font-black">{s.value ?? 0}</p>
+                        <p className="text-xs font-semibold">{s.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Booked — not yet arrived */}
+                {bookedNotArrived.length > 0 && (
+                  <div className="mb-4">
+                    <h3 className="text-sm font-bold text-amber-800 bg-amber-50 border border-amber-200 px-4 py-2 rounded-t-xl flex items-center gap-2">
+                      <ClockIcon className="w-4 h-4" />
+                      Booked — Not Yet Arrived ({bookedNotArrived.length})
+                    </h3>
+                    <div className="border border-amber-200 border-t-0 rounded-b-xl divide-y divide-amber-100 bg-white">
+                      {bookedNotArrived.slice(0, 8).map(appt => (
+                        <div key={appt._id} className="flex items-center justify-between px-4 py-3 hover:bg-amber-50 transition-colors">
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            {appt.appointmentToken && (
+                              <span className="font-black text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-sm font-mono min-w-[52px] text-center">
+                                {appt.appointmentToken}
+                              </span>
+                            )}
+                            <div className="min-w-0">
+                              <p className="font-semibold text-gray-900 text-sm truncate">
+                                {appt.patient?.firstName} {appt.patient?.lastName}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {appt.doctor ? `Dr. ${appt.doctor.firstName} ${appt.doctor.lastName}` : (appt.department || 'OPD')}
+                                {appt.reportingTime && ` · Arrive by ${formatTime(appt.reportingTime)}`}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => { setApptLookupQuery({ token: appt.appointmentToken || '', reference: appt.appointmentReference || '', name: '', phone: '' }); setActiveTab('apptlookup'); }}
+                            className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold shrink-0 ml-2">
+                            Check In
+                          </button>
+                        </div>
+                      ))}
+                      {bookedNotArrived.length > 8 && (
+                        <div className="px-4 py-2 text-xs text-amber-600 text-center">
+                          +{bookedNotArrived.length - 8} more booked appointments
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {queueLoading ? (
                   <div className="text-center py-12">
                     <ArrowPathIcon className="w-8 h-8 text-blue-400 animate-spin mx-auto mb-2" />
@@ -1258,7 +1397,7 @@ const ReceptionistDashboard = () => {
                 ) : todaysQueue.length === 0 ? (
                   <div className="text-center py-16 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
                     <ClipboardDocumentListIcon className="w-16 h-16 text-gray-300 mx-auto mb-3" />
-                    <p className="text-gray-500 text-lg">No queue entries yet today</p>
+                    <p className="text-gray-500 text-lg">No active queue entries yet today</p>
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -1285,6 +1424,7 @@ const ReceptionistDashboard = () => {
                                 {entry.isEmergency && <span className="ml-2 text-red-600 text-xs font-bold">🚨 EMERGENCY</span>}
                                 {entry.priority === 'urgent' && !entry.isEmergency && <span className="ml-2 text-red-500 text-xs font-bold">🔴 URGENT</span>}
                                 {entry.isWalkIn && <span className="ml-2 text-amber-600 text-xs font-medium">Walk-in</span>}
+                                {entry.isLate && <span className="ml-2 text-orange-600 text-xs font-bold">⏰ Late</span>}
                               </p>
                               <p className="text-sm text-gray-500">
                                 Dr. {entry.doctor?.firstName} {entry.doctor?.lastName} · {entry.room} · Check-in: {entry.checkInTime ? new Date(entry.checkInTime).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit' }) : '—'}
@@ -1326,6 +1466,12 @@ const ReceptionistDashboard = () => {
                                 No-show
                               </button>
                             )}
+                            {/* Doctor assign button */}
+                            <button onClick={() => setAssignDoctorEntry(entry)}
+                              className="text-xs px-2 py-1 border border-purple-200 text-purple-600 rounded-lg hover:bg-purple-50 flex items-center gap-1">
+                              <UserIcon className="w-3 h-3" />
+                              Assign Dr.
+                            </button>
                             <button onClick={() => printQueueSlip(entry, entry.isWalkIn)}
                               className="text-xs px-2 py-1 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-100 flex items-center gap-1">
                               <PrinterIcon className="w-3 h-3" />
@@ -1379,10 +1525,24 @@ const ReceptionistDashboard = () => {
                           </div>
                         </div>
                       </div>
-                      <button onClick={() => { setSelectedPatient(patient); setActiveTab('records'); }}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all text-sm font-semibold">
-                        Select
-                      </button>
+                      <div className="flex gap-2">
+                        <button onClick={async () => {
+                          try {
+                            const res = await receptionAPI.printHealthCard(patient._id);
+                            if (res.data.success) {
+                              const p = res.data.data.printPayload;
+                              printHealthCardSlip(p);
+                            }
+                          } catch { toast.error('Failed to get health card data'); }
+                        }}
+                          className="px-3 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all text-sm font-semibold flex items-center gap-1">
+                          <PrinterIcon className="w-4 h-4" /> Card
+                        </button>
+                        <button onClick={() => { setSelectedPatient(patient); setActiveTab('records'); }}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all text-sm font-semibold">
+                          Select
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1556,27 +1716,153 @@ const ReceptionistDashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* ── Doctor Assignment Modal ── */}
+      {assignDoctorEntry && (
+        <AssignDoctorModal
+          entry={assignDoctorEntry}
+          onClose={() => setAssignDoctorEntry(null)}
+          onAssigned={fetchTodaysQueue}
+        />
+      )}
+    </div>
+  );
+};
+
+// ── Health card print helper ─────────────────────────────────────────────────
+const printHealthCardSlip = (p) => {
+  const allergies = (p.allergies || []).join(', ') || 'None';
+  const html = `
+    <html><head><title>Health Card</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 16px; max-width: 340px; margin: 0 auto; font-size: 13px; }
+      .card { border: 2px solid #2563eb; border-radius: 12px; padding: 16px; }
+      .header { background: #2563eb; color: white; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+      .title { font-size: 18px; font-weight: bold; }
+      .subtitle { font-size: 11px; opacity: 0.8; }
+      .cardno { font-size: 20px; font-weight: bold; font-family: monospace; letter-spacing: 2px; color: #2563eb; text-align: center; margin: 10px 0; }
+      .row { display: flex; justify-content: space-between; margin: 4px 0; }
+      .label { color: #6b7280; }
+      .value { font-weight: 600; }
+      .qr { text-align: center; margin: 12px 0; }
+      .qr img { width: 120px; height: 120px; border: 1px solid #e5e7eb; border-radius: 8px; }
+      .divider { border-top: 1px dashed #d1d5db; margin: 8px 0; }
+      .footer { font-size: 10px; color: #9ca3af; text-align: center; margin-top: 8px; }
+    </style></head>
+    <body onload="window.print();window.close()">
+      <div class="card">
+        <div class="header">
+          <div class="title">MediQueue Health Card</div>
+          <div class="subtitle">${p.hospital?.name || 'MediQueue Hospital'}</div>
+        </div>
+        <div class="cardno">${p.cardNumber}</div>
+        <div class="row"><span class="label">Name:</span><span class="value">${p.patient.fullName}</span></div>
+        ${p.patient.dateOfBirth ? `<div class="row"><span class="label">DOB:</span><span class="value">${new Date(p.patient.dateOfBirth).toLocaleDateString()}</span></div>` : ''}
+        ${p.patient.gender ? `<div class="row"><span class="label">Gender:</span><span class="value capitalize">${p.patient.gender}</span></div>` : ''}
+        ${p.patient.phone ? `<div class="row"><span class="label">Phone:</span><span class="value">${p.patient.phone}</span></div>` : ''}
+        ${p.patient.nicNumber ? `<div class="row"><span class="label">NIC:</span><span class="value">${p.patient.nicNumber}</span></div>` : ''}
+        ${p.bloodGroup ? `<div class="row"><span class="label">Blood Group:</span><span class="value">${p.bloodGroup}</span></div>` : ''}
+        <div class="divider"></div>
+        <div class="row"><span class="label">Allergies:</span><span class="value">${allergies}</span></div>
+        ${p.patient.emergencyContact?.phone ? `<div class="row"><span class="label">Emergency:</span><span class="value">${p.patient.emergencyContact.name || ''} ${p.patient.emergencyContact.phone}</span></div>` : ''}
+        <div class="divider"></div>
+        <div class="qr"><img src="${p.qrCode}" alt="QR" /></div>
+        <div class="footer">Issued: ${new Date(p.issueDate).toLocaleDateString()} · Expires: ${new Date(p.expiryDate).toLocaleDateString()}<br/>Printed: ${new Date().toLocaleString()}</div>
+      </div>
+    </body></html>`;
+  const win = window.open('', '_blank', 'width=390,height=750');
+  if (win) { win.document.write(html); win.document.close(); }
+};
+
+// ── Assign Doctor Modal ───────────────────────────────────────────────────────
+const AssignDoctorModal = ({ entry, onClose, onAssigned }) => {
+  const [doctors, setDoctors] = useState([]);
+  const [selectedDoctorId, setSelectedDoctorId] = useState('');
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await userAPI.getDoctors();
+        if (res.data.success) setDoctors(res.data.data.doctors || []);
+      } catch { /* silent */ }
+    })();
+  }, []);
+
+  const handleAssign = async () => {
+    if (!selectedDoctorId) { toast.error('Select a doctor'); return; }
+    try {
+      setSaving(true);
+      const res = await receptionAPI.assignDoctor({ queueEntryId: entry._id, doctorId: selectedDoctorId, reason });
+      if (res.data.success) {
+        toast.success(`Doctor assigned: ${res.data.data.doctor.firstName} ${res.data.data.doctor.lastName}`);
+        onAssigned();
+        onClose();
+      }
+    } catch (err) { toast.error(err.response?.data?.message || 'Assignment failed'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-gray-900">Assign Doctor</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><XMarkIcon className="w-5 h-5" /></button>
+        </div>
+        <p className="text-sm text-gray-600 mb-4">
+          Patient: <strong>{entry.patient?.firstName} {entry.patient?.lastName}</strong> · Token: <strong>{entry.queueNumber}</strong>
+        </p>
+        <div className="mb-4">
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Select Doctor *</label>
+          <select value={selectedDoctorId} onChange={e => setSelectedDoctorId(e.target.value)}
+            className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500">
+            <option value="">Choose a doctor...</option>
+            {doctors.map(d => (
+              <option key={d._id} value={d._id}>
+                Dr. {d.firstName} {d.lastName} — {d.specialization || d.department || 'General'}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="mb-6">
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Reason (optional)</label>
+          <input value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Load balancing"
+            className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2.5 border-2 border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button onClick={handleAssign} disabled={saving || !selectedDoctorId}
+            className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <CheckCircleIcon className="w-4 h-4" />}
+            Assign Doctor
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
 
 // ── Inline doctor search for walk-in check-in ────────────────────────────────
-const DoctorSearchInput = ({ value, onChange }) => {
+const DoctorSearchInput = ({ value, onChange, department }) => {
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
+    setQuery('');
     const fetchDoctors = async () => {
       try {
         setLoading(true);
-        const res = await userAPI.getDoctors();
+        const params = department ? { department } : {};
+        const res = await userAPI.getDoctors(params);
         if (res.data.success) setDoctors(res.data.data.doctors || res.data.data || []);
       } catch { /* silent */ }
       finally { setLoading(false); }
     };
     fetchDoctors();
-  }, []);
+  }, [department]);
 
   const filtered = doctors.filter(d =>
     `${d.firstName} ${d.lastName} ${d.specialization}`.toLowerCase().includes(query.toLowerCase())
@@ -1585,7 +1871,7 @@ const DoctorSearchInput = ({ value, onChange }) => {
   return (
     <div>
       <input type="text" value={query} onChange={e => setQuery(e.target.value)}
-        placeholder="Search doctor by name or specialization..."
+        placeholder={department ? `Search doctor in ${department}...` : 'Select a department first, or search all doctors...'}
         className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm mb-2" />
       {loading ? (
         <p className="text-xs text-gray-400">Loading doctors...</p>
@@ -1600,7 +1886,11 @@ const DoctorSearchInput = ({ value, onChange }) => {
               <span className="text-gray-400 ml-2 text-xs">· {d.specialization || 'General'}</span>
             </button>
           ))}
-          {filtered.length === 0 && <p className="text-xs text-gray-400 px-3">No doctors found</p>}
+          {filtered.length === 0 && !loading && !value && (
+            <p className="text-xs text-gray-400 px-3">
+              {department ? 'No doctors available for selected department.' : 'No doctors found'}
+            </p>
+          )}
         </div>
       )}
     </div>

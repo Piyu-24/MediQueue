@@ -43,7 +43,7 @@ const PatientRecordsList = () => {
       const response = await fetch('/api/doctor/patients/list?limit=50', {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${sessionStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         }
       });

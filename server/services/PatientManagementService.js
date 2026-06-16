@@ -2,6 +2,7 @@ const User = require('../models/User');
 const MedicalRecord = require('../models/MedicalRecord');
 const Appointment = require('../models/Appointment');
 const AuditLog = require('../models/AuditLog');
+const Prescription = require('../models/Prescription');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
@@ -118,6 +119,35 @@ class PatientManagementService {
       .sort({ appointmentDate: 1 })
       .lean();
 
+      // Get formal prescription documents
+      const prescriptions = await Prescription.find({
+        patient: patientId,
+        status: { $in: ['active', 'completed', 'expired'] }
+      })
+      .populate('doctor', 'firstName lastName specialization department')
+      .sort({ prescribedDate: -1 })
+      .limit(20)
+      .lean();
+
+      // Extract embedded medication history from medical records (treatment plans / consultation notes)
+      // MedicalRecord stores prescribed drugs in `prescriptions[]` with field `medication` (not `medications`)
+      const medicationHistory = medicalRecords
+        .filter(r => r.prescriptions && r.prescriptions.length > 0)
+        .map(r => ({
+          recordId: r._id,
+          recordDate: r.createdAt,
+          doctor: r.doctor || r.createdBy,
+          diagnosis: r.diagnosis?.primary || r.diagnosis || '',
+          medications: r.prescriptions.map(p => ({
+            name: p.medication,
+            dosage: p.dosage,
+            frequency: p.frequency,
+            duration: p.duration,
+            instructions: p.instructions
+          })),
+          notes: r.notes || ''
+        }));
+
       // Calculate patient age
       const age = this._calculateAge(patient.dateOfBirth);
 
@@ -175,6 +205,8 @@ class PatientManagementService {
               nextAppointment: upcomingAppointments[0]?.appointmentDate || null
             }
           },
+          prescriptions,
+          medicationHistory,
           alerts: patientAlerts,
           actions: {
             addTreatmentNote: `/api/doctor/patients/${patientId}/treatment-notes`,
@@ -794,110 +826,6 @@ class PatientManagementService {
   }
 
   /**
-   * Get patient profile by ID
-   */
-  async getPatientProfile(patientId) {
-    try {
-      const user = await User.findById(patientId);
-      if (!user) {
-        return {
-          success: false,
-          message: 'Patient not found'
-        };
-      }
-
-      const userResponse = user.toJSON();
-      delete userResponse.password;
-
-      return {
-        success: true,
-        profile: userResponse
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: 'Failed to retrieve profile'
-      };
-    }
-  }
-
-  /**
-   * Update patient profile
-   */
-  async updatePatientProfile(patientId, updateData) {
-    try {
-      if (!updateData || Object.keys(updateData).length === 0) {
-        return {
-          success: false,
-          message: 'No update data provided'
-        };
-      }
-
-      // Validate email if provided
-      if (updateData.email) {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(updateData.email)) {
-          return {
-            success: false,
-            message: 'Invalid email format'
-          };
-        }
-
-        // Check if email is already in use by another user
-        const existingUser = await User.findOne({
-          email: updateData.email,
-          _id: { $ne: patientId }
-        });
-        if (existingUser) {
-          return {
-            success: false,
-            message: 'Email already in use by another account'
-          };
-        }
-      }
-
-      // Validate phone if provided
-      if (updateData.phone) {
-        const phoneRegex = /^\+?[1-9]\d{1,14}$/;
-        if (!phoneRegex.test(updateData.phone.replace(/[\s-()]/g, ''))) {
-          return {
-            success: false,
-            message: 'Invalid phone number format'
-          };
-        }
-      }
-
-      const updatedUser = await User.findByIdAndUpdate(
-        patientId,
-        updateData,
-        { new: true, runValidators: true }
-      );
-
-      if (!updatedUser) {
-        return {
-          success: false,
-          message: 'Patient not found'
-        };
-      }
-
-      const userResponse = updatedUser.toJSON();
-      delete userResponse.password;
-
-      return {
-        success: true,
-        profile: userResponse
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: 'Profile update failed due to server error'
-      };
-    }
-  }
-
-  /**
    * Get dashboard data for patient
    */
   async getDashboardData(patientId) {
@@ -985,127 +913,6 @@ class PatientManagementService {
       return {
         success: false,
         message: 'Invalid token'
-      };
-    }
-  }
-
-  /**
-   * Update patient profile
-   */
-  async updatePatientProfile(patientId, updateData) {
-    try {
-      if (!updateData || Object.keys(updateData).length === 0) {
-        return {
-          success: false,
-          message: 'No update data provided'
-        };
-      }
-
-      // Validate email format if provided
-      if (updateData.email) {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(updateData.email)) {
-          return {
-            success: false,
-            message: 'Invalid email format'
-          };
-        }
-
-        // Check for duplicate email
-        const existingUser = await User.findOne({ 
-          email: updateData.email,
-          _id: { $ne: patientId }
-        });
-        if (existingUser) {
-          return {
-            success: false,
-            message: 'Email already in use by another account'
-          };
-        }
-      }
-
-      // Validate phone format if provided
-      if (updateData.phone) {
-        const cleanPhone = updateData.phone.replace(/[\s-()]/g, '');
-        const phoneRegex = /^\+?[1-9]\d{7,14}$/;
-        if (!phoneRegex.test(cleanPhone)) {
-          return {
-            success: false,
-            message: 'Invalid phone number format'
-          };
-        }
-      }
-
-      const updatedUser = await User.findByIdAndUpdate(
-        patientId,
-        updateData,
-        { new: true, runValidators: true }
-      );
-
-      if (!updatedUser) {
-        return {
-          success: false,
-          message: 'Patient not found'
-        };
-      }
-
-      return {
-        success: true,
-        message: 'Profile updated successfully',
-        profile: updatedUser
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: 'Profile update failed due to server error'
-      };
-    }
-  }
-
-  /**
-   * Get dashboard data for patient
-   */
-  async getDashboardData(patientId) {
-    try {
-      const user = await User.findById(patientId);
-      
-      if (!user) {
-        return {
-          success: false,
-          message: 'Patient not found'
-        };
-      }
-
-      // Calculate profile completeness
-      let completeness = 0;
-      const fields = ['firstName', 'lastName', 'email', 'phone', 'dateOfBirth', 'address', 'emergencyContact'];
-      const completedFields = fields.filter(field => {
-        if (field === 'address' || field === 'emergencyContact') {
-          return user[field] && Object.keys(user[field]).length > 0;
-        }
-        return user[field];
-      });
-      
-      completeness = Math.round((completedFields.length / fields.length) * 100);
-
-      return {
-        success: true,
-        data: {
-          profileCompleteness: completeness,
-          recentActivity: [],
-          upcomingAppointments: [],
-          healthSummary: {
-            allergies: user.allergies || [],
-            chronicConditions: user.chronicConditions || []
-          }
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: 'Failed to retrieve dashboard data due to server error'
       };
     }
   }
@@ -1245,50 +1052,6 @@ class PatientManagementService {
     }
   }
 
-  async _getRecentPatients(doctorId, limit) {
-    try {
-      return await User.find({ role: 'patient' })
-        .select('firstName lastName email')
-        .limit(limit);
-    } catch (error) {
-      return [];
-    }
-  }
-
-  async _getTodayPatients(doctorId) {
-    try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-
-      const appointments = await Appointment.find({
-        doctor: doctorId,
-        appointmentDate: { $gte: today, $lt: tomorrow }
-      }).populate('patient', 'firstName lastName');
-
-      return appointments.map(apt => apt.patient);
-    } catch (error) {
-      return [];
-    }
-  }
-
-  async _getPatientStatistics(doctorId) {
-    try {
-      const totalPatients = await User.countDocuments({ role: 'patient' });
-      return {
-        totalPatients,
-        newPatientsThisMonth: Math.floor(totalPatients * 0.1),
-        activePatients: Math.floor(totalPatients * 0.9)
-      };
-    } catch (error) {
-      return {
-        totalPatients: 0,
-        newPatientsThisMonth: 0,
-        activePatients: 0
-      };
-    }
-  }
 }
 
 module.exports = new PatientManagementService();

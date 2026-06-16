@@ -193,7 +193,7 @@ describe('UC03 - Patient Record Access (ManagerController)', () => {
       body: {},
       user: {
         id: 'manager123',
-        role: 'manager'
+        role: 'admin'
       }
     };
 
