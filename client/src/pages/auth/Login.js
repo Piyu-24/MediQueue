@@ -1,8 +1,19 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { EyeIcon, EyeSlashIcon, HeartIcon, UserCircleIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
+import {
+  EyeIcon,
+  EyeSlashIcon,
+  HeartIcon,
+  UserCircleIcon,
+  ArrowRightIcon,
+  CheckCircleIcon,
+  ExclamationCircleIcon,
+  EnvelopeIcon,
+} from '@heroicons/react/24/outline';
 import { toast } from 'react-hot-toast';
+
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
 
 const Login = () => {
   const { login, loading } = useAuth();
@@ -32,56 +43,62 @@ const Login = () => {
     }
   };
 
+  const handleEmailBlur = () => {
+    const trimmed = formData.email.trim();
+    if (trimmed && !EMAIL_REGEX.test(trimmed)) {
+      setErrors(prev => ({
+        ...prev,
+        email: 'Please enter a valid email address (e.g. yourname@example.com)'
+      }));
+    }
+  };
+
   const validateForm = () => {
     const newErrors = {};
-    
-    if (!formData.email) {
-      newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Email is invalid';
+
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email address is required';
+    } else if (!EMAIL_REGEX.test(formData.email.trim())) {
+      newErrors.email = 'Please enter a valid email address (e.g. yourname@example.com)';
     }
-    
+
     if (!formData.password) {
       newErrors.password = 'Password is required';
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!validateForm() || loading) return;
 
     try {
-      const result = await login(formData.email, formData.password);
+      const result = await login(formData.email.trim().toLowerCase(), formData.password);
       if (result.success) {
         const welcomeMessages = {
-          patient: 'Welcome back! Your dashboard is ready.',
-          doctor: 'Welcome back, Doctor! Your patient queue awaits.',
-          staff: 'Welcome back! Ready to manage today\'s OPD.',
-          manager: 'Welcome back! View today\'s reports and analytics.',
+          patient:      'Welcome back! Your dashboard is ready.',
+          doctor:       'Welcome back, Doctor! Your patient queue awaits.',
+          staff:        'Welcome back! Ready to manage today\'s OPD.',
+          manager:      'Welcome back! View today\'s reports and analytics.',
           receptionist: 'Welcome back! Ready to check in patients.',
-          admin: 'Welcome back, Admin! System management awaits.'
+          admin:        'Welcome back, Admin! System management awaits.'
         };
-        
-        const message = welcomeMessages[result.user?.role] || 'Welcome back to MediQueue!';
-        toast.success(message);
-        
+
+        toast.success(welcomeMessages[result.user?.role] || 'Welcome back to MediQueue!');
+
         const roleRoutes = {
-          patient: '/dashboard',
-          doctor: '/doctor/dashboard',
-          staff: '/staff/dashboard',
-          manager: '/manager/dashboard',
+          patient:      '/dashboard',
+          doctor:       '/doctor/dashboard',
+          staff:        '/staff/dashboard',
+          manager:      '/manager/dashboard',
           receptionist: '/receptionist/dashboard',
-          admin: '/admin/dashboard'
+          admin:        '/admin/dashboard'
         };
-        
-        const redirectPath = roleRoutes[result.user?.role] || '/dashboard';
-        console.log('Login - User role:', result.user?.role);
-        console.log('Login - Redirecting to:', redirectPath);
-        navigate(redirectPath);
+
+        navigate(roleRoutes[result.user?.role] || '/dashboard');
       }
     } catch (error) {
       toast.error(error.message || 'Login failed');
@@ -112,12 +129,27 @@ const Login = () => {
                   id="email"
                   name="email"
                   type="email"
+                  autoComplete="email"
+                  maxLength={320}
                   value={formData.email}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 bg-gray-50/50 border-2 border-gray-200 rounded-xl focus:outline-none focus:bg-white focus:border-blue-500 transition-all duration-200"
-                  placeholder="Enter your email"
+                  onBlur={handleEmailBlur}
+                  className={`w-full px-4 py-3 pr-10 bg-gray-50/50 border-2 rounded-xl focus:outline-none focus:bg-white transition-all duration-200 ${
+                    errors.email
+                      ? 'border-red-400 focus:border-red-500'
+                      : EMAIL_REGEX.test(formData.email.trim())
+                      ? 'border-green-400 focus:border-green-500'
+                      : 'border-gray-200 focus:border-blue-500'
+                  }`}
+                  placeholder="yourname@example.com"
                 />
-                <UserCircleIcon className="absolute right-3 top-3 w-5 h-5 text-gray-400" />
+                <div className="absolute right-3 top-3">
+                  {errors.email
+                    ? <ExclamationCircleIcon className="w-5 h-5 text-red-500" />
+                    : EMAIL_REGEX.test(formData.email.trim())
+                    ? <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                    : <EnvelopeIcon className="w-5 h-5 text-gray-400" />}
+                </div>
               </div>
               {errors.email && (
                 <p className="text-sm text-red-600">{errors.email}</p>

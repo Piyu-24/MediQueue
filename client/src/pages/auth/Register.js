@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { 
-  EyeIcon, 
-  EyeSlashIcon, 
-  HeartIcon, 
-  UserCircleIcon, 
+import {
+  EyeIcon,
+  EyeSlashIcon,
+  HeartIcon,
+  UserCircleIcon,
   EnvelopeIcon,
   PhoneIcon,
   ArrowRightIcon,
-  CheckCircleIcon
+  CheckCircleIcon,
+  ExclamationCircleIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from 'react-hot-toast';
+
+// Anchored email regex — allows modern TLDs, subdomains, +tags, dots
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
 
 const Register = () => {
   const { register, loading } = useAuth();
@@ -22,10 +26,12 @@ const Register = () => {
     firstName: '',
     lastName: '',
     email: '',
+    confirmEmail: '',
     phone: '',
     password: '',
     confirmPassword: '',
     role: 'patient',
+    nicNumber: '',
     dateOfBirth: '',
     gender: '',
     bloodType: '',
@@ -37,29 +43,42 @@ const Register = () => {
     licenseNumber: '',
     agreeToTerms: false
   });
-  
+
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState({});
 
+  // Sri Lankan mobile: 10 digits starting with 0, or international +94 prefix
+  const PHONE_REGEX = /^(?:0\d{9}|\+94\d{9})$/;
+
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-    
-    if (errors[name]) {
+    // Trim email fields immediately so copy-paste spaces don't survive
+    const sanitized = (name === 'email' || name === 'confirmEmail')
+      ? (type === 'checkbox' ? checked : value.trim())
+      : (type === 'checkbox' ? checked : value);
+    setFormData(prev => ({ ...prev, [name]: sanitized }));
+    if (errors[name]) setErrors(prev => ({ ...prev, [name]: '' }));
+  };
+
+  const handleEmailBlur = () => {
+    if (formData.email && !EMAIL_REGEX.test(formData.email)) {
       setErrors(prev => ({
         ...prev,
-        [name]: ''
+        email: 'Please enter a valid email address (e.g. yourname@example.com)'
       }));
+    }
+  };
+
+  const handleConfirmEmailBlur = () => {
+    if (formData.confirmEmail && formData.confirmEmail !== formData.email) {
+      setErrors(prev => ({ ...prev, confirmEmail: 'Email addresses do not match' }));
     }
   };
 
   const validateStep = (step) => {
     const newErrors = {};
-    
+
     if (step === 1) {
       if (!formData.firstName.trim()) {
         newErrors.firstName = 'First name is required';
@@ -68,22 +87,32 @@ const Register = () => {
         newErrors.lastName = 'Last name is required';
       }
       if (!formData.email) {
-        newErrors.email = 'Email is required';
-      } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-        newErrors.email = 'Email is invalid';
+        newErrors.email = 'Email address is required';
+      } else if (!EMAIL_REGEX.test(formData.email)) {
+        newErrors.email = 'Please enter a valid email address (e.g. yourname@example.com)';
+      }
+      if (!formData.confirmEmail) {
+        newErrors.confirmEmail = 'Please confirm your email address';
+      } else if (formData.confirmEmail !== formData.email) {
+        newErrors.confirmEmail = 'Email addresses do not match';
       }
       if (!formData.phone) {
         newErrors.phone = 'Phone number is required';
+      } else if (!PHONE_REGEX.test(formData.phone.replace(/\s/g, ''))) {
+        newErrors.phone = 'Enter a valid phone number (e.g. 0712345678 or +94712345678)';
+      }
+      if (formData.role === 'patient' && !formData.nicNumber.trim()) {
+        newErrors.nicNumber = 'NIC number is required';
       }
     }
-    
+
     if (step === 2) {
       if (!formData.password) {
         newErrors.password = 'Password is required';
       } else if (formData.password.length < 8) {
         newErrors.password = 'Password must be at least 8 characters';
-      } else if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).*$/.test(formData.password)) {
-        newErrors.password = 'Password must contain at least one uppercase letter, one lowercase letter, and one number';
+      } else if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).*$/.test(formData.password)) {
+        newErrors.password = 'Password must contain uppercase, lowercase, number, and a special character (@$!%*?&)';
       }
       if (!formData.confirmPassword) {
         newErrors.confirmPassword = 'Please confirm your password';
@@ -152,7 +181,7 @@ const Register = () => {
       const cleanFormData = {
         firstName: formData.firstName,
         lastName: formData.lastName,
-        email: formData.email,
+        email: formData.email.trim().toLowerCase(),
         phone: formData.phone,
         password: formData.password,
         role: formData.role,
@@ -163,6 +192,7 @@ const Register = () => {
       // Add role-specific fields
       if (formData.role === 'patient') {
         cleanFormData.bloodType = formData.bloodType;
+        cleanFormData.nicNumber = formData.nicNumber.trim();
       } else if (formData.role === 'doctor') {
         cleanFormData.specialization = formData.specialization;
         cleanFormData.department = formData.department;
@@ -172,23 +202,18 @@ const Register = () => {
     
       }
 
-      console.log('Submitting form data:', cleanFormData);
-      
       const result = await register(cleanFormData);
       if (result.success) {
-        toast.success('Account created successfully! Please verify your email.');
-        
-        // Navigate based on role after successful registration
-        if (result.user) {
-          const roleRoutes = {
-            patient: '/dashboard',
-            doctor: '/doctor/dashboard'
-          };
-          const redirectPath = roleRoutes[result.user.role] || '/dashboard';
-          navigate(redirectPath);
-        } else {
-          navigate('/verify-email');
-        }
+        toast.success('Account created successfully!');
+
+        const roleRoutes = {
+          patient: '/dashboard',
+          doctor:  '/doctor/dashboard',
+        };
+        const redirectPath = result.user
+          ? (roleRoutes[result.user.role] || '/dashboard')
+          : '/dashboard';
+        navigate(redirectPath);
       }
     } catch (error) {
       toast.error(error.message || 'Registration failed');
@@ -246,6 +271,7 @@ const Register = () => {
               </div>
             </div>
 
+            {/* Email */}
             <div className="space-y-2">
               <label htmlFor="email" className="text-sm font-semibold text-gray-700">
                 Email Address
@@ -255,20 +281,68 @@ const Register = () => {
                   id="email"
                   name="email"
                   type="email"
+                  autoComplete="email"
+                  maxLength={320}
                   value={formData.email}
                   onChange={handleChange}
-                  className={`w-full px-4 py-3 bg-gray-50/50 border-2 rounded-xl focus:outline-none focus:bg-white transition-all duration-200 ${
-                    errors.email 
-                      ? 'border-red-300 focus:border-red-500' 
+                  onBlur={handleEmailBlur}
+                  className={`w-full px-4 py-3 pr-10 bg-gray-50/50 border-2 rounded-xl focus:outline-none focus:bg-white transition-all duration-200 ${
+                    errors.email
+                      ? 'border-red-400 focus:border-red-500'
+                      : EMAIL_REGEX.test(formData.email)
+                      ? 'border-green-400 focus:border-green-500'
                       : 'border-gray-200 focus:border-blue-500'
                   }`}
                   placeholder="kevinperera@example.com"
                 />
-                <EnvelopeIcon className="absolute right-3 top-3 w-5 h-5 text-gray-400" />
+                <div className="absolute right-3 top-3">
+                  {errors.email
+                    ? <ExclamationCircleIcon className="w-5 h-5 text-red-500" />
+                    : EMAIL_REGEX.test(formData.email)
+                    ? <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                    : <EnvelopeIcon className="w-5 h-5 text-gray-400" />}
+                </div>
               </div>
-              {errors.email && (
-                <p className="text-sm text-red-600">{errors.email}</p>
-              )}
+              {errors.email && <p className="text-sm text-red-600">{errors.email}</p>}
+            </div>
+
+            {/* Confirm Email */}
+            <div className="space-y-2">
+              <label htmlFor="confirmEmail" className="text-sm font-semibold text-gray-700">
+                Confirm Email Address
+              </label>
+              <div className="relative">
+                <input
+                  id="confirmEmail"
+                  name="confirmEmail"
+                  type="email"
+                  autoComplete="email"
+                  maxLength={320}
+                  value={formData.confirmEmail}
+                  onChange={handleChange}
+                  onBlur={handleConfirmEmailBlur}
+                  className={`w-full px-4 py-3 pr-10 bg-gray-50/50 border-2 rounded-xl focus:outline-none focus:bg-white transition-all duration-200 ${
+                    errors.confirmEmail
+                      ? 'border-red-400 focus:border-red-500'
+                      : (formData.confirmEmail && formData.confirmEmail === formData.email)
+                      ? 'border-green-400 focus:border-green-500'
+                      : 'border-gray-200 focus:border-blue-500'
+                  }`}
+                  placeholder="Re-enter your email address"
+                />
+                <div className="absolute right-3 top-3">
+                  {errors.confirmEmail
+                    ? <ExclamationCircleIcon className="w-5 h-5 text-red-500" />
+                    : (formData.confirmEmail && formData.confirmEmail === formData.email)
+                    ? <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                    : <EnvelopeIcon className="w-5 h-5 text-gray-400" />}
+                </div>
+              </div>
+              {errors.confirmEmail
+                ? <p className="text-sm text-red-600">{errors.confirmEmail}</p>
+                : (formData.confirmEmail && formData.confirmEmail === formData.email)
+                ? <p className="text-xs text-green-600 flex items-center gap-1"><CheckCircleIcon className="w-3.5 h-3.5" /> Email addresses match</p>
+                : null}
             </div>
 
             <div className="space-y-2">
@@ -283,14 +357,16 @@ const Register = () => {
                   value={formData.phone}
                   onChange={handleChange}
                   className={`w-full px-4 py-3 bg-gray-50/50 border-2 rounded-xl focus:outline-none focus:bg-white transition-all duration-200 ${
-                    errors.phone 
-                      ? 'border-red-300 focus:border-red-500' 
+                    errors.phone
+                      ? 'border-red-300 focus:border-red-500'
                       : 'border-gray-200 focus:border-blue-500'
                   }`}
-                  placeholder="+94 71 234 5678"
+                  placeholder="0712345678"
+                  maxLength={15}
                 />
                 <PhoneIcon className="absolute right-3 top-3 w-5 h-5 text-gray-400" />
               </div>
+              <p className="text-xs text-gray-500">10-digit Sri Lankan number (e.g. 0712345678) or international format (+94712345678)</p>
               {errors.phone && (
                 <p className="text-sm text-red-600">{errors.phone}</p>
               )}
@@ -331,8 +407,32 @@ const Register = () => {
                   </div>
                 </label>
               </div>
-              
             </div>
+
+            {formData.role === 'patient' && (
+              <div className="space-y-2">
+                <label htmlFor="nicNumber" className="text-sm font-semibold text-gray-700">
+                  NIC Number
+                </label>
+                <input
+                  id="nicNumber"
+                  name="nicNumber"
+                  type="text"
+                  value={formData.nicNumber}
+                  onChange={handleChange}
+                  className={`w-full px-4 py-3 bg-gray-50/50 border-2 rounded-xl focus:outline-none focus:bg-white transition-all duration-200 ${
+                    errors.nicNumber
+                      ? 'border-red-300 focus:border-red-500'
+                      : 'border-gray-200 focus:border-blue-500'
+                  }`}
+                  placeholder="e.g. 123456789V or 200012345678"
+                />
+                <p className="text-xs text-gray-500">Old format: 9 digits + V/X &nbsp;|&nbsp; New format: 12 digits</p>
+                {errors.nicNumber && (
+                  <p className="text-sm text-red-600">{errors.nicNumber}</p>
+                )}
+              </div>
+            )}
           </div>
         );
         
@@ -650,6 +750,9 @@ const Register = () => {
                 <p><span className="font-medium">Email:</span> {formData.email}</p>
                 <p><span className="font-medium">Phone:</span> {formData.phone}</p>
                 <p><span className="font-medium">Account Type:</span> {formData.role.charAt(0).toUpperCase() + formData.role.slice(1)}</p>
+                {formData.role === 'patient' && (
+                  <p><span className="font-medium">NIC Number:</span> {formData.nicNumber}</p>
+                )}
                 {formData.role === 'patient' && formData.bloodType && (
                   <p><span className="font-medium">Blood Type:</span> {formData.bloodType}</p>
                 )}
@@ -711,7 +814,7 @@ const Register = () => {
             <HeartIcon className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mt-4">Join MediQueue</h1>
-          <p className="text-gray-600 mt-2">Create your patient account</p>
+          <p className="text-gray-600 mt-2">Create your account to get started</p>
         </div>
 
         <div className="flex items-center justify-center mb-8">

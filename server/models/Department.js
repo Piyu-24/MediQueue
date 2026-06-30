@@ -39,6 +39,13 @@ const departmentSchema = new mongoose.Schema({
     default: 10,
     min: [1, 'Average consultation must be at least 1 minute']
   },
+  // true for OPD (or any dept with multiple consultation rooms)
+  // drives receptionist room-selection logic at check-in
+  hasMultipleRooms: {
+    type: Boolean,
+    default: false
+  },
+
   // Floor/building location (informational)
   location: {
     floor: String,

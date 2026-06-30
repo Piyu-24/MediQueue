@@ -21,9 +21,10 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Email is required'],
     unique: true,
     lowercase: true,
+    trim: true,
     match: [
-      /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
-      'Please provide a valid email'
+      /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,})+$/,
+      'Please provide a valid email address'
     ]
   },
   password: {
@@ -36,7 +37,7 @@ const userSchema = new mongoose.Schema({
   // Role and Status
   role: {
     type: String,
-    enum: ['patient', 'doctor', 'staff', 'receptionist', 'admin'],
+    enum: ['patient', 'doctor', 'staff', 'receptionist', 'admin', 'pharmacist'],
     default: 'patient'
   },
   isActive: {
@@ -72,7 +73,7 @@ const userSchema = new mongoose.Schema({
     zipCode: String,
     country: {
       type: String,
-      default: 'USA'
+      default: 'LK'
     }
   },
   
@@ -133,6 +134,25 @@ const userSchema = new mongoose.Schema({
   },
   qualification: {
     type: String,
+    required: false
+  },
+  consultationFee: {
+    type: Number,
+    required: false,
+    min: 0
+  },
+  bio: {
+    type: String,
+    required: false,
+    maxlength: 1000
+  },
+  employeeId: {
+    type: String,
+    required: false,
+    sparse: true
+  },
+  joiningDate: {
+    type: Date,
     required: false
   },
   // Doctor Schedule
@@ -218,6 +238,13 @@ const userSchema = new mongoose.Schema({
   },
   phoneNumber: String,
   
+  // Professional Credential Verification (for clinical staff — separate from identity)
+  credentialVerificationStatus: {
+    type: String,
+    enum: ['unverified', 'pending', 'verified', 'rejected'],
+    default: 'unverified'
+  },
+
   // Identity Verification (for patients)
   identityVerificationStatus: {
     type: String,
@@ -234,6 +261,17 @@ const userSchema = new mongoose.Schema({
   },
   verifiedAt: {
     type: Date
+  },
+  // How the identity was verified ('NIC_SEEN' = physical NIC inspected by receptionist)
+  verificationMethod: {
+    type: String,
+    enum: ['NIC_SEEN', 'DOCUMENT_REVIEW'],
+  },
+  // Who created this account
+  registeredBy: {
+    type: String,
+    enum: ['Self', 'Receptionist', 'Admin'],
+    default: 'Self'
   },
   nicDocument: {
     filename: String,

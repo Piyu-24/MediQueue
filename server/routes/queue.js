@@ -192,7 +192,7 @@ router.post('/validate-qr', auth, authorize('receptionist', 'staff', 'admin'), a
 
     const healthCard = await HealthCard.findOne({
       cardNumber: searchCardNumber.trim().toUpperCase()
-    }).populate('patient', 'firstName lastName phone email dateOfBirth gender digitalHealthCardId');
+    }).populate('patient', 'firstName lastName phone email dateOfBirth gender digitalHealthCardId nicNumber identityVerificationStatus');
 
     if (!healthCard) {
       return res.status(404).json({ success: false, message: 'Health card not found' });
@@ -215,7 +215,7 @@ router.post('/validate-qr', auth, authorize('receptionist', 'staff', 'admin'), a
       Appointment.find({
         patient: patient._id,
         appointmentDate: { $gte: startOfDay, $lt: endOfDay },
-        status: { $in: ['booked', 'scheduled', 'confirmed'] }
+        status: { $in: ['booked', 'scheduled', 'confirmed', 'checked_in', 'in_queue', 'in_consultation'] }
       }).populate('doctor', 'firstName lastName specialization department'),
       QueueEntry.find({
         patient: patient._id,

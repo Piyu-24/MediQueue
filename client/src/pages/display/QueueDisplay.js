@@ -150,7 +150,7 @@ const RoomPanel = ({ room }) => {
               <p className="text-xs text-white/60 mt-1">{room.nowServing.initials}</p>
             </div>
 
-            {/* Status label */}
+            {/* Status label + assigned room badge */}
             <div>
               <span className={`inline-block px-3 py-1.5 rounded-full text-sm font-bold ${
                 room.nowServing.status === 'in_consultation'
@@ -159,6 +159,11 @@ const RoomPanel = ({ room }) => {
               }`}>
                 {room.nowServing.status === 'in_consultation' ? '🩺 In Consultation' : '📢 Called'}
               </span>
+              {room.nowServing.room && (
+                <p className="mt-2 text-xs font-mono font-semibold text-gray-500">
+                  🚪 {room.nowServing.room}
+                </p>
+              )}
               {room.completedCount > 0 && (
                 <p className="text-xs text-gray-600 mt-2">{room.completedCount} completed today</p>
               )}

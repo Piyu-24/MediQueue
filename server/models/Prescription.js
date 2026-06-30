@@ -134,7 +134,7 @@ const prescriptionSchema = new mongoose.Schema({
   // Prescription Status
   status: {
     type: String,
-    enum: ['draft', 'active', 'completed', 'cancelled', 'expired'],
+    enum: ['draft', 'active', 'awaiting_dispensing', 'dispensed', 'completed', 'cancelled', 'expired'],
     default: 'draft',
     index: true
   },
@@ -187,7 +187,7 @@ const prescriptionSchema = new mongoose.Schema({
   auditTrail: [{
     action: {
       type: String,
-      enum: ['created', 'modified', 'signed', 'transmitted', 'filled', 'cancelled']
+      enum: ['created', 'modified', 'signed', 'transmitted', 'filled', 'sent_to_dispensary', 'dispensed', 'cancelled']
     },
     performedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -281,7 +281,7 @@ prescriptionSchema.methods.addAuditEntry = function(action, userId, details) {
 prescriptionSchema.statics.getActiveForPatient = function(patientId) {
   return this.find({
     patient: patientId,
-    status: 'active',
+    status: { $in: ['active', 'awaiting_dispensing'] },
     expiryDate: { $gt: new Date() }
   })
   .populate('doctor', 'firstName lastName specialization')

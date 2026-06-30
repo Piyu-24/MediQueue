@@ -34,7 +34,8 @@ const Navbar = () => {
       staff: '/staff/dashboard',
       manager: '/manager/dashboard',
       receptionist: '/receptionist/dashboard',
-      admin: '/admin/dashboard'
+      admin: '/admin/dashboard',
+      pharmacist: '/dispensary/dashboard'
     };
     return routes[role] || '/dashboard';
   };
@@ -75,6 +76,11 @@ const Navbar = () => {
     { name: 'Queue Display', href: '/display' },
   ];
 
+  const pharmacistLinks = [
+    { name: 'Home', href: '/' },
+    { name: 'Dispensary', href: '/dispensary/dashboard' },
+  ];
+
   const getNavigationLinks = () => {
     if (!user) return publicLinks;
     
@@ -84,6 +90,7 @@ const Navbar = () => {
       case 'staff': return staffLinks;
       case 'receptionist': return receptionistLinks;
       case 'admin': return adminLinks;
+      case 'pharmacist': return pharmacistLinks;
       default: return publicLinks;
     }
   };

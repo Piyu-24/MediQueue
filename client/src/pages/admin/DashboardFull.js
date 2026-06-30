@@ -18,10 +18,13 @@ import {
   TrashIcon,
   CheckIcon,
   XMarkIcon,
-  ArrowPathIcon
+  ArrowPathIcon,
+  EyeIcon,
+  EyeSlashIcon,
+  ClipboardDocumentIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
-import { userAPI, adminAPI, managerAPI, queueAPI, departmentAPI, timeBlockAPI } from '../../services/api';
+import { userAPI, adminAPI, managerAPI, queueAPI, departmentAPI, timeBlockAPI, roomAPI } from '../../services/api';
 import ReportsDashboard from '../../components/Reports/ReportsDashboard';
 import PeakHoursChartDashboard from '../../components/Analytics/PeakHoursChartDashboard';
 import PatientRecordViewer from '../../components/Manager/PatientRecordViewer';
@@ -44,6 +47,7 @@ const ROLE_COLORS = {
   doctor:       'bg-blue-100 text-blue-800',
   staff:        'bg-green-100 text-green-800',
   receptionist: 'bg-purple-100 text-purple-800',
+  pharmacist:   'bg-orange-100 text-orange-800',
   patient:      'bg-gray-100 text-gray-800',
 };
 
@@ -68,6 +72,34 @@ const AdminDashboard = () => {
   const [selectedRole, setSelectedRole] = useState('all');
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [togglingUser, setTogglingUser] = useState(null);
+
+  // Create staff user modal
+  const SPECIALIZATIONS = [
+    'General Practice', 'Internal Medicine', 'Cardiology', 'Neurology',
+    'Orthopedics', 'Dermatology', 'Pediatrics', 'Gynecology & Obstetrics',
+    'ENT', 'Ophthalmology', 'Psychiatry', 'Oncology', 'Radiology',
+    'Anesthesiology', 'Emergency Medicine', 'Gastroenterology', 'Nephrology',
+    'Pulmonology', 'Rheumatology', 'Endocrinology', 'Urology', 'Other',
+  ];
+  const QUALIFICATIONS = ['MBBS', 'MD', 'MS', 'DM', 'MCh', 'BDS', 'MDS', 'FRCS', 'MRCP', 'Other'];
+
+  const EMPTY_STAFF_FORM = {
+    firstName: '', lastName: '', email: '', phone: '', gender: '',
+    role: 'receptionist',
+    // Common professional
+    department: '', employeeId: '', joiningDate: '',
+    // Doctor / pharmacist
+    specialization: '', licenseNumber: '', qualification: '',
+    yearsOfExperience: '', consultationFee: '', bio: '',
+    // Credentials
+    password: '', confirmPassword: '', autoGenerate: true,
+  };
+  const [showCreateModal, setShowCreateModal]   = useState(false);
+  const [staffForm, setStaffForm]               = useState(EMPTY_STAFF_FORM);
+  const [creatingStaff, setCreatingStaff]       = useState(false);
+  const [showPassword, setShowPassword]         = useState(false);
+  const [createdCredentials, setCreatedCredentials] = useState(null); // { email, tempPassword }
+  const [availableDepartments, setAvailableDepartments] = useState([]);
 
   // ── data fetching ────────────────────────────────────────────────────────────
 
@@ -137,6 +169,15 @@ const AdminDashboard = () => {
 
   useEffect(() => { fetchDashboardData(); }, [fetchDashboardData]);
 
+  useEffect(() => {
+    departmentAPI.getDepartments().then(res => {
+      if (res.data.success) {
+        const names = (res.data.data?.departments || res.data.data || []).map(d => d.name).filter(Boolean);
+        setAvailableDepartments(names);
+      }
+    }).catch(() => {});
+  }, []);
+
   // Client-side filtering for user management table
   useEffect(() => {
     let filtered = users;
@@ -168,6 +209,66 @@ const AdminDashboard = () => {
       toast.error(error.response?.data?.message || 'Failed to update user status');
     } finally {
       setTogglingUser(null);
+    }
+  };
+
+  const handleCreateStaffUser = async () => {
+    const {
+      firstName, lastName, email, phone, gender, role,
+      department, employeeId, joiningDate,
+      specialization, licenseNumber, qualification, yearsOfExperience, consultationFee, bio,
+      password, confirmPassword, autoGenerate,
+    } = staffForm;
+
+    if (!firstName.trim() || !lastName.trim()) { toast.error('First and last name are required'); return; }
+    if (!email.trim()) { toast.error('Email is required'); return; }
+    if (role === 'doctor') {
+      if (!specialization) { toast.error('Specialization is required for doctors'); return; }
+      if (!licenseNumber.trim()) { toast.error('SLMC License Number is required for doctors'); return; }
+      if (!qualification) { toast.error('Qualification is required for doctors'); return; }
+    }
+    if (role === 'pharmacist' && !licenseNumber.trim()) {
+      toast.error('Pharmacy license number is required'); return;
+    }
+    if (!autoGenerate) {
+      if (!password) { toast.error('Enter a password or enable auto-generate'); return; }
+      if (password !== confirmPassword) { toast.error('Passwords do not match'); return; }
+    }
+    try {
+      setCreatingStaff(true);
+      const payload = {
+        firstName: firstName.trim(), lastName: lastName.trim(),
+        email: email.trim(),
+        phone: phone.trim() || undefined,
+        gender: gender || undefined,
+        role,
+        department: department || undefined,
+        employeeId: employeeId.trim() || undefined,
+        joiningDate: joiningDate || undefined,
+        specialization: specialization || undefined,
+        licenseNumber: licenseNumber.trim() || undefined,
+        qualification: qualification || undefined,
+        yearsOfExperience: yearsOfExperience !== '' ? Number(yearsOfExperience) : undefined,
+        consultationFee: consultationFee !== '' ? Number(consultationFee) : undefined,
+        bio: bio.trim() || undefined,
+        password: autoGenerate ? undefined : password,
+      };
+      const res = await adminAPI.createStaffUser(payload);
+      if (res.data.success) {
+        toast.success(`Account created for ${firstName} ${lastName}!`);
+        setCreatedCredentials({
+          email: res.data.data.user.email,
+          tempPassword: res.data.data.temporaryPassword,
+        });
+        setStaffForm(EMPTY_STAFF_FORM);
+        // Refresh user list
+        const searchRes = await userAPI.searchUsers('');
+        if (searchRes.data.success) setUsers(searchRes.data.data.users || []);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create account');
+    } finally {
+      setCreatingStaff(false);
     }
   };
 
@@ -422,14 +523,22 @@ const AdminDashboard = () => {
                     <option value="doctor">Doctors</option>
                     <option value="staff">Staff</option>
                     <option value="receptionist">Receptionists</option>
+                    <option value="pharmacist">Pharmacists</option>
                     <option value="admin">Admins</option>
                   </select>
                   <button
                     onClick={() => { setSearchQuery(''); setSelectedRole('all'); fetchDashboardData(); }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm flex items-center gap-1"
+                    className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm flex items-center gap-1"
+                  >
+                    <ArrowPathIcon className="w-4 h-4" />
+                    Refresh
+                  </button>
+                  <button
+                    onClick={() => { setShowCreateModal(true); setCreatedCredentials(null); }}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm flex items-center gap-1 font-semibold shadow-sm"
                   >
                     <UserPlusIcon className="w-4 h-4" />
-                    Refresh
+                    Add Staff User
                   </button>
                 </div>
               </div>
@@ -507,6 +616,382 @@ const AdminDashboard = () => {
             </div>
           )}
 
+          {/* ── CREATE STAFF USER MODAL ───────────────────────────────────────── */}
+          {showCreateModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+                <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                      <UserPlusIcon className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-gray-900">Create Staff Account</h2>
+                      <p className="text-xs text-gray-500">Account is active immediately — share credentials with the staff member</p>
+                    </div>
+                  </div>
+                  <button onClick={() => { setShowCreateModal(false); setCreatedCredentials(null); setStaffForm(EMPTY_STAFF_FORM); }}
+                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
+                    <XMarkIcon className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* ── Success / credentials panel ── */}
+                {createdCredentials ? (
+                  <div className="p-6 space-y-4">
+                    <div className="bg-green-50 border-2 border-green-200 rounded-xl p-5 text-center">
+                      <CheckIcon className="w-12 h-12 text-green-500 mx-auto mb-3" />
+                      <p className="font-bold text-green-800 text-lg mb-1">Account Created!</p>
+                      <p className="text-green-700 text-sm mb-4">Share these login credentials with the staff member securely.</p>
+                      <div className="bg-white rounded-lg border border-green-200 p-4 text-left space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Email</p>
+                            <p className="font-mono text-sm font-bold text-gray-900">{createdCredentials.email}</p>
+                          </div>
+                          <button onClick={() => { navigator.clipboard.writeText(createdCredentials.email); toast.success('Email copied'); }}
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
+                            <ClipboardDocumentIcon className="w-4 h-4" />
+                          </button>
+                        </div>
+                        {createdCredentials.tempPassword && (
+                          <div className="flex items-center justify-between gap-3 pt-2 border-t border-green-100">
+                            <div>
+                              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Temporary Password</p>
+                              <p className="font-mono text-sm font-bold text-gray-900">{createdCredentials.tempPassword}</p>
+                              <p className="text-xs text-orange-600 mt-1">⚠ Show this once — it won't be displayed again</p>
+                            </div>
+                            <button onClick={() => { navigator.clipboard.writeText(createdCredentials.tempPassword); toast.success('Password copied'); }}
+                              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
+                              <ClipboardDocumentIcon className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <button onClick={() => { setCreatedCredentials(null); }}
+                        className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold text-sm">
+                        Create Another
+                      </button>
+                      <button onClick={() => { setShowCreateModal(false); setCreatedCredentials(null); setStaffForm(EMPTY_STAFF_FORM); }}
+                        className="flex-1 py-2.5 bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold text-sm">
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* ── Form ── */
+                  <div className="p-6 space-y-5">
+
+                    {/* ── SECTION 1: Role selector (first, drives everything else) ── */}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Role *</label>
+                      <select value={staffForm.role}
+                        onChange={e => setStaffForm(f => ({
+                          ...EMPTY_STAFF_FORM,
+                          role: e.target.value,
+                          autoGenerate: f.autoGenerate,
+                        }))}
+                        className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <option value="receptionist">Receptionist</option>
+                        <option value="doctor">Doctor</option>
+                        <option value="pharmacist">Pharmacist</option>
+                        <option value="staff">Laboratory / General Staff</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </div>
+
+                    {/* Admin role warning */}
+                    {staffForm.role === 'admin' && (
+                      <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-2 text-sm text-red-700">
+                        <ShieldCheckIcon className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-500" />
+                        <span>Admin role grants unrestricted system access including user management, data exports, and configuration. Assign only to authorized personnel.</span>
+                      </div>
+                    )}
+
+                    {/* ── SECTION 2: Basic Identity ── */}
+                    <div className="border-t border-gray-100 pt-4">
+                      <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Personal Information</p>
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">First Name *</label>
+                            <input type="text" value={staffForm.firstName}
+                              onChange={e => setStaffForm(f => ({ ...f, firstName: e.target.value }))}
+                              placeholder="First name"
+                              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">Last Name *</label>
+                            <input type="text" value={staffForm.lastName}
+                              onChange={e => setStaffForm(f => ({ ...f, lastName: e.target.value }))}
+                              placeholder="Last name"
+                              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Email Address *</label>
+                          <input type="email" value={staffForm.email}
+                            onChange={e => setStaffForm(f => ({ ...f, email: e.target.value }))}
+                            placeholder="staff@mediqueue.lk"
+                            className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">Phone</label>
+                            <input type="tel" value={staffForm.phone}
+                              onChange={e => setStaffForm(f => ({ ...f, phone: e.target.value }))}
+                              placeholder="+94 7X XXX XXXX"
+                              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">Gender</label>
+                            <select value={staffForm.gender}
+                              onChange={e => setStaffForm(f => ({ ...f, gender: e.target.value }))}
+                              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                              <option value="">— Select —</option>
+                              <option value="male">Male</option>
+                              <option value="female">Female</option>
+                              <option value="other">Other</option>
+                              <option value="prefer-not-to-say">Prefer not to say</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ── SECTION 3: Doctor professional fields ── */}
+                    {staffForm.role === 'doctor' && (
+                      <div className="border-t border-gray-100 pt-4">
+                        <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Professional Details</p>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-600 mb-1">Specialization *</label>
+                              <select value={staffForm.specialization}
+                                onChange={e => setStaffForm(f => ({ ...f, specialization: e.target.value }))}
+                                className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="">— Select —</option>
+                                {SPECIALIZATIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-600 mb-1">Department *</label>
+                              {availableDepartments.length > 0 ? (
+                                <select value={staffForm.department}
+                                  onChange={e => setStaffForm(f => ({ ...f, department: e.target.value }))}
+                                  className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                  <option value="">— Select —</option>
+                                  {availableDepartments.map(d => <option key={d} value={d}>{d}</option>)}
+                                </select>
+                              ) : (
+                                <input type="text" value={staffForm.department}
+                                  onChange={e => setStaffForm(f => ({ ...f, department: e.target.value }))}
+                                  placeholder="e.g. Cardiology"
+                                  className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">
+                              SLMC License Number *
+                              <span className="ml-1 text-gray-400 font-normal">(Sri Lanka Medical Council registration)</span>
+                            </label>
+                            <input type="text" value={staffForm.licenseNumber}
+                              onChange={e => setStaffForm(f => ({ ...f, licenseNumber: e.target.value.toUpperCase() }))}
+                              placeholder="e.g. SLMC/2018/12345"
+                              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono" />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-600 mb-1">Qualification *</label>
+                              <select value={staffForm.qualification}
+                                onChange={e => setStaffForm(f => ({ ...f, qualification: e.target.value }))}
+                                className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="">— Select —</option>
+                                {QUALIFICATIONS.map(q => <option key={q} value={q}>{q}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-600 mb-1">Years of Experience *</label>
+                              <input type="number" min="0" max="60" value={staffForm.yearsOfExperience}
+                                onChange={e => setStaffForm(f => ({ ...f, yearsOfExperience: e.target.value }))}
+                                placeholder="e.g. 5"
+                                className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">
+                              Consultation Fee (LKR)
+                              <span className="ml-1 text-gray-400 font-normal">optional — shown to patients during booking</span>
+                            </label>
+                            <input type="number" min="0" value={staffForm.consultationFee}
+                              onChange={e => setStaffForm(f => ({ ...f, consultationFee: e.target.value }))}
+                              placeholder="e.g. 1500"
+                              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">
+                              Bio / Introduction
+                              <span className="ml-1 text-gray-400 font-normal">optional — shown on doctor profile</span>
+                            </label>
+                            <textarea value={staffForm.bio}
+                              onChange={e => setStaffForm(f => ({ ...f, bio: e.target.value }))}
+                              placeholder="Brief professional introduction..."
+                              rows={2}
+                              maxLength={1000}
+                              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none" />
+                          </div>
+
+                          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
+                            License credentials will be marked as <strong>Pending Verification</strong> until confirmed by administration.
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── SECTION 3: Pharmacist professional fields ── */}
+                    {staffForm.role === 'pharmacist' && (
+                      <div className="border-t border-gray-100 pt-4">
+                        <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Professional Details</p>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">
+                              Pharmacy License Number *
+                              <span className="ml-1 text-gray-400 font-normal">(SLPP registration)</span>
+                            </label>
+                            <input type="text" value={staffForm.licenseNumber}
+                              onChange={e => setStaffForm(f => ({ ...f, licenseNumber: e.target.value.toUpperCase() }))}
+                              placeholder="e.g. SLPP/2020/XXXXX"
+                              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono" />
+                          </div>
+                          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
+                            Department will be set to <strong>Pharmacy</strong> automatically. License credentials marked as <strong>Pending Verification</strong>.
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── SECTION 3: Receptionist / Lab Staff / Admin: department only ── */}
+                    {['receptionist', 'staff', 'admin'].includes(staffForm.role) && (
+                      <div className="border-t border-gray-100 pt-4">
+                        <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Assignment</p>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Department</label>
+                          {availableDepartments.length > 0 ? (
+                            <select value={staffForm.department}
+                              onChange={e => setStaffForm(f => ({ ...f, department: e.target.value }))}
+                              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                              <option value="">— Select (optional) —</option>
+                              {availableDepartments.map(d => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                          ) : (
+                            <input type="text" value={staffForm.department}
+                              onChange={e => setStaffForm(f => ({ ...f, department: e.target.value }))}
+                              placeholder="e.g. Reception, Laboratory"
+                              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── SECTION 4: Employment details (all non-admin roles) ── */}
+                    {staffForm.role !== 'admin' && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Employee ID</label>
+                          <input type="text" value={staffForm.employeeId}
+                            onChange={e => setStaffForm(f => ({ ...f, employeeId: e.target.value }))}
+                            placeholder="e.g. EMP-0042"
+                            className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Joining Date</label>
+                          <input type="date" value={staffForm.joiningDate}
+                            onChange={e => setStaffForm(f => ({ ...f, joiningDate: e.target.value }))}
+                            className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── SECTION 5: Credentials ── */}
+                    <div className="border-t border-gray-100 pt-4">
+                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold text-gray-700 uppercase tracking-wide">Password</p>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={staffForm.autoGenerate}
+                              onChange={e => setStaffForm(f => ({ ...f, autoGenerate: e.target.checked, password: '', confirmPassword: '' }))}
+                              className="w-4 h-4 rounded text-blue-600" />
+                            <span className="text-xs font-semibold text-gray-600">Auto-generate</span>
+                          </label>
+                        </div>
+                        {staffForm.autoGenerate ? (
+                          <p className="text-xs text-gray-500">A secure temporary password will be generated and shown once after account creation.</p>
+                        ) : (
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-600 mb-1">Password *</label>
+                              <div className="relative">
+                                <input
+                                  type={showPassword ? 'text' : 'password'}
+                                  value={staffForm.password}
+                                  onChange={e => setStaffForm(f => ({ ...f, password: e.target.value }))}
+                                  placeholder="Min 8 chars, upper+lower+number+symbol"
+                                  className="w-full pr-10 px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                                <button type="button" onClick={() => setShowPassword(v => !v)}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                                  {showPassword ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                                </button>
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-600 mb-1">Confirm Password *</label>
+                              <input
+                                type={showPassword ? 'text' : 'password'}
+                                value={staffForm.confirmPassword}
+                                onChange={e => setStaffForm(f => ({ ...f, confirmPassword: e.target.value }))}
+                                placeholder="Re-enter password"
+                                className={`w-full px-3 py-2.5 border-2 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                                  staffForm.confirmPassword && staffForm.password !== staffForm.confirmPassword
+                                    ? 'border-red-300 bg-red-50'
+                                    : 'border-gray-200'
+                                }`} />
+                              {staffForm.confirmPassword && staffForm.password !== staffForm.confirmPassword && (
+                                <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 pt-1">
+                      <button onClick={() => { setShowCreateModal(false); setStaffForm(EMPTY_STAFF_FORM); }}
+                        className="px-5 py-2.5 bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold text-sm">
+                        Cancel
+                      </button>
+                      <button onClick={handleCreateStaffUser} disabled={creatingStaff}
+                        className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-60 font-bold text-sm flex items-center justify-center gap-2 shadow-md">
+                        {creatingStaff
+                          ? <><ArrowPathIcon className="w-4 h-4 animate-spin" /><span>Creating…</span></>
+                          : <><UserPlusIcon className="w-4 h-4" /><span>Create Account</span></>
+                        }
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* ── ANALYTICS TAB ────────────────────────────────────────────────── */}
           {activeTab === 'analytics' && (
             <PeakHoursChartDashboard embedded={true} />
@@ -559,6 +1044,66 @@ const CapacityTab = () => {
   const [editingDept, setEditingDept]   = React.useState(null); // { _id, name, code, ... } | 'new'
   const [deptForm, setDeptForm]         = React.useState({ name: '', code: '', description: '', averageConsultationMinutes: 10 });
   const [deptSaving, setDeptSaving]     = React.useState(false);
+
+  // ── Room management state ──────────────────────────────────────────────────
+  const [rooms, setRooms]               = React.useState([]);
+  const [roomsLoading, setRoomsLoading] = React.useState(false);
+  const [roomForm, setRoomForm]         = React.useState({ roomNumber: '', displayName: '', departmentId: '', status: 'available' });
+  const [roomSaving, setRoomSaving]     = React.useState(false);
+  const [showAddRoom, setShowAddRoom]   = React.useState(false);
+
+  const loadRooms = React.useCallback(async () => {
+    setRoomsLoading(true);
+    try {
+      const res = await roomAPI.getRooms();
+      if (res.data.success) setRooms(res.data.data);
+    } catch { toast.error('Failed to load rooms'); }
+    finally { setRoomsLoading(false); }
+  }, []);
+
+  React.useEffect(() => {
+    if (section === 'rooms') loadRooms();
+  }, [section, loadRooms]);
+
+  const toggleRoomStatus = async (room) => {
+    try {
+      const next = room.status === 'available' ? 'unavailable' : 'available';
+      await roomAPI.updateRoom(room._id, { status: next });
+      toast.success(`${room.roomNumber} set to ${next}`);
+      loadRooms();
+    } catch { toast.error('Failed to update room'); }
+  };
+
+  const deleteRoom = async (room) => {
+    if (!window.confirm(`Delete ${room.roomNumber}? This cannot be undone.`)) return;
+    try {
+      await roomAPI.deleteRoom(room._id);
+      toast.success('Room deleted');
+      loadRooms();
+    } catch (err) { toast.error(err.response?.data?.message || 'Delete failed'); }
+  };
+
+  const saveRoom = async () => {
+    if (!roomForm.roomNumber.trim() || !roomForm.displayName.trim() || !roomForm.departmentId) {
+      toast.error('Room number, display name, and department are required');
+      return;
+    }
+    setRoomSaving(true);
+    try {
+      await roomAPI.createRoom({
+        roomNumber:   roomForm.roomNumber.toUpperCase(),
+        displayName:  roomForm.displayName,
+        department:   roomForm.departmentId,
+        status:       roomForm.status,
+        isAutoManaged: false
+      });
+      toast.success('Room created');
+      setShowAddRoom(false);
+      setRoomForm({ roomNumber: '', displayName: '', departmentId: '', status: 'available' });
+      loadRooms();
+    } catch (err) { toast.error(err.response?.data?.message || 'Save failed'); }
+    finally { setRoomSaving(false); }
+  };
 
   // ── Time Block Generator state ─────────────────────────────────────────────
   const [selectedDeptId, setSelectedDeptId]   = React.useState('');
@@ -720,7 +1265,8 @@ const CapacityTab = () => {
       {/* Sub-navigation */}
       <div className="flex gap-2 border-b border-gray-200 pb-0">
         {[
-          { id: 'departments', label: 'Departments', icon: BuildingOffice2Icon },
+          { id: 'departments', label: 'Departments',          icon: BuildingOffice2Icon },
+          { id: 'rooms',       label: 'OPD Rooms',           icon: HomeIcon },
           { id: 'blocks',      label: 'Time Block Generator', icon: CalendarDaysIcon }
         ].map(s => (
           <button key={s.id} onClick={() => setSection(s.id)}
@@ -849,6 +1395,145 @@ const CapacityTab = () => {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ROOMS SECTION ────────────────────────────────────────────────── */}
+      {section === 'rooms' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">OPD Consultation Rooms</h3>
+              <p className="text-sm text-gray-500">
+                Manage room availability for the OPD department. Non-OPD rooms are controlled via department status.
+              </p>
+            </div>
+            <button
+              onClick={() => { setShowAddRoom(true); setRoomForm({ roomNumber: '', displayName: '', departmentId: '', status: 'available' }); }}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-sm font-semibold shadow-md">
+              <PlusIcon className="w-4 h-4" /> Add Room
+            </button>
+          </div>
+
+          {/* Add room form */}
+          {showAddRoom && (
+            <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-5">
+              <h4 className="font-bold text-blue-900 mb-4">Add New Room</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Room Number *</label>
+                  <input value={roomForm.roomNumber}
+                    onChange={e => setRoomForm(f => ({ ...f, roomNumber: e.target.value.toUpperCase() }))}
+                    placeholder="e.g. Room 5"
+                    maxLength={30}
+                    className="w-full px-3 py-2 border-2 border-blue-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Display Name *</label>
+                  <input value={roomForm.displayName}
+                    onChange={e => setRoomForm(f => ({ ...f, displayName: e.target.value }))}
+                    placeholder="OPD Consultation Room 5"
+                    className="w-full px-3 py-2 border-2 border-blue-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Department *</label>
+                  <select value={roomForm.departmentId}
+                    onChange={e => setRoomForm(f => ({ ...f, departmentId: e.target.value }))}
+                    className="w-full px-3 py-2 border-2 border-blue-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500">
+                    <option value="">Select department</option>
+                    {departments.map(d => (
+                      <option key={d._id} value={d._id}>{d.name} ({d.code})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Initial Status</label>
+                  <select value={roomForm.status}
+                    onChange={e => setRoomForm(f => ({ ...f, status: e.target.value }))}
+                    className="w-full px-3 py-2 border-2 border-blue-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500">
+                    <option value="available">Available</option>
+                    <option value="unavailable">Unavailable</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setShowAddRoom(false)}
+                  className="px-4 py-2 bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 text-sm font-semibold">
+                  Cancel
+                </button>
+                <button onClick={saveRoom} disabled={roomSaving}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-60 text-sm font-semibold flex items-center gap-2">
+                  {roomSaving ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : <CheckIcon className="w-4 h-4" />}
+                  {roomSaving ? 'Saving…' : 'Save Room'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {roomsLoading ? (
+            <div className="text-center py-10 text-gray-400">Loading rooms…</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {rooms.map(room => {
+                const effective = room.effectiveStatus || room.status;
+                const isAvail   = effective === 'available';
+                const isAuto    = room.isAutoManaged;
+                return (
+                  <div key={room._id}
+                    className={`rounded-2xl border-2 p-4 flex flex-col gap-3 transition-all ${
+                      isAvail ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'
+                    }`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-black text-gray-900 text-base">{room.roomNumber}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{room.displayName}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">{room.department?.name}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1.5">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                          isAvail ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'
+                        }`}>
+                          {effective}
+                        </span>
+                        {isAuto && (
+                          <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">auto</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 mt-auto">
+                      {!isAuto && (
+                        <button onClick={() => toggleRoomStatus(room)}
+                          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                            isAvail
+                              ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                              : 'bg-green-100 text-green-700 hover:bg-green-200'
+                          }`}>
+                          {isAvail ? 'Set Unavailable' : 'Set Available'}
+                        </button>
+                      )}
+                      {isAuto && (
+                        <p className="flex-1 text-[11px] text-gray-400 text-center py-1">
+                          Controlled by dept. status
+                        </p>
+                      )}
+                      {!isAuto && (
+                        <button onClick={() => deleteRoom(room)}
+                          className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {rooms.length === 0 && (
+                <div className="col-span-3 text-center py-12 text-gray-400">
+                  <HomeIcon className="w-12 h-12 mx-auto mb-3 text-gray-200" />
+                  <p>No rooms configured yet. Run the seed script or add rooms above.</p>
+                </div>
+              )}
             </div>
           )}
         </div>
