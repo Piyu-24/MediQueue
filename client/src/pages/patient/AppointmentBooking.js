@@ -154,9 +154,9 @@ const TimeBlockGrid = ({ blocks, selectedBlock, onSelect, loading, error }) => {
             disabled={isDisabled}
             className={`w-full rounded-xl border-2 p-4 text-left transition-all duration-200 ${BLOCK_STYLES[styleKey]}`}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className={`text-center min-w-[90px] ${isSelected ? 'text-white' : isClosed ? 'text-gray-400' : 'text-gray-900'}`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                <div className={`text-center min-w-[90px] ${isSelected ? 'text-white' : 'text-gray-900'}`}>
                   <p className="text-lg font-bold">{fmt12(block.startTime)}</p>
                   <p className={`text-xs ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
                     – {fmt12(block.endTime)}
@@ -177,7 +177,8 @@ const TimeBlockGrid = ({ blocks, selectedBlock, onSelect, loading, error }) => {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-shrink-0">
+                {/* Capacity indicator */}
                 <div className="text-right">
                   {isClosed ? (
                     <span className="text-xs font-semibold text-gray-400 bg-gray-200 px-2 py-0.5 rounded-full">Closed</span>
@@ -363,10 +364,10 @@ const AppointmentBooking = () => {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         {/* Header */}
-        <div className="mb-8">
-          <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-8 text-white shadow-xl">
-            <h1 className="text-3xl font-bold mb-1">Book Appointment</h1>
-            <p className="text-blue-100">Schedule your hospital visit by department or clinic</p>
+        <div className="mb-6 sm:mb-8">
+          <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-5 sm:p-8 text-white shadow-xl">
+            <h1 className="text-2xl sm:text-3xl font-bold mb-1">Book Appointment</h1>
+            <p className="text-sm sm:text-base text-blue-100">Schedule your hospital visit</p>
           </div>
         </div>
 
@@ -401,33 +402,64 @@ const AppointmentBooking = () => {
           </div>
         )}
 
-        {/* ── STEP 1: Choose Department ───────────────────────────────────────── */}
-        {step === 1 && (
-          <div className="bg-white rounded-2xl shadow-xl p-8">
-            <h2 className="text-xl font-bold text-gray-900 mb-2">Choose Department</h2>
-            <p className="text-sm text-gray-500 mb-6">
-              Select the department or clinic you need. A doctor will be assigned at the hospital during check-in.
-            </p>
+        {/* ── GENERAL OPD ─────────────────────────────────────────────────────── */}
+        {bookingType === 'general_opd' && (
+          <>
+            {/* OPD Step 1: Choose Department */}
+            {step === 1 && (
+              <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
+                <h2 className="text-xl font-bold text-gray-900 mb-6">Choose Department</h2>
 
-            {departments.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto" />
-                <p className="text-gray-500 mt-3">Loading departments...</p>
+                {departments.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto" />
+                    <p className="text-gray-500 mt-3">Loading departments...</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {departments.map((dept) => (
+                      <button
+                        key={dept._id}
+                        onClick={() => { setSelectedDepartment(dept); setStep(2); }}
+                        className="p-5 rounded-xl border-2 border-gray-200 hover:border-blue-500 hover:bg-blue-50 text-left transition-all group"
+                      >
+                        <div className="w-10 h-10 bg-blue-100 group-hover:bg-blue-200 rounded-lg flex items-center justify-center mb-3 transition-colors">
+                          <BuildingOffice2Icon className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <p className="font-bold text-gray-900">{dept.name}</p>
+                        {dept.description && (
+                          <p className="text-sm text-gray-500 mt-1">{dept.description}</p>
+                        )}
+                        {dept.averageConsultationMinutes && (
+                          <p className="text-xs text-blue-500 mt-2">~{dept.averageConsultationMinutes} min/consultation</p>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {departments.map((dept) => (
-                  <button
-                    key={dept._id}
-                    onClick={() => { setSelectedDepartment(dept); setStep(2); }}
-                    className="p-5 rounded-xl border-2 border-gray-200 hover:border-blue-500 hover:bg-blue-50 text-left transition-all group"
-                  >
-                    <div className="w-10 h-10 bg-blue-100 group-hover:bg-blue-200 rounded-lg flex items-center justify-center mb-3 transition-colors">
-                      <BuildingOffice2Icon className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <p className="font-bold text-gray-900">{dept.name}</p>
-                    {dept.description && (
-                      <p className="text-sm text-gray-500 mt-1">{dept.description}</p>
+            )}
+
+            {/* OPD Step 2: Date + Time Block */}
+            {step === 2 && selectedDepartment && (
+              <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold text-gray-900">Select Date & Session</h2>
+                  <button onClick={() => { setStep(1); setSelectedDate(''); setSelectedBlock(null); }}
+                    className="text-blue-600 hover:text-blue-700 flex items-center gap-1 text-sm">
+                    <ArrowLeftIcon className="w-4 h-4" /> Change Dept
+                  </button>
+                </div>
+
+                {/* Department banner */}
+                <div className="bg-blue-50 rounded-xl p-4 mb-6 flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-200 rounded-lg flex items-center justify-center">
+                    <BuildingOffice2Icon className="w-5 h-5 text-blue-700" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900">{selectedDepartment.name}</p>
+                    {selectedDepartment.description && (
+                      <p className="text-sm text-blue-600">{selectedDepartment.description}</p>
                     )}
                     {dept.averageConsultationMinutes && (
                       <p className="text-xs text-blue-500 mt-2">~{dept.averageConsultationMinutes} min/consultation</p>
@@ -472,37 +504,15 @@ const AppointmentBooking = () => {
               </div>
             )}
 
-            {/* Date picker */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Select Date</label>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => {
-                  const d = e.target.value;
-                  setSelectedDate(d);
-                  setSelectedBlock(null);
-                  setDateAlreadyBooked(!!bookedDatesForDept.find(b => b.date === d));
-                }}
-                min={minDate}
-                max={maxDate}
-                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:border-transparent transition-colors ${
-                  dateAlreadyBooked
-                    ? 'border-amber-400 focus:ring-amber-400 bg-amber-50'
-                    : 'border-gray-300 focus:ring-blue-500'
-                }`}
-              />
-
-              {bookedDatesForDept.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <span className="text-xs text-gray-500 self-center">Already booked:</span>
-                  {bookedDatesForDept.map(b => (
-                    <span key={b.date}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
-                      {new Date(b.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                      {b.token && <span className="font-mono opacity-70">· {b.token}</span>}
-                    </span>
-                  ))}
+            {/* OPD Step 3: Confirm */}
+            {step === 3 && selectedDepartment && selectedBlock && (
+              <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold text-gray-900">Confirm Appointment</h2>
+                  <button onClick={() => setStep(2)}
+                    className="text-blue-600 hover:text-blue-700 flex items-center gap-1 text-sm">
+                    <ArrowLeftIcon className="w-4 h-4" /> Edit
+                  </button>
                 </div>
               )}
             </div>
@@ -529,32 +539,73 @@ const AppointmentBooking = () => {
               </div>
             )}
 
-            {/* Time block grid */}
-            {selectedDate && !dateAlreadyBooked && (
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-3">Select Session</label>
-                <TimeBlockGrid
-                  blocks={timeBlocks}
-                  selectedBlock={selectedBlock}
-                  onSelect={setSelectedBlock}
-                  loading={loadingBlocks}
-                  error={blockError}
-                />
+        {/* ── SPECIALIST ──────────────────────────────────────────────────────── */}
+        {bookingType === 'specialist' && (
+          <>
+            {/* Spec Step 1: Doctor list */}
+            {step === 1 && (
+              <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
+                <h2 className="text-xl font-bold text-gray-900 mb-6">Choose Your Doctor</h2>
+
+                <div className="mb-6 flex flex-col sm:flex-row gap-4">
+                  <div className="flex-1 relative">
+                    <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                      placeholder="Search by name or specialization..."
+                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <select value={selectedSpec} onChange={e => setSelectedSpec(e.target.value)}
+                    className="px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500">
+                    <option value="all">All Specializations</option>
+                    {specs.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+
+                {loading ? (
+                  <div className="text-center py-12"><Spinner /><p className="text-gray-500 mt-3">Loading doctors...</p></div>
+                ) : filteredDoctors.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    {filteredDoctors.map(doc => (
+                      <button key={doc._id} onClick={() => { setSelectedDoctor(doc); setStep(2); }}
+                        className="border border-gray-200 rounded-xl p-5 hover:shadow-lg hover:border-blue-400 transition-all text-left group">
+                        <div className="flex items-start gap-4">
+                          <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white text-xl font-bold shadow">
+                            {doc.firstName?.[0]}{doc.lastName?.[0]}
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-bold text-gray-900">Dr. {doc.firstName} {doc.lastName}</p>
+                            <p className="text-blue-600 text-sm">{doc.specialization}</p>
+                            <p className="text-xs text-gray-500 mt-1">{doc.department || 'General'}</p>
+                            <div className="mt-3 flex justify-end">
+                              <span className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg font-medium group-hover:bg-blue-700 transition-colors">
+                                Select
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <UserIcon className="w-14 h-14 text-gray-200 mx-auto mb-3" />
+                    <p className="text-gray-500">No doctors found</p>
+                    <button onClick={() => { setSearchQuery(''); setSelectedSpec('all'); }}
+                      className="mt-3 text-blue-600 hover:underline text-sm">Clear filters</button>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Appointment type */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Appointment Type</label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {appointmentTypes.map(t => (
-                  <button key={t.value} onClick={() => setAppointmentType(t.value)}
-                    className={`py-2.5 px-3 rounded-lg border-2 text-sm transition-all ${
-                      appointmentType === t.value
-                        ? 'border-blue-600 bg-blue-50 text-blue-600 font-semibold'
-                        : 'border-gray-200 hover:border-blue-300 text-gray-700'
-                    }`}>
-                    {t.label}
+            {/* Spec Step 2: Date + Time slot */}
+            {step === 2 && selectedDoctor && (
+              <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold text-gray-900">Select Date & Time</h2>
+                  <button onClick={() => { setStep(1); setSelectedDate(''); setSelectedTime(''); }}
+                    className="text-blue-600 text-sm flex items-center gap-1">
+                    <ArrowLeftIcon className="w-4 h-4" /> Change Doctor
                   </button>
                 ))}
               </div>
@@ -602,11 +653,15 @@ const AppointmentBooking = () => {
                 label="Type"
                 value={appointmentType.charAt(0).toUpperCase() + appointmentType.slice(1)} />
 
-              <div className="pt-4 border-t border-gray-200">
-                <p className="text-sm text-gray-500 mb-1">Reason for Visit</p>
-                <p className="text-gray-900 text-sm">{chiefComplaint}</p>
-              </div>
-            </div>
+            {/* Spec Step 3: Confirm */}
+            {step === 3 && selectedDoctor && (
+              <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold text-gray-900">Confirm Appointment</h2>
+                  <button onClick={() => setStep(2)} className="text-blue-600 text-sm flex items-center gap-1">
+                    <ArrowLeftIcon className="w-4 h-4" /> Edit
+                  </button>
+                </div>
 
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-6 text-sm text-blue-700 flex gap-2">
               <InformationCircleIcon className="w-5 h-5 shrink-0 mt-0.5 text-blue-500" />

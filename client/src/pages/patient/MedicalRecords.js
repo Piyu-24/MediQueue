@@ -12,7 +12,8 @@ import {
   CloudArrowUpIcon,
   CheckCircleIcon,
   XCircleIcon,
-  ClipboardDocumentListIcon
+  ClipboardDocumentListIcon,
+  ArrowDownTrayIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
 import { medicalRecordsAPI, documentAPI } from '../../services/api';
@@ -141,6 +142,9 @@ const MedicalRecords = () => {
       formData.append('title', uploadForm.title);
       formData.append('description', uploadForm.description);
       formData.append('documentType', uploadForm.category);
+      formData.append('category', uploadForm.category);
+      formData.append('uploadedBy', 'patient');
+      formData.append('status', 'approved'); // Auto-approved for patient uploads
 
       const response = await documentAPI.uploadDocument(formData);
       if (response.data.success) {
@@ -244,20 +248,20 @@ const MedicalRecords = () => {
   const isFiltered = selectedCategory !== 'all' || searchTerm.trim() !== '';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="bg-gradient-to-br from-blue-50 to-gray-50 rounded-2xl">
+      <div className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-8 py-2 sm:py-8">
 
         {/* Header */}
-        <div className="mb-8">
-          <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-8 text-white shadow-xl">
-            <div className="flex items-center justify-between">
+        <div className="mb-6 sm:mb-8">
+          <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-5 sm:p-8 text-white shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <h1 className="text-4xl font-bold mb-2">Medical Records</h1>
-                <p className="text-blue-100 text-lg">View your health history from hospital visits</p>
+                <h1 className="text-2xl sm:text-4xl font-bold mb-1 sm:mb-2">Medical Records</h1>
+                <p className="text-blue-100 text-sm sm:text-lg">View your health history from hospital visits</p>
               </div>
               <button
                 onClick={() => setShowUploadModal(true)}
-                className="flex items-center space-x-2 px-6 py-3 bg-white text-blue-600 rounded-xl hover:bg-blue-50 transition-all duration-200 transform hover:scale-105 shadow-lg font-semibold"
+                className="flex items-center justify-center space-x-2 px-6 py-3 bg-white text-blue-600 rounded-xl hover:bg-blue-50 transition-all duration-200 shadow-lg font-semibold w-full sm:w-auto flex-shrink-0"
               >
                 <CloudArrowUpIcon className="w-5 h-5" />
                 <span>Upload Document</span>
@@ -267,8 +271,8 @@ const MedicalRecords = () => {
         </div>
 
         {/* Stats — counts derived from actual backend data */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow p-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-6 sm:mb-8">
+          <div className="bg-white rounded-lg shadow p-4 sm:p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-2xl font-bold text-gray-900">{records.length}</p>
@@ -278,7 +282,7 @@ const MedicalRecords = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-white rounded-lg shadow p-4 sm:p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-2xl font-bold text-gray-900">{consultationCount}</p>
@@ -288,7 +292,7 @@ const MedicalRecords = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-white rounded-lg shadow p-4 sm:p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-2xl font-bold text-gray-900">{withPrescriptionsCount}</p>
@@ -298,7 +302,7 @@ const MedicalRecords = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-white rounded-lg shadow p-4 sm:p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-2xl font-bold text-gray-900">{uploadedDocuments.length}</p>
@@ -310,19 +314,19 @@ const MedicalRecords = () => {
         </div>
 
         {/* Uploaded Documents Section */}
-        <div className="bg-white rounded-2xl shadow-xl mb-8">
-          <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-gray-50">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <CloudArrowUpIcon className="w-6 h-6 text-blue-600" />
-                <h2 className="text-xl font-bold text-gray-900">
+        <div className="bg-white rounded-2xl shadow-xl mb-6 sm:mb-8">
+          <div className="p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-gray-50">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center space-x-3 min-w-0">
+                <CloudArrowUpIcon className="w-6 h-6 text-blue-600 flex-shrink-0" />
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">
                   My Uploaded Documents ({uploadedDocuments.length})
                 </h2>
               </div>
               {uploadedDocuments.length > 2 && (
                 <button
                   onClick={() => setShowAllDocumentsModal(true)}
-                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-semibold shadow-md"
+                  className="flex items-center justify-center space-x-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-semibold shadow-md w-full sm:w-auto flex-shrink-0"
                 >
                   <EyeIcon className="w-4 h-4" />
                   <span>View All ({uploadedDocuments.length})</span>
@@ -331,7 +335,7 @@ const MedicalRecords = () => {
             </div>
           </div>
 
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             {loadingDocuments ? (
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
@@ -340,13 +344,13 @@ const MedicalRecords = () => {
             ) : uploadedDocuments.length > 0 ? (
               <div className="space-y-4">
                 {uploadedDocuments.slice(0, 2).map((doc) => (
-                  <div key={doc._id} className="border-2 border-gray-200 rounded-xl p-6 hover:shadow-md transition-all duration-300">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start space-x-4 flex-1">
+                  <div key={doc._id} className="border-2 border-gray-200 rounded-xl p-4 sm:p-6 hover:shadow-md transition-all duration-300">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start space-x-4 flex-1 min-w-0">
                         <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
                           <DocumentTextIcon className="w-6 h-6 text-blue-600" />
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-0">
                           <h3 className="text-lg font-semibold text-gray-900 mb-1">{doc.title}</h3>
                           {doc.description && (
                             <p className="text-gray-600 text-sm mb-3">{doc.description}</p>
@@ -398,8 +402,8 @@ const MedicalRecords = () => {
         {/* Records List */}
         <div className="bg-white rounded-2xl shadow-xl">
           {/* Search and Filter — placed directly above the records list */}
-          <div className="p-6 border-b border-gray-200">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
+          <div className="p-4 sm:p-6 border-b border-gray-200">
+            <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-4">
               Your Medical Records
               {isFiltered
                 ? ` — ${filteredRecords.length} of ${records.length} shown`
@@ -461,7 +465,7 @@ const MedicalRecords = () => {
             </div>
           </div>
 
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             {loading ? (
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
@@ -474,16 +478,16 @@ const MedicalRecords = () => {
                   return (
                     <div
                       key={record._id}
-                      className="border border-gray-200 rounded-xl p-6 hover:shadow-md transition-all duration-300"
+                      className="border border-gray-200 rounded-xl p-4 sm:p-6 hover:shadow-md transition-all duration-300"
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start space-x-4 flex-1">
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                        <div className="flex items-start space-x-4 flex-1 min-w-0">
                           <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 ${getCategoryColor(record.recordType)}`}>
                             <Icon className="w-6 h-6" />
                           </div>
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-3 mb-1">
-                              <h3 className="text-lg font-semibold text-gray-900">{record.title}</h3>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mb-1">
+                              <h3 className="text-base sm:text-lg font-semibold text-gray-900">{record.title}</h3>
                               {record.priority && record.priority !== 'normal' && (
                                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getPriorityBadge(record.priority)}`}>
                                   {record.priority}
@@ -522,7 +526,7 @@ const MedicalRecords = () => {
                         </div>
                         <button
                           onClick={() => handleViewRecord(record)}
-                          className="ml-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 flex-shrink-0"
+                          className="w-full sm:w-auto sm:ml-4 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2 flex-shrink-0"
                         >
                           <EyeIcon className="w-4 h-4" />
                           <span>View</span>
@@ -960,13 +964,13 @@ const MedicalRecords = () => {
             <div className="flex-1 overflow-y-auto p-6">
               <div className="space-y-4">
                 {uploadedDocuments.map((doc) => (
-                  <div key={doc._id} className="border-2 border-gray-200 rounded-xl p-6 hover:shadow-md transition-all duration-300">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start space-x-4 flex-1">
+                  <div key={doc._id} className="border-2 border-gray-200 rounded-xl p-4 sm:p-6 hover:shadow-md transition-all duration-300">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start space-x-4 flex-1 min-w-0">
                         <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
                           <DocumentTextIcon className="w-6 h-6 text-blue-600" />
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-0">
                           <h3 className="text-lg font-semibold text-gray-900 mb-1">{doc.title}</h3>
                           {doc.description && (
                             <p className="text-gray-600 text-sm mb-3">{doc.description}</p>

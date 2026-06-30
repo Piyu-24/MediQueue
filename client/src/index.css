@@ -331,16 +331,65 @@ code {
   }
 }
 
-/* Responsive utilities */
+/* ──────────────────────────────────────────────────────────────────────────
+   Mobile-first patient experience
+   The patient module is used primarily on smartphones (320–480px). These
+   global guards prevent horizontal scrolling, iOS input zoom, and ensure
+   touch-friendly controls while leaving desktop demonstrations untouched.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Never allow the page to scroll sideways on any device */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Honour notches / rounded corners on modern phones */
+body {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Utility: hide scrollbar but keep horizontal scrolling (used for tab bars) */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 @media (max-width: 640px) {
   .card {
     @apply rounded-lg;
   }
-  
+
   .card-header,
   .card-body,
   .card-footer {
     @apply px-4 py-3;
+  }
+
+  /* iOS zooms in on inputs with a font-size below 16px on focus — prevent it */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Touch-friendly minimum target size for primary controls */
+  .btn,
+  button[type="submit"] {
+    min-height: 44px;
+  }
+
+  /* Prevent fixed/oversized media from forcing horizontal scroll */
+  img,
+  svg,
+  video,
+  table {
+    max-width: 100%;
   }
 }
 
