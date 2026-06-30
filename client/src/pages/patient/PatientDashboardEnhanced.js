@@ -298,7 +298,7 @@ const PatientDashboardEnhanced = () => {
       {/* Cancellation Confirmation Modal */}
       {cancelModal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 max-w-md w-full mx-4 animate-fade-in">
             <div className="flex items-center space-x-4 mb-6">
               <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
                 <ExclamationTriangleIcon className="w-6 h-6 text-red-600" />
@@ -338,17 +338,17 @@ const PatientDashboardEnhanced = () => {
       )}
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-6 sm:mb-8">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1 sm:mb-2">
                 Welcome back, {user?.firstName}! 👋
               </h1>
-              <p className="text-gray-600">
+              <p className="text-sm sm:text-base text-gray-600">
                 Manage your appointments, health card, and medical records
               </p>
             </div>
-            
+
           </div>
         </div>
 
@@ -374,22 +374,22 @@ const PatientDashboardEnhanced = () => {
         )}
 
         {/* Tab Navigation */}
-        <div className="mb-8">
+        <div className="mb-6 sm:mb-8">
           <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8">
+            <nav className="-mb-px flex space-x-4 sm:space-x-8 overflow-x-auto scrollbar-hide">
               {tabs.map((tab) => {
                 const IconComponent = tab.icon;
                 return (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center space-x-2 py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    className={`flex items-center space-x-2 py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap flex-shrink-0 transition-colors ${
                       activeTab === tab.id
                         ? 'border-blue-500 text-blue-600'
                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                     }`}
                   >
-                    <IconComponent className="w-5 h-5" />
+                    <IconComponent className="w-5 h-5 flex-shrink-0" />
                     <span>{tab.name}</span>
                   </button>
                 );
@@ -407,7 +407,7 @@ const PatientDashboardEnhanced = () => {
                 {queueLoading ? (
                   <div className="h-24 bg-blue-50 rounded-2xl animate-pulse" />
                 ) : (
-                  <div className={`rounded-2xl p-6 border-2 shadow-lg ${
+                  <div className={`rounded-2xl p-4 sm:p-6 border-2 shadow-lg ${
                     queueStatus.status === 'in_consultation' || queueStatus.status === 'in-consultation'
                       ? 'bg-gradient-to-r from-purple-50 to-purple-100 border-purple-300'
                       : queueStatus.status === 'called'
@@ -425,10 +425,10 @@ const PatientDashboardEnhanced = () => {
                         {queueStatus.delayMessage && ` ${queueStatus.delayMessage}`}
                       </div>
                     )}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center space-x-3 sm:space-x-5 min-w-0">
                         {/* Token badge */}
-                        <div className={`text-4xl font-black px-5 py-3 rounded-xl shadow-md ${
+                        <div className={`text-3xl sm:text-4xl font-black px-4 sm:px-5 py-2 sm:py-3 rounded-xl shadow-md flex-shrink-0 ${
                           queueStatus.status === 'in_consultation' || queueStatus.status === 'in-consultation' ? 'bg-purple-600 text-white' :
                           queueStatus.status === 'called' ? 'bg-orange-500 text-white' :
                           queueStatus.status === 'ready' ? 'bg-amber-500 text-white' :
@@ -438,7 +438,7 @@ const PatientDashboardEnhanced = () => {
                         }`}>
                           {queueStatus.queueNumber}
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-1">Your Queue Token</p>
                           <p className={`text-xl font-bold ${
                             queueStatus.status === 'in_consultation' || queueStatus.status === 'in-consultation' ? 'text-purple-800' :
@@ -471,7 +471,7 @@ const PatientDashboardEnhanced = () => {
                           </p>
                         </div>
                       </div>
-                      <button onClick={fetchQueueStatus} className="p-2 text-gray-400 hover:text-blue-600 transition-colors" title="Refresh">
+                      <button onClick={fetchQueueStatus} className="p-2 text-gray-400 hover:text-blue-600 transition-colors flex-shrink-0" title="Refresh">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
@@ -555,28 +555,118 @@ const PatientDashboardEnhanced = () => {
               </div>
             </div>
 
+            {/* Today's Appointments */}
+            {(() => {
+              const statusConfig = {
+                in_consultation: { label: '🩺 In Consultation', badge: 'bg-purple-100 text-purple-800', border: 'border-purple-200', bg: 'from-purple-50 to-white' },
+                in_queue:        { label: 'In Queue',           badge: 'bg-teal-100 text-teal-800',   border: 'border-teal-200',   bg: 'from-teal-50 to-white'   },
+                checked_in:      { label: 'Checked In',         badge: 'bg-blue-100 text-blue-800',   border: 'border-blue-200',   bg: 'from-blue-50 to-white'   },
+                confirmed:       { label: 'Confirmed',          badge: 'bg-green-100 text-green-800', border: 'border-green-200',  bg: 'from-green-50 to-white'  },
+                scheduled:       { label: 'Scheduled',          badge: 'bg-gray-100 text-gray-700',   border: 'border-gray-200',   bg: 'from-gray-50 to-white'   },
+                booked:          { label: 'Booked',             badge: 'bg-gray-100 text-gray-700',   border: 'border-gray-200',   bg: 'from-gray-50 to-white'   },
+              };
+              const todayAppts = appointments.filter(apt =>
+                isToday(apt.appointmentDate) &&
+                !['cancelled', 'completed', 'no-show'].includes(apt.status)
+              );
+              if (todayAppts.length === 0) return null;
+              return (
+                <div className="bg-white rounded-2xl shadow-xl border border-gray-100 mb-8">
+                  <div className="p-4 sm:p-6 border-b border-gray-100">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center flex-shrink-0">
+                        <CalendarIcon className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <h2 className="text-lg sm:text-xl font-bold text-gray-900">Today's Appointments</h2>
+                        <p className="text-sm text-emerald-600 font-medium">
+                          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-4 sm:p-6 space-y-4">
+                    {todayAppts.map((appointment) => {
+                      const cfg = statusConfig[appointment.status] || statusConfig.scheduled;
+                      return (
+                        <div
+                          key={appointment._id}
+                          className={`bg-gradient-to-r ${cfg.bg} border-2 ${cfg.border} p-4 sm:p-5 rounded-2xl hover:shadow-md transition-all duration-300`}
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div className="flex items-center space-x-4 min-w-0">
+                              <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-md flex-shrink-0">
+                                <UserIcon className="w-6 h-6 text-white" />
+                              </div>
+                              <div className="min-w-0">
+                                <h3 className="text-base font-bold text-gray-900">
+                                  {appointment.doctor
+                                    ? `Dr. ${appointment.doctor.firstName} ${appointment.doctor.lastName}`
+                                    : appointment.department || 'General OPD'}
+                                </h3>
+                                <p className="text-sm text-gray-500 mb-1.5">
+                                  {appointment.doctor?.specialization && `${appointment.doctor.specialization} · `}{appointment.appointmentType}
+                                </p>
+                                <div className="flex items-center flex-wrap gap-2">
+                                  {appointment.appointmentTime && (
+                                    <div className="flex items-center space-x-1">
+                                      <ClockIcon className="w-3.5 h-3.5 text-gray-400" />
+                                      <span className="text-sm text-gray-600 font-medium">{appointment.appointmentTime}</span>
+                                    </div>
+                                  )}
+                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${cfg.badge}`}>
+                                    {cfg.label}
+                                  </span>
+                                  {appointment.appointmentToken && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-600 text-white">
+                                      🎫 {appointment.appointmentToken}
+                                    </span>
+                                  )}
+                                  {appointment.appointmentReference && (
+                                    <span className="text-xs text-gray-400 font-mono bg-gray-100 px-2 py-0.5 rounded">
+                                      {appointment.appointmentReference}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => navigate(`/appointments/${appointment._id}`)}
+                              className="w-full sm:w-auto px-4 py-2.5 bg-white text-emerald-600 border-2 border-emerald-200 rounded-xl hover:bg-emerald-50 transition-colors font-semibold text-sm shadow-sm flex-shrink-0"
+                            >
+                              View
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Upcoming Appointments */}
             <div className="bg-white rounded-2xl shadow-xl border border-gray-100 mb-8">
-              <div className="p-6 border-b border-gray-100">
-                <div className="flex items-center justify-between">
+              <div className="p-4 sm:p-6 border-b border-gray-100">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
+                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center flex-shrink-0">
                       <CalendarIcon className="w-6 h-6 text-white" />
                     </div>
-                    <h2 className="text-xl font-bold text-gray-900">
+                    <h2 className="text-lg sm:text-xl font-bold text-gray-900">
                       Upcoming Appointments
                     </h2>
                   </div>
                   <button
                     onClick={() => setActiveTab('book-appointment')}
-                    className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all duration-200 transform hover:scale-105 shadow-lg font-medium"
+                    className="inline-flex items-center justify-center space-x-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all duration-200 shadow-lg font-medium w-full sm:w-auto"
                   >
                     <PlusIcon className="w-4 h-4" />
                     <span>Book New</span>
                   </button>
                 </div>
               </div>
-              <div className="p-6">
+              <div className="p-4 sm:p-6">
                 {(() => {
                   const now = new Date();
                   const upcomingAppts = appointments.filter(apt => {
@@ -595,15 +685,15 @@ const PatientDashboardEnhanced = () => {
                     {upcomingAppts.slice(0, 2).map((appointment) => (
                       <div
                         key={appointment._id}
-                        className="bg-gradient-to-r from-blue-50 to-gray-50 border border-blue-100 p-6 rounded-2xl hover:shadow-lg transition-all duration-300"
+                        className="bg-gradient-to-r from-blue-50 to-gray-50 border border-blue-100 p-4 sm:p-6 rounded-2xl hover:shadow-lg transition-all duration-300"
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-4">
-                            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
-                              <UserIcon className="w-8 h-8 text-white" />
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                          <div className="flex items-center space-x-4 min-w-0">
+                            <div className="w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0">
+                              <UserIcon className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
                             </div>
-                            <div>
-                              <h3 className="text-lg font-bold text-gray-900 mb-1">
+                            <div className="min-w-0">
+                              <h3 className="text-base sm:text-lg font-bold text-gray-900 mb-1">
                                 {appointment.doctor
                                   ? `Dr. ${appointment.doctor.firstName} ${appointment.doctor.lastName}`
                                   : appointment.departmentId?.name || appointment.department || 'General OPD'}
@@ -681,8 +771,8 @@ const PatientDashboardEnhanced = () => {
                               </div>
                             </div>
                           </div>
-                          <div className="flex flex-col space-y-2">
-                            <button 
+                          <div className="flex flex-col space-y-2 w-full sm:w-auto flex-shrink-0">
+                            <button
                               onClick={() => navigate(`/appointments/${appointment._id}`)}
                               className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium shadow-md"
                             >
@@ -691,7 +781,7 @@ const PatientDashboardEnhanced = () => {
                             {canCancelAppointment(appointment) && (
                               <button
                                 onClick={() => openCancelModal(appointment)}
-                                className="px-6 py-2 bg-white text-red-600 border-2 border-red-200 rounded-xl hover:bg-red-50 transition-colors font-medium text-sm"
+                                className="px-6 py-2.5 bg-white text-red-600 border-2 border-red-200 rounded-xl hover:bg-red-50 transition-colors font-medium text-sm"
                               >
                                 Cancel
                               </button>
@@ -783,26 +873,26 @@ const PatientDashboardEnhanced = () => {
 
         {/* Book Appointment Tab */}
         {activeTab === 'book-appointment' && (
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-3 sm:p-6">
             <AppointmentBooking />
           </div>
         )}
 
         {/* My Appointments Tab */}
         {activeTab === 'appointments' && (
-          <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
-            <div className="p-6 border-b border-gray-200 bg-blue-600">
+          <div className="bg-white rounded-2xl sm:rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+            <div className="p-4 sm:p-6 border-b border-gray-200 bg-blue-600">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
-                  <ClockIcon className="w-6 h-6 text-white" />
-                  <h2 className="text-2xl font-bold text-white">
+                  <ClockIcon className="w-6 h-6 text-white flex-shrink-0" />
+                  <h2 className="text-xl sm:text-2xl font-bold text-white">
                     My Appointments
                   </h2>
                 </div>
               </div>
             </div>
-            
-            <div className="p-6">
+
+            <div className="p-4 sm:p-6">
               {loading ? (
                 <div className="text-center py-12">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
@@ -832,21 +922,21 @@ const PatientDashboardEnhanced = () => {
                         {upcomingAppts.map((appointment) => (
                           <div
                             key={appointment._id}
-                            className="bg-gradient-to-r from-blue-50 to-gray-50 border-2 border-blue-100 p-6 rounded-2xl hover:shadow-lg transition-all duration-300"
+                            className="bg-gradient-to-r from-blue-50 to-gray-50 border-2 border-blue-100 p-4 sm:p-6 rounded-2xl hover:shadow-lg transition-all duration-300"
                           >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center space-x-4 flex-1">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                              <div className="flex items-center space-x-4 flex-1 min-w-0">
                                 <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0">
                                   <UserIcon className="w-7 h-7 text-white" />
                                 </div>
-                                <div className="flex-1">
-                                  <h4 className="text-lg font-bold text-gray-900 mb-1">
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="text-base sm:text-lg font-bold text-gray-900 mb-1">
                                     Dr. {appointment.doctor?.firstName} {appointment.doctor?.lastName}
                                   </h4>
                                   <p className="text-sm text-blue-700 font-medium mb-2">
                                     {appointment.doctor?.specialization} • {appointment.appointmentType}
                                   </p>
-                                  <div className="flex flex-wrap items-center gap-3">
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                                     <div className="flex items-center space-x-1">
                                       <CalendarIcon className="w-4 h-4 text-gray-500" />
                                       <span className="text-sm text-gray-600 font-medium">{formatDate(appointment.appointmentDate)}</span>
@@ -866,17 +956,17 @@ const PatientDashboardEnhanced = () => {
                                   </div>
                                 </div>
                               </div>
-                              <div className="flex flex-col space-y-2 ml-4 flex-shrink-0">
+                              <div className="flex flex-row sm:flex-col gap-2 w-full sm:w-auto flex-shrink-0">
                                 <button
                                   onClick={() => navigate(`/appointments/${appointment._id}`)}
-                                  className="px-5 py-2.5 bg-white text-blue-600 border-2 border-blue-200 rounded-xl hover:bg-blue-50 transition-colors font-semibold shadow-sm"
+                                  className="flex-1 sm:flex-none px-5 py-2.5 bg-white text-blue-600 border-2 border-blue-200 rounded-xl hover:bg-blue-50 transition-colors font-semibold shadow-sm"
                                 >
                                   View
                                 </button>
                                 {canCancelAppointment(appointment) && (
                                   <button
                                     onClick={() => openCancelModal(appointment)}
-                                    className="px-5 py-2 bg-white text-red-600 border-2 border-red-200 rounded-xl hover:bg-red-50 transition-colors font-semibold text-sm"
+                                    className="flex-1 sm:flex-none px-5 py-2.5 bg-white text-red-600 border-2 border-red-200 rounded-xl hover:bg-red-50 transition-colors font-semibold text-sm"
                                   >
                                     Cancel
                                   </button>
@@ -912,21 +1002,21 @@ const PatientDashboardEnhanced = () => {
                         ).map((appointment) => (
                           <div
                             key={appointment._id}
-                            className="bg-gray-50 border border-gray-200 p-6 rounded-2xl hover:shadow-md transition-all duration-300"
+                            className="bg-gray-50 border border-gray-200 p-4 sm:p-6 rounded-2xl hover:shadow-md transition-all duration-300"
                           >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center space-x-4 flex-1">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                              <div className="flex items-center space-x-4 flex-1 min-w-0">
                                 <div className="w-14 h-14 bg-gradient-to-br from-gray-400 to-gray-500 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0">
                                   <UserIcon className="w-7 h-7 text-white" />
                                 </div>
-                                <div className="flex-1">
-                                  <h4 className="text-lg font-bold text-gray-900 mb-1">
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="text-base sm:text-lg font-bold text-gray-900 mb-1">
                                     Dr. {appointment.doctor?.firstName} {appointment.doctor?.lastName}
                                   </h4>
                                   <p className="text-sm text-gray-700 font-medium mb-2">
                                     {appointment.doctor?.specialization} • {appointment.appointmentType}
                                   </p>
-                                  <div className="flex flex-wrap items-center gap-3">
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                                     <div className="flex items-center space-x-1">
                                       <CalendarIcon className="w-4 h-4 text-gray-500" />
                                       <span className="text-sm text-gray-600 font-medium">{formatDate(appointment.appointmentDate)}</span>
@@ -948,7 +1038,7 @@ const PatientDashboardEnhanced = () => {
                               </div>
                               <button
                                 onClick={() => navigate(`/appointments/${appointment._id}`)}
-                                className="px-5 py-2.5 bg-white text-gray-600 border-2 border-gray-200 rounded-xl hover:bg-gray-50 transition-colors font-semibold shadow-sm"
+                                className="w-full sm:w-auto px-5 py-2.5 bg-white text-gray-600 border-2 border-gray-200 rounded-xl hover:bg-gray-50 transition-colors font-semibold shadow-sm flex-shrink-0"
                               >
                                 View
                               </button>
@@ -974,7 +1064,7 @@ const PatientDashboardEnhanced = () => {
 
         {/* Medical Records Tab */}
         {activeTab === 'documents' && (
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-3 sm:p-6">
             <MedicalRecords />
           </div>
         )}

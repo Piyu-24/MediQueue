@@ -133,16 +133,16 @@ const AppointmentDetails = () => {
             Back to Dashboard
           </button>
           
-          <div className="bg-white rounded-xl shadow-lg border-2 border-gray-200 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900">Appointment Details</h1>
-                <p className="text-gray-600 mt-2">
+          <div className="bg-white rounded-xl shadow-lg border-2 border-gray-200 p-5 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Appointment Details</h1>
+                <p className="text-gray-600 mt-2 text-sm break-all">
                   Appointment ID: {appointment._id}
                 </p>
               </div>
-              
-              <div>
+
+              <div className="flex-shrink-0">
                 <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(appointment.status)}`}>
                   {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
                 </span>
@@ -164,12 +164,12 @@ const AppointmentDetails = () => {
         </div>
 
         {/* Main Content Card Wrapper */}
-        <div className="bg-white rounded-xl shadow-lg border-2 border-gray-200 p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="bg-white rounded-xl shadow-lg border-2 border-gray-200 p-4 sm:p-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
             {/* Main Content */}
             <div className="lg:col-span-2 space-y-6">
             {/* Appointment Information */}
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white rounded-lg shadow p-4 sm:p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-6">Appointment Information</h2>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -220,13 +220,13 @@ const AppointmentDetails = () => {
             </div>
 
             {/* Doctor/Patient Information */}
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white rounded-lg shadow p-4 sm:p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-6">
                 {user.role === 'patient' ? 'Doctor Information' : 'Patient Information'}
               </h2>
               
               {user.role === 'patient' && appointment.doctor ? (
-                <div className="bg-gray-50 rounded-xl p-6 border-2 border-gray-200 shadow-sm">
+                <div className="bg-gray-50 rounded-xl p-4 sm:p-6 border-2 border-gray-200 shadow-sm">
                   <div className="flex items-start space-x-4">
                     <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
                       <UserIcon className="w-8 h-8 text-blue-600" />
@@ -241,8 +241,8 @@ const AppointmentDetails = () => {
                         {appointment.doctor.email && (
                           <div className="bg-white rounded-xl p-4 border-2 border-gray-300 shadow-sm">
                             <div className="flex items-center space-x-3">
-                              <EnvelopeIcon className="w-5 h-5 text-blue-500" />
-                              <span className="text-sm text-gray-900 font-semibold">{appointment.doctor.email}</span>
+                              <EnvelopeIcon className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                              <span className="text-sm text-gray-900 font-semibold break-all min-w-0">{appointment.doctor.email}</span>
                             </div>
                           </div>
                         )}
@@ -259,7 +259,7 @@ const AppointmentDetails = () => {
                   </div>
                 </div>
               ) : appointment.patient ? (
-                <div className="bg-gray-50 rounded-xl p-6 border-2 border-gray-200 shadow-sm">
+                <div className="bg-gray-50 rounded-xl p-4 sm:p-6 border-2 border-gray-200 shadow-sm">
                   <div className="flex items-start space-x-4">
                     <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
                       <UserIcon className="w-8 h-8 text-green-600" />
@@ -273,8 +273,8 @@ const AppointmentDetails = () => {
                         {appointment.patient.email && (
                           <div className="bg-white rounded-xl p-4 border-2 border-gray-300 shadow-sm">
                             <div className="flex items-center space-x-3">
-                              <EnvelopeIcon className="w-5 h-5 text-blue-500" />
-                              <span className="text-sm text-gray-900 font-semibold">{appointment.patient.email}</span>
+                              <EnvelopeIcon className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                              <span className="text-sm text-gray-900 font-semibold break-all min-w-0">{appointment.patient.email}</span>
                             </div>
                           </div>
                         )}
@@ -299,7 +299,7 @@ const AppointmentDetails = () => {
           {/* Sidebar */}
           <div className="space-y-6">
             {/* Actions */}
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white rounded-lg shadow p-4 sm:p-6">
               <h3 className="text-lg font-bold text-gray-900 mb-4">Actions</h3>
               
               <div className="space-y-3">

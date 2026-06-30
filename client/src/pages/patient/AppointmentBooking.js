@@ -164,8 +164,8 @@ const TimeBlockGrid = ({ blocks, selectedBlock, onSelect, loading, error }) => {
             disabled={isFull}
             className={`w-full rounded-xl border-2 p-4 text-left transition-all duration-200 ${BLOCK_STYLES[styleKey]}`}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                 <div className={`text-center min-w-[90px] ${isSelected ? 'text-white' : 'text-gray-900'}`}>
                   <p className="text-lg font-bold">{fmt12(block.startTime)}</p>
                   <p className={`text-xs ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
@@ -186,7 +186,7 @@ const TimeBlockGrid = ({ blocks, selectedBlock, onSelect, loading, error }) => {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-shrink-0">
                 {/* Capacity indicator */}
                 <div className="text-right">
                   {isFull ? (
@@ -470,10 +470,10 @@ const AppointmentBooking = () => {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         {/* Header */}
-        <div className="mb-8">
-          <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-8 text-white shadow-xl">
-            <h1 className="text-3xl font-bold mb-1">Book Appointment</h1>
-            <p className="text-blue-100">Schedule your hospital visit</p>
+        <div className="mb-6 sm:mb-8">
+          <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-5 sm:p-8 text-white shadow-xl">
+            <h1 className="text-2xl sm:text-3xl font-bold mb-1">Book Appointment</h1>
+            <p className="text-sm sm:text-base text-blue-100">Schedule your hospital visit</p>
           </div>
         </div>
 
@@ -545,7 +545,7 @@ const AppointmentBooking = () => {
           <>
             {/* OPD Step 1: Choose Department */}
             {step === 1 && (
-              <div className="bg-white rounded-2xl shadow-xl p-8">
+              <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
                 <h2 className="text-xl font-bold text-gray-900 mb-6">Choose Department</h2>
 
                 {departments.length === 0 ? (
@@ -580,7 +580,7 @@ const AppointmentBooking = () => {
 
             {/* OPD Step 2: Date + Time Block */}
             {step === 2 && selectedDepartment && (
-              <div className="bg-white rounded-2xl shadow-xl p-8">
+              <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-xl font-bold text-gray-900">Select Date & Session</h2>
                   <button onClick={() => { setStep(1); setSelectedDate(''); setSelectedBlock(null); }}
@@ -665,7 +665,7 @@ const AppointmentBooking = () => {
 
             {/* OPD Step 3: Confirm */}
             {step === 3 && selectedDepartment && selectedBlock && (
-              <div className="bg-white rounded-2xl shadow-xl p-8">
+              <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-xl font-bold text-gray-900">Confirm Appointment</h2>
                   <button onClick={() => setStep(2)}
@@ -723,7 +723,7 @@ const AppointmentBooking = () => {
           <>
             {/* Spec Step 1: Doctor list */}
             {step === 1 && (
-              <div className="bg-white rounded-2xl shadow-xl p-8">
+              <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
                 <h2 className="text-xl font-bold text-gray-900 mb-6">Choose Your Doctor</h2>
 
                 <div className="mb-6 flex flex-col sm:flex-row gap-4">
@@ -779,7 +779,7 @@ const AppointmentBooking = () => {
 
             {/* Spec Step 2: Date + Time slot */}
             {step === 2 && selectedDoctor && (
-              <div className="bg-white rounded-2xl shadow-xl p-8">
+              <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-xl font-bold text-gray-900">Select Date & Time</h2>
                   <button onClick={() => { setStep(1); setSelectedDate(''); setSelectedTime(''); }}
@@ -900,7 +900,7 @@ const AppointmentBooking = () => {
 
             {/* Spec Step 3: Confirm */}
             {step === 3 && selectedDoctor && (
-              <div className="bg-white rounded-2xl shadow-xl p-8">
+              <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-xl font-bold text-gray-900">Confirm Appointment</h2>
                   <button onClick={() => setStep(2)} className="text-blue-600 text-sm flex items-center gap-1">

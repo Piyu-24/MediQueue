@@ -200,7 +200,7 @@ const Register = () => {
       case 1:
         return (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label htmlFor="firstName" className="text-sm font-semibold text-gray-700">
                   First Name
@@ -412,7 +412,7 @@ const Register = () => {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label htmlFor="dateOfBirth" className="text-sm font-semibold text-gray-700">
                   Date of Birth
@@ -499,7 +499,7 @@ const Register = () => {
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold text-gray-800 border-b pb-2">Professional Information</h3>
                 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label htmlFor="specialization" className="text-sm font-semibold text-gray-700">
                       Specialization
@@ -588,7 +588,7 @@ const Register = () => {
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label htmlFor="yearsOfExperience" className="text-sm font-semibold text-gray-700">
                       Years of Experience
@@ -710,8 +710,8 @@ const Register = () => {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl shadow-lg mb-4">
             <HeartIcon className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mt-4">Join MediQueue</h1>
-          <p className="text-gray-600 mt-2">Create your patient account</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mt-4">Join MediQueue</h1>
+          <p className="text-gray-600 mt-2">Create your account to get started</p>
         </div>
 
         <div className="flex items-center justify-center mb-8">
@@ -739,7 +739,7 @@ const Register = () => {
           ))}
         </div>
 
-        <div className="bg-white/80 backdrop-blur-lg rounded-3xl shadow-xl border border-white/20 p-8">
+        <div className="bg-white/80 backdrop-blur-lg rounded-3xl shadow-xl border border-white/20 p-6 sm:p-8">
           <form onSubmit={currentStep === 3 ? handleSubmit : (e) => e.preventDefault()}>
             {renderStep()}
 
