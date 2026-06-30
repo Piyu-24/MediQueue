@@ -22,28 +22,12 @@ import {
   PrinterIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
-import api, { authAPI, userAPI, medicalRecordsAPI, healthCardAPI, queueAPI, appointmentAPI, receptionAPI } from '../../services/api';
+import api, { authAPI, userAPI, medicalRecordsAPI, healthCardAPI, queueAPI, appointmentAPI, receptionAPI, departmentAPI, roomAPI } from '../../services/api';
 import socketService from '../../services/socket';
 import toast from 'react-hot-toast';
 
-// ── Predefined rooms list ────────────────────────────────────────────────────
-const ROOMS = [
-  'Room 01', 'Room 02', 'Room 03', 'Room 04', 'Room 05',
-  'Room 06', 'Room 07', 'Room 08', 'Room 09', 'Room 10'
-];
-
-const DEPARTMENTS = [
-  'General OPD',
-  'Cardiology',
-  'Pediatrics',
-  'Orthopedics',
-  'Gynecology',
-  'Neurology',
-  'Dermatology',
-  'ENT',
-  'Ophthalmology',
-  'Urology'
-];
+// Static fallback room list used only if API is unavailable
+const FALLBACK_ROOMS = ['Room 01', 'Room 02', 'Room 03', 'Room 04', 'Room 05'];
 
 // ── Helper: format time for display ─────────────────────────────────────────
 const formatTime = (t) => {
@@ -51,6 +35,23 @@ const formatTime = (t) => {
   const [h, m] = t.split(':');
   const hour = parseInt(h);
   return `${hour % 12 || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
+};
+
+// ── Pick the best appointment to auto-select after QR check-in ───────────────
+// Sorts by appointmentTime ascending; picks earliest upcoming (>= now).
+// If all have passed, picks the latest one of the day.
+// Appointments with no time (block-based OPD) are treated as upcoming.
+const selectBestAppointment = (appointments) => {
+  if (!appointments?.length) return null;
+  const sorted = [...appointments].sort((a, b) => {
+    if (!a.appointmentTime && !b.appointmentTime) return 0;
+    if (!a.appointmentTime) return 1;
+    if (!b.appointmentTime) return -1;
+    return a.appointmentTime.localeCompare(b.appointmentTime);
+  });
+  const nowTime = new Date().toTimeString().slice(0, 5); // "HH:MM"
+  const upcoming = sorted.filter(a => !a.appointmentTime || a.appointmentTime >= nowTime);
+  return upcoming.length > 0 ? upcoming[0] : sorted[sorted.length - 1];
 };
 
 // ── Queue slip print helper ──────────────────────────────────────────────────
@@ -111,14 +112,24 @@ const ReceptionistDashboard = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('checkin');
 
+  // ── Department + Room data (loaded once on mount) ────────────────────────
+  const [deptList, setDeptList] = useState([]);
+  const [availableRooms, setAvailableRooms] = useState([]);
+  const [roomsLoading, setRoomsLoading] = useState(false);
+  // true when the selected department has admin-managed rooms (e.g. OPD)
+  // determined from actual Room docs — NOT from hasMultipleRooms DB field
+  const [deptIsMultiRoom, setDeptIsMultiRoom] = useState(false);
+
   // ── Check-in tab state ────────────────────────────────────────────────────
   const [qrInput, setQrInput] = useState('');
   const [qrLoading, setQrLoading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [validatedData, setValidatedData] = useState(null); // result of /validate-qr
   const [checkInForm, setCheckInForm] = useState({
-    room: '',
-    department: '',
+    room: '',        // display string e.g. "OPD-01"
+    roomId: '',      // Room._id
+    department: '',  // department name string
+    departmentId: '', // Department._id
     doctorId: '',
     appointmentId: '',
     isWalkIn: false,
@@ -127,6 +138,7 @@ const ReceptionistDashboard = () => {
   });
   const [checkInLoading, setCheckInLoading] = useState(false);
   const [completedEntry, setCompletedEntry] = useState(null); // after successful check-in
+  const [completedUnverified, setCompletedUnverified] = useState(false); // patient was still unverified at check-in
   const qrInputRef = useRef(null);
   const html5QrCodeRef = useRef(null);
   const qrReaderId = 'qr-reader';
@@ -134,7 +146,7 @@ const ReceptionistDashboard = () => {
   // ── Walk-in Registration state ────────────────────────────────────────────
   const [showWalkInForm, setShowWalkInForm] = useState(false);
   const [walkInForm, setWalkInForm] = useState({
-    firstName: '', lastName: '', phone: '', email: '', dateOfBirth: '', gender: 'male', nic: ''
+    firstName: '', lastName: '', phone: '', email: '', dateOfBirth: '', gender: 'male', nic: '', nicSeenAndVerified: false
   });
   const [walkInLoading, setWalkInLoading] = useState(false);
 
@@ -165,6 +177,8 @@ const ReceptionistDashboard = () => {
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [nicImageUrl, setNicImageUrl] = useState(null);
   const [verificationNote, setVerificationNote] = useState('');
+  // Inline NIC verification from the QR check-in screen (no tab switch needed)
+  const [inlineVerifyLoading, setInlineVerifyLoading] = useState(false);
 
   // ── Lab Upload tab state ──────────────────────────────────────────────────
   const [patientMedicalHistory, setPatientMedicalHistory] = useState([]);
@@ -179,6 +193,72 @@ const ReceptionistDashboard = () => {
     { id: 'verify', name: 'Verify Identity', icon: ShieldCheckIcon },
     { id: 'records', name: 'Upload Lab Tests', icon: DocumentArrowUpIcon }
   ];
+
+  // ── Load departments once on mount ────────────────────────────────────────
+  useEffect(() => {
+    departmentAPI.getDepartments({ status: 'active' })
+      .then(res => { if (res.data.success) setDeptList(res.data.data || []); })
+      .catch(() => {});
+  }, []);
+
+  // ── Resolve rooms when department changes ────────────────────────────────
+  // Data-driven: fetch actual Room documents and check isAutoManaged to determine
+  // whether to show a dropdown (multi-room, e.g. OPD) or auto-assign (single room).
+  // Does NOT rely on hasMultipleRooms field which may not be set in existing DB records.
+  const handleDepartmentChange = async (deptId, deptName) => {
+    setCheckInForm(p => ({ ...p, department: deptName, departmentId: deptId, room: '', roomId: '' }));
+    setAvailableRooms([]);
+    setDeptIsMultiRoom(false);
+    if (!deptId) return;
+
+    const dept = deptList.find(d => d._id === deptId);
+    setRoomsLoading(true);
+    try {
+      // Fetch ALL rooms for this department (no status filter) to determine the mode
+      const res = await roomAPI.getRooms({ departmentId: deptId });
+      const allRooms   = res.data.success ? res.data.data : [];
+      const adminRooms = allRooms.filter(r => !r.isAutoManaged);  // admin-managed (OPD-style)
+      const autoRoom   = allRooms.find(r => r.isAutoManaged);     // single auto-managed room
+
+      if (adminRooms.length > 0) {
+        // Multi-room department (OPD): show only available admin rooms in dropdown
+        setDeptIsMultiRoom(true);
+        setAvailableRooms(adminRooms.filter(r => r.effectiveStatus === 'available'));
+      } else if (autoRoom) {
+        // Single-room department: auto-assign if available
+        setDeptIsMultiRoom(false);
+        if (autoRoom.effectiveStatus === 'unavailable') {
+          toast.error(`${autoRoom.displayName} is currently unavailable (department inactive).`);
+        } else {
+          setCheckInForm(p => ({ ...p, room: autoRoom.roomNumber, roomId: autoRoom._id }));
+        }
+      } else {
+        // No rooms in DB yet — derive fallback code from dept code
+        setDeptIsMultiRoom(false);
+        if (dept) setCheckInForm(p => ({ ...p, room: `${dept.code}-01`, roomId: '' }));
+      }
+    } catch {
+      setDeptIsMultiRoom(false);
+      if (dept) setCheckInForm(p => ({ ...p, room: `${dept.code}-01`, roomId: '' }));
+    } finally {
+      setRoomsLoading(false);
+    }
+  };
+
+  // ── Refresh OPD rooms without re-selecting department ────────────────────
+  const refreshRooms = async () => {
+    if (!checkInForm.departmentId || !deptIsMultiRoom) return;
+    setRoomsLoading(true);
+    setAvailableRooms([]);
+    try {
+      const res = await roomAPI.getRooms({ departmentId: checkInForm.departmentId });
+      if (res.data.success) {
+        const adminRooms = (res.data.data || []).filter(r => !r.isAutoManaged);
+        setAvailableRooms(adminRooms.filter(r => r.effectiveStatus === 'available'));
+      }
+    } catch { toast.error('Could not refresh rooms'); }
+    finally { setRoomsLoading(false); }
+  };
 
   // ── Effects ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -244,32 +324,38 @@ const ReceptionistDashboard = () => {
     const { firstName, lastName, phone, dateOfBirth } = walkInForm;
     if (!firstName.trim() || !lastName.trim()) { toast.error('First and last name are required'); return; }
     if (!phone.trim()) { toast.error('Phone number is required'); return; }
+    if (!walkInForm.nic?.trim()) { toast.error('NIC number is required'); return; }
 
     try {
       setWalkInLoading(true);
 
       // Use the new reception endpoint — registers patient + auto-issues health card in one call
       const registerRes = await receptionAPI.registerPatient({
-        firstName:    firstName.trim(),
-        lastName:     lastName.trim(),
-        phone:        phone.trim(),
-        nicNumber:    walkInForm.nic?.trim() || undefined,
-        dateOfBirth:  dateOfBirth || undefined,
-        gender:       walkInForm.gender,
-        hasSmartphone: false,
+        firstName:          firstName.trim(),
+        lastName:           lastName.trim(),
+        phone:              phone.trim(),
+        email:              walkInForm.email?.trim() || undefined,
+        nicNumber:          walkInForm.nic?.trim() || undefined,
+        dateOfBirth:        dateOfBirth || undefined,
+        gender:             walkInForm.gender,
+        hasSmartphone:      false,
+        nicSeenAndVerified: walkInForm.nicSeenAndVerified,
       });
 
       if (!registerRes.data.success) throw new Error(registerRes.data.message);
       const { patient, healthCard } = registerRes.data.data;
 
       setShowWalkInForm(false);
-      setWalkInForm({ firstName: '', lastName: '', phone: '', email: '', dateOfBirth: '', gender: 'male', nic: '' });
+      setWalkInForm({ firstName: '', lastName: '', phone: '', email: '', dateOfBirth: '', gender: 'male', nic: '', nicSeenAndVerified: false });
 
       // Auto-fill the QR / card input so the receptionist can proceed to check-in
       setQrInput(healthCard.cardNumber);
 
+      const verifiedMsg = patient.identityVerificationStatus === 'verified'
+        ? ' Identity verified (NIC seen).'
+        : ' Identity pending — verify NIC at first visit.';
       toast.success(
-        `Registered! Health Card: ${healthCard.cardNumber}. QR field pre-filled — complete check-in below.`,
+        `Registered! Health Card: ${healthCard.cardNumber}.${verifiedMsg} QR field pre-filled — complete check-in below.`,
         { duration: 8000 }
       );
 
@@ -354,30 +440,31 @@ const ReceptionistDashboard = () => {
       const res = await queueAPI.validateQR(payload);
       if (res.data.success) {
         const data = res.data.data;
-        
-        // Ensure strictly only today's appointments are displayed
-        if (data.todaysAppointments) {
-          const now = new Date();
-          const localTodayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-          
-          data.todaysAppointments = data.todaysAppointments.filter(appt => {
-            if (!appt.appointmentDate) return false;
-            const d = new Date(appt.appointmentDate);
-            const apptDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            return apptDateStr === localTodayStr;
-          });
-        }
-
         setValidatedData(data);
-        // Pre-fill form if there's a today appointment
+        // Pre-fill form using the earliest upcoming appointment of the day
         if (data.todaysAppointments?.length > 0) {
-          const appt = data.todaysAppointments[0];
+          const appt = selectBestAppointment(data.todaysAppointments);
+          const deptName = appt.departmentId?.name || appt.doctor?.department || appt.department || '';
+          // departmentId may be a populated object or a raw ObjectId string
+          const rawDeptId = typeof appt.departmentId === 'object'
+            ? appt.departmentId?._id
+            : appt.departmentId;
+          // Fall back to matching by name if the ID isn't directly available
+          const matchedDept = rawDeptId
+            ? null
+            : deptList.find(d => d.name === deptName || d.name.toLowerCase() === deptName.toLowerCase());
+          const resolvedDeptId = rawDeptId || matchedDept?._id || '';
+
           setCheckInForm(prev => ({
             ...prev,
-            doctorId: appt.doctor?._id || '',
+            doctorId:     appt.doctor?._id || '',
             appointmentId: appt._id,
-            department: appt.doctor?.department || appt.department || DEPARTMENTS[0]
+            department:   deptName,
+            departmentId: resolvedDeptId
           }));
+
+          // Trigger room resolution for the pre-filled department
+          if (resolvedDeptId) handleDepartmentChange(resolvedDeptId, deptName);
         }
         if (data.alreadyCheckedIn) {
           toast.info(`${data.patient.firstName} is already in the queue today`);
@@ -392,6 +479,25 @@ const ReceptionistDashboard = () => {
     }
   };
 
+  const handleAppointmentSwitch = (apptId) => {
+    if (!apptId) {
+      setCheckInForm(p => ({ ...p, appointmentId: '', doctorId: '', department: '', departmentId: '' }));
+      return;
+    }
+    const appt = (validatedData?.todaysAppointments || []).find(a => a._id === apptId);
+    if (!appt) return;
+    const deptName = appt.departmentId?.name || appt.doctor?.department || appt.department || '';
+    const deptId   = appt.departmentId?._id  || '';
+    setCheckInForm(p => ({
+      ...p,
+      appointmentId: appt._id,
+      doctorId:      appt.doctor?._id || '',
+      department:    deptName,
+      departmentId:  deptId
+    }));
+    if (deptId) handleDepartmentChange(deptId, deptName);
+  };
+
   const startQrScanner = async () => {
     if (isScanning) return;
     try {
@@ -401,7 +507,15 @@ const ReceptionistDashboard = () => {
       setIsScanning(true);
       const onSuccess = (decodedText) => {
         if (!decodedText) return;
-        setQrInput(decodedText);
+        // Show only the card number in the input field, not the raw JSON payload
+        let displayValue = decodedText;
+        if (decodedText.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(decodedText);
+            if (parsed.cardNumber) displayValue = parsed.cardNumber;
+          } catch {}
+        }
+        setQrInput(displayValue);
         handleValidateQR(decodedText);
         stopQrScanner();
       };
@@ -435,9 +549,12 @@ const ReceptionistDashboard = () => {
 
   const handleCheckIn = async () => {
     if (!validatedData) return;
-    if (!checkInForm.room) { toast.error('Please select a room'); return; }
     if (!checkInForm.department) { toast.error('Please select a department'); return; }
     if (!checkInForm.doctorId) { toast.error('Please select a doctor'); return; }
+    if (deptIsMultiRoom && !checkInForm.roomId) {
+      toast.error('Please select a room from the dropdown'); return;
+    }
+    if (!checkInForm.room) { toast.error('Room assignment failed — please re-select the department'); return; }
 
     try {
       setCheckInLoading(true);
@@ -445,35 +562,44 @@ const ReceptionistDashboard = () => {
       let res;
 
       if (hasAppointment) {
-        // Use new appointment check-in endpoint
         res = await queueAPI.checkInAppointment({
           appointmentId: checkInForm.appointmentId,
-          patientId: validatedData.patient._id,
-          doctorId: checkInForm.doctorId,
-          room: checkInForm.room,
-          department: checkInForm.department,
-          notes: checkInForm.notes,
-          priority: checkInForm.priority
+          patientId:     validatedData.patient._id,
+          doctorId:      checkInForm.doctorId,
+          room:          checkInForm.room,
+          department:    checkInForm.department,
+          departmentId:  checkInForm.departmentId || undefined,
+          roomId:        checkInForm.roomId || undefined,
+          notes:         checkInForm.notes,
+          priority:      checkInForm.priority
         });
       } else {
-        // Walk-in check-in
         res = await queueAPI.checkInWalkIn({
-          patientId: validatedData.patient._id,
-          doctorId: checkInForm.doctorId,
-          room: checkInForm.room,
-          department: checkInForm.department,
-          notes: checkInForm.notes,
-          priority: checkInForm.priority,
-          isEmergency: checkInForm.priority === 'urgent'
+          patientId:    validatedData.patient._id,
+          doctorId:     checkInForm.doctorId,
+          room:         checkInForm.room,
+          department:   checkInForm.department,
+          departmentId: checkInForm.departmentId || undefined,
+          roomId:       checkInForm.roomId || undefined,
+          notes:        checkInForm.notes,
+          priority:     checkInForm.priority,
+          isEmergency:  checkInForm.priority === 'urgent'
         });
       }
 
       if (res.data.success) {
         const entry = res.data.data.queueEntry;
+        // Remember whether this patient was still unverified, so the success
+        // screen can keep prompting reception to verify the NIC after check-in.
+        setCompletedUnverified(
+          ['pending', 'unverified'].includes(validatedData.patient?.identityVerificationStatus)
+        );
         setCompletedEntry(entry);
         setValidatedData(null);
         setQrInput('');
-        setCheckInForm({ room: '', department: '', doctorId: '', appointmentId: '', isWalkIn: false, notes: '', priority: 'normal' });
+        setAvailableRooms([]);
+        setDeptIsMultiRoom(false);
+        setCheckInForm({ room: '', roomId: '', department: '', departmentId: '', doctorId: '', appointmentId: '', isWalkIn: false, notes: '', priority: 'normal' });
         toast.success(`Checked in! Token: ${entry.queueNumber}`);
         printQueueSlip(entry, !hasAppointment);
       }
@@ -517,10 +643,20 @@ const ReceptionistDashboard = () => {
   };
 
   const handleCheckInFromLookup = async (appointment) => {
-    // Check eligibility first
     try {
       const res = await queueAPI.getCheckInEligibility(appointment._id, appointment.patient._id);
       setEligibility({ ...res.data.data, appointment });
+
+      // Pre-fill department so the room section activates immediately
+      const deptName  = appointment.departmentId?.name || appointment.doctor?.department || '';
+      const rawDeptId = typeof appointment.departmentId === 'object'
+        ? appointment.departmentId?._id
+        : appointment.departmentId;
+      const matchedDept = rawDeptId
+        ? null
+        : deptList.find(d => d.name === deptName || d.name.toLowerCase() === deptName.toLowerCase());
+      const resolvedDeptId = rawDeptId || matchedDept?._id || '';
+      if (resolvedDeptId) handleDepartmentChange(resolvedDeptId, deptName);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Could not check eligibility');
     }
@@ -529,13 +665,9 @@ const ReceptionistDashboard = () => {
   const fetchPatientsForVerification = async () => {
     try {
       setVerifyLoading(true);
-      const response = await userAPI.searchUsers('');
+      const response = await userAPI.getPatientsForVerification(filterStatus);
       if (response.data.success) {
-        const patients = (response.data.data.users || []).filter(u =>
-          u.role === 'patient' &&
-          (filterStatus === 'all' || u.identityVerificationStatus === filterStatus)
-        );
-        setPatientsForVerification(patients);
+        setPatientsForVerification(response.data.data || []);
       }
     } catch { toast.error('Failed to load patients'); }
     finally { setVerifyLoading(false); }
@@ -550,16 +682,41 @@ const ReceptionistDashboard = () => {
 
   const handleVerifyIdentity = async (patientId, status, note) => {
     try {
-      const response = await api.put(`/users/patients/${patientId}/verify-identity`, {
-        verificationStatus: status, verificationNote: note
+      const response = await userAPI.verifyPatientIdentity(patientId, {
+        verificationStatus: status,
+        verificationNote:   note,
+        verificationMethod: 'NIC_SEEN',
       });
       if (response.data.success) {
-        toast.success(`Identity ${status === 'verified' ? 'verified' : 'rejected'}`);
+        toast.success(status === 'verified' ? 'NIC seen and verified — patient identity confirmed.' : 'Identity verification rejected.');
         fetchPatientsForVerification();
         setSelectedPatient(null);
         setVerificationNote('');
       }
     } catch { toast.error('Failed to update verification status'); }
+  };
+
+  // ── Inline NIC verification from the QR check-in screen ──────────────────
+  // Lets reception confirm the physical NIC right where they're checking the
+  // patient in, instead of hunting for them in the separate "Verify Identity" tab.
+  const handleInlineVerify = async (patientId, onVerified) => {
+    if (!patientId) return;
+    try {
+      setInlineVerifyLoading(true);
+      const response = await userAPI.verifyPatientIdentity(patientId, {
+        verificationStatus: 'verified',
+        verificationNote:   'NIC physically seen and verified at check-in counter.',
+        verificationMethod: 'NIC_SEEN',
+      });
+      if (response.data.success) {
+        toast.success('NIC seen and verified — patient identity confirmed.');
+        onVerified?.();
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to verify identity');
+    } finally {
+      setInlineVerifyLoading(false);
+    }
   };
 
   const searchPatients = async () => {
@@ -700,7 +857,6 @@ const ReceptionistDashboard = () => {
                       <div className="flex items-center space-x-2">
                         <UserIcon className="w-5 h-5 text-indigo-600" />
                         <h3 className="font-bold text-indigo-900">Register New Walk-in Patient</h3>
-                        <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">Identity verification deferred</span>
                       </div>
                       <button onClick={() => setShowWalkInForm(false)} className="text-gray-400 hover:text-gray-600">
                         <XMarkIcon className="w-5 h-5" />
@@ -729,6 +885,13 @@ const ReceptionistDashboard = () => {
                           className="w-full px-3 py-2.5 border-2 border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm" />
                       </div>
                       <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">NIC Number *</label>
+                        <input type="text" value={walkInForm.nic}
+                          onChange={e => setWalkInForm(f => ({ ...f, nic: e.target.value }))}
+                          placeholder="e.g. 123456789V or 200012345678"
+                          className="w-full px-3 py-2.5 border-2 border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm" />
+                      </div>
+                      <div>
                         <label className="block text-xs font-semibold text-gray-600 mb-1">Email (optional)</label>
                         <input type="email" value={walkInForm.email}
                           onChange={e => setWalkInForm(f => ({ ...f, email: e.target.value }))}
@@ -752,6 +915,30 @@ const ReceptionistDashboard = () => {
                         </select>
                       </div>
                     </div>
+                    {/* NIC Seen and Verified checkbox */}
+                    <div className={`mt-4 flex items-start space-x-3 p-3 rounded-xl border-2 cursor-pointer select-none transition-all ${
+                      walkInForm.nicSeenAndVerified
+                        ? 'bg-green-50 border-green-400'
+                        : 'bg-gray-50 border-gray-200 hover:border-indigo-300'
+                    }`}
+                      onClick={() => setWalkInForm(f => ({ ...f, nicSeenAndVerified: !f.nicSeenAndVerified }))}>
+                      <input
+                        type="checkbox"
+                        id="nicSeenAndVerified"
+                        checked={walkInForm.nicSeenAndVerified}
+                        onChange={() => {}}
+                        className="mt-0.5 w-4 h-4 text-green-600 border-gray-300 rounded accent-green-600 cursor-pointer"
+                      />
+                      <div>
+                        <label htmlFor="nicSeenAndVerified" className={`block text-sm font-bold cursor-pointer ${walkInForm.nicSeenAndVerified ? 'text-green-800' : 'text-gray-700'}`}>
+                          NIC Seen and Verified
+                        </label>
+                        <p className={`text-xs mt-0.5 ${walkInForm.nicSeenAndVerified ? 'text-green-600' : 'text-gray-500'}`}>
+                          I have physically inspected the patient's NIC and confirmed it matches the details entered above.
+                        </p>
+                      </div>
+                    </div>
+
                     <div className="mt-4 flex items-center space-x-3">
                       <button onClick={() => setShowWalkInForm(false)}
                         className="px-5 py-2.5 bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold text-sm">
@@ -795,13 +982,36 @@ const ReceptionistDashboard = () => {
                           <span>Re-print Slip</span>
                         </button>
                         <button
-                          onClick={() => setCompletedEntry(null)}
+                          onClick={() => { setCompletedEntry(null); setCompletedUnverified(false); }}
                           className="px-4 py-2 bg-white border border-green-300 text-green-700 rounded-xl hover:bg-green-50 transition-all text-sm font-semibold"
                         >
                           Next Patient
                         </button>
                       </div>
                     </div>
+
+                    {/* Post-check-in reminder — patient is in the queue but NIC still unverified */}
+                    {completedUnverified && (
+                      <div className="mt-4 flex flex-wrap items-center gap-3 bg-amber-50 border-2 border-amber-400 rounded-xl p-4">
+                        <ExclamationTriangleIcon className="w-6 h-6 text-amber-600 flex-shrink-0" />
+                        <p className="flex-1 min-w-0 text-sm font-semibold text-amber-900">
+                          Identity still unverified — confirm {completedEntry.patient?.firstName}'s physical NIC.
+                        </p>
+                        <button
+                          onClick={() => handleInlineVerify(
+                            completedEntry.patient?._id,
+                            () => setCompletedUnverified(false)
+                          )}
+                          disabled={inlineVerifyLoading}
+                          className="flex items-center space-x-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors"
+                        >
+                          {inlineVerifyLoading
+                            ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                            : <CheckCircleIcon className="w-4 h-4" />}
+                          <span>{inlineVerifyLoading ? 'Verifying…' : 'NIC Seen & Verified'}</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -889,6 +1099,60 @@ const ReceptionistDashboard = () => {
                       </div>
                     </div>
 
+                    {/* Identity verification alert — shown for pending/unverified patients */}
+                    {['pending', 'unverified'].includes(validatedData.patient?.identityVerificationStatus) && (
+                      <div className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-5 shadow-sm">
+                        <div className="flex items-start space-x-4">
+                          <div className="flex-shrink-0 w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+                            <ExclamationTriangleIcon className="w-6 h-6 text-amber-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-base font-bold text-amber-900">Identity Verification Required</p>
+                            <p className="text-sm text-amber-800 mt-1">
+                              This patient's NIC has <strong>not been verified</strong>. Ask for the physical NIC and confirm it matches before completing check-in.
+                            </p>
+                            {validatedData.patient?.nicNumber && (
+                              <p className="text-xs text-amber-700 mt-1">
+                                NIC on file: <span className="font-mono font-semibold">{validatedData.patient.nicNumber}</span>
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        {/* Inline actions — verify here without leaving the check-in screen */}
+                        <div className="flex flex-wrap items-center gap-3 mt-4 pl-14">
+                          <button
+                            onClick={() => handleInlineVerify(
+                              validatedData.patient._id,
+                              () => setValidatedData(prev => prev
+                                ? { ...prev, patient: { ...prev.patient, identityVerificationStatus: 'verified' } }
+                                : prev)
+                            )}
+                            disabled={inlineVerifyLoading}
+                            className="flex items-center space-x-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors shadow-sm"
+                          >
+                            {inlineVerifyLoading
+                              ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                              : <CheckCircleIcon className="w-4 h-4" />}
+                            <span>{inlineVerifyLoading ? 'Verifying…' : 'NIC Seen & Verified'}</span>
+                          </button>
+                          <button
+                            onClick={() => setActiveTab('verify')}
+                            className="px-4 py-2 bg-white border border-amber-300 text-amber-700 hover:bg-amber-100 text-sm font-semibold rounded-xl transition-colors"
+                          >
+                            Open Full Review
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Identity verified confirmation */}
+                    {validatedData.patient?.identityVerificationStatus === 'verified' && (
+                      <div className="flex items-center space-x-3 bg-green-50 border border-green-300 rounded-xl p-4">
+                        <ShieldCheckIcon className="w-6 h-6 text-green-600 flex-shrink-0" />
+                        <p className="text-sm font-semibold text-green-800">Identity verified — NIC confirmed.</p>
+                      </div>
+                    )}
+
                     {/* Already in queue warning */}
                     {validatedData.alreadyCheckedIn && (
                       <div className="flex items-center space-x-3 bg-yellow-50 border border-yellow-300 rounded-xl p-4">
@@ -903,18 +1167,18 @@ const ReceptionistDashboard = () => {
                       </div>
                     )}
 
-                    {/* All appointments — read-only */}
-                    {validatedData.allAppointments?.length > 0 ? (
+                    {/* Today's appointments — read-only */}
+                    {validatedData.todaysAppointments?.length > 0 ? (
                       <div className="bg-white border border-gray-200 rounded-xl p-4">
                         <p className="text-xs font-bold text-gray-700 mb-3 uppercase tracking-wide flex items-center gap-2">
                           <CalendarIcon className="w-4 h-4 text-gray-500" />
                           Appointments Found
                           <span className="font-semibold text-gray-400 normal-case tracking-normal ml-1">
-                            ({validatedData.allAppointments.length})
+                            ({validatedData.todaysAppointments.length})
                           </span>
                         </p>
                         <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-                          {validatedData.allAppointments.map(appt => {
+                          {validatedData.todaysAppointments.map(appt => {
                             return (
                               <div
                                 key={appt._id}
@@ -958,7 +1222,12 @@ const ReceptionistDashboard = () => {
                     {validatedData.todaysAppointments?.length === 0 && (
                       <div className="flex items-center space-x-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
                         <IdentificationIcon className="w-5 h-5 text-blue-600" />
-                        <p className="text-sm text-blue-800">No appointment found today — will be registered as a <strong>walk-in</strong>.</p>
+                        <div>
+                          <p className="text-sm font-semibold text-blue-800">No appointment booked for today</p>
+                          <p className="text-xs text-blue-700 mt-0.5">
+                            {validatedData.patient?.firstName} is a registered patient. Proceeding as a <strong>walk-in</strong> — a queue token will be issued below.
+                          </p>
+                        </div>
                       </div>
                     )}
 
@@ -970,30 +1239,116 @@ const ReceptionistDashboard = () => {
                           <span>Assign Room & Doctor</span>
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                          {/* Appointment selector — auto-selected, overridable */}
+                          {validatedData.todaysAppointments?.length > 0 && (
+                            <div className="md:col-span-2">
+                              <label className="block text-xs font-semibold text-gray-600 mb-1 flex items-center gap-1.5">
+                                Appointment
+                                <span className="text-xs font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                                  Auto-selected
+                                </span>
+                              </label>
+                              <select
+                                value={checkInForm.appointmentId}
+                                onChange={e => handleAppointmentSwitch(e.target.value)}
+                                className="w-full px-3 py-2.5 border-2 border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                              >
+                                <option value="">— Walk-in (no appointment) —</option>
+                                {[...validatedData.todaysAppointments]
+                                  .sort((a, b) => {
+                                    if (!a.appointmentTime && !b.appointmentTime) return 0;
+                                    if (!a.appointmentTime) return 1;
+                                    if (!b.appointmentTime) return -1;
+                                    return a.appointmentTime.localeCompare(b.appointmentTime);
+                                  })
+                                  .map(appt => (
+                                    <option key={appt._id} value={appt._id}>
+                                      {appt.appointmentTime
+                                        ? formatTime(appt.appointmentTime)
+                                        : (appt.timeBlockId?.sessionName || 'Block OPD')}
+                                      {' · Dr. '}
+                                      {appt.doctor
+                                        ? `${appt.doctor.firstName} ${appt.doctor.lastName}`
+                                        : 'TBD (OPD)'}
+                                      {' — '}
+                                      {appt.departmentId?.name || appt.department || 'OPD'}
+                                      {appt.appointmentToken ? ` · ${appt.appointmentToken}` : ''}
+                                    </option>
+                                  ))
+                                }
+                              </select>
+                            </div>
+                          )}
+
                           {/* Department */}
                           <div>
                             <label className="block text-xs font-semibold text-gray-600 mb-1">Department *</label>
                             <select
-                              value={checkInForm.department}
-                              onChange={e => setCheckInForm(p => ({ ...p, department: e.target.value, doctorId: '' }))}
+                              value={checkInForm.departmentId}
+                              onChange={e => {
+                                const d = deptList.find(x => x._id === e.target.value);
+                                handleDepartmentChange(e.target.value, d?.name || '');
+                                setCheckInForm(p => ({ ...p, doctorId: '' }));
+                              }}
                               className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                             >
                               <option value="">Select department</option>
-                              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                              {deptList.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}
                             </select>
                           </div>
 
-                          {/* Room */}
+                          {/* Room — dropdown for multi-room depts, auto-assigned for single-room */}
                           <div>
-                            <label className="block text-xs font-semibold text-gray-600 mb-1">Room *</label>
-                            <select
-                              value={checkInForm.room}
-                              onChange={e => setCheckInForm(p => ({ ...p, room: e.target.value }))}
-                              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                            >
-                              <option value="">Select room</option>
-                              {ROOMS.map(r => <option key={r} value={r}>{r}</option>)}
-                            </select>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">
+                              Room *
+                              {roomsLoading && <span className="ml-2 text-blue-500 text-xs">Loading…</span>}
+                            </label>
+                            {!checkInForm.departmentId ? (
+                              <p className="text-sm text-gray-400 italic py-2">Select a department first</p>
+                            ) : deptIsMultiRoom ? (
+                              availableRooms.length === 0 && !roomsLoading ? (
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                                    <ExclamationTriangleIcon className="w-4 h-4 text-red-500 flex-shrink-0" />
+                                    <p className="text-xs text-red-700 font-medium">No rooms available. Contact admin.</p>
+                                  </div>
+                                  <button onClick={refreshRooms} title="Refresh rooms"
+                                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg border border-gray-200">
+                                    <ArrowPathIcon className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    value={checkInForm.roomId}
+                                    onChange={e => {
+                                      const r = availableRooms.find(x => x._id === e.target.value);
+                                      setCheckInForm(p => ({ ...p, roomId: e.target.value, room: r?.roomNumber || '' }));
+                                    }}
+                                    className="flex-1 px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm"
+                                  >
+                                    <option value="">Select room</option>
+                                    {availableRooms.map(r => (
+                                      <option key={r._id} value={r._id}>{r.roomNumber} — {r.displayName}</option>
+                                    ))}
+                                  </select>
+                                  <button onClick={refreshRooms} title="Refresh room availability"
+                                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg border border-gray-200 flex-shrink-0">
+                                    <ArrowPathIcon className={`w-4 h-4 ${roomsLoading ? 'animate-spin' : ''}`} />
+                                  </button>
+                                </div>
+                              )
+                            ) : checkInForm.room ? (
+                              <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
+                                <CheckCircleIcon className="w-4 h-4 text-green-600 flex-shrink-0" />
+                                <p className="text-sm font-semibold text-green-800">{checkInForm.room}</p>
+                                <span className="text-xs text-green-600 ml-auto">Auto-assigned</span>
+                              </div>
+                            ) : roomsLoading ? (
+                              <p className="text-sm text-gray-400 italic py-2">Resolving room…</p>
+                            ) : (
+                              <p className="text-sm text-gray-400 italic py-2">Room will be assigned automatically</p>
+                            )}
                           </div>
 
                           {/* Doctor selector */}
@@ -1230,20 +1585,49 @@ const ReceptionistDashboard = () => {
                     {eligibility.eligible && (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
                         <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Room *</label>
-                          <select value={checkInForm.room} onChange={e => setCheckInForm(p => ({ ...p, room: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent">
-                            <option value="">Select Room</option>
-                            {ROOMS.map(r => <option key={r} value={r}>{r}</option>)}
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Department *</label>
+                          <select
+                            value={checkInForm.departmentId}
+                            onChange={e => {
+                              const d = deptList.find(x => x._id === e.target.value);
+                              handleDepartmentChange(e.target.value, d?.name || '');
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400">
+                            <option value="">Select Department</option>
+                            {deptList.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}
                           </select>
                         </div>
                         <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Department *</label>
-                          <select value={checkInForm.department} onChange={e => setCheckInForm(p => ({ ...p, department: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent">
-                            <option value="">Select Department</option>
-                            {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                          </select>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">
+                            Room * {roomsLoading && <span className="text-blue-500 text-xs ml-1">Loading…</span>}
+                          </label>
+                          {!checkInForm.departmentId ? (
+                            <p className="text-xs text-gray-400 italic py-2">Select dept first</p>
+                          ) : deptIsMultiRoom ? (
+                            <div className="flex items-center gap-2">
+                              <select value={checkInForm.roomId}
+                                onChange={e => {
+                                  const r = availableRooms.find(x => x._id === e.target.value);
+                                  setCheckInForm(p => ({ ...p, roomId: e.target.value, room: r?.roomNumber || '' }));
+                                }}
+                                className="flex-1 px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400">
+                                <option value="">Select room</option>
+                                {availableRooms.map(r => (
+                                  <option key={r._id} value={r._id}>{r.roomNumber} — {r.displayName}</option>
+                                ))}
+                              </select>
+                              <button onClick={refreshRooms} title="Refresh room availability"
+                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg border border-gray-200 flex-shrink-0">
+                                <ArrowPathIcon className={`w-4 h-4 ${roomsLoading ? 'animate-spin' : ''}`} />
+                              </button>
+                            </div>
+                          ) : checkInForm.room ? (
+                            <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
+                              <CheckCircleIcon className="w-4 h-4 text-green-600" />
+                              <span className="text-sm font-semibold text-green-800">{checkInForm.room}</span>
+                              <span className="text-xs text-green-600 ml-auto">Auto-assigned</span>
+                            </div>
+                          ) : <p className="text-xs text-gray-400 italic py-2">Will be auto-assigned</p>}
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-600 mb-1">Notes</label>
@@ -1260,12 +1644,14 @@ const ReceptionistDashboard = () => {
                                 const appt = eligibility.appointment;
                                 const res = await queueAPI.checkInAppointment({
                                   appointmentId: appt._id,
-                                  patientId: appt.patient._id || appt.patient,
-                                  doctorId: appt.doctor._id || appt.doctor,
-                                  room: checkInForm.room,
-                                  department: checkInForm.department,
-                                  notes: checkInForm.notes,
-                                  priority: checkInForm.priority
+                                  patientId:    appt.patient._id || appt.patient,
+                                  doctorId:     appt.doctor._id  || appt.doctor,
+                                  room:         checkInForm.room,
+                                  department:   checkInForm.department,
+                                  departmentId: checkInForm.departmentId || undefined,
+                                  roomId:       checkInForm.roomId || undefined,
+                                  notes:        checkInForm.notes,
+                                  priority:     checkInForm.priority
                                 });
                                 if (res.data.success) {
                                   toast.success(`Checked in! Token: ${res.data.data.token}`);
@@ -1273,7 +1659,9 @@ const ReceptionistDashboard = () => {
                                   setEligibility(null);
                                   setApptLookupResults([]);
                                   setApptLookupQuery({ reference: '', name: '', phone: '' });
-                                  setCheckInForm({ room: '', department: '', doctorId: '', appointmentId: '', isWalkIn: false, notes: '', priority: 'normal' });
+                                  setAvailableRooms([]);
+                                  setDeptIsMultiRoom(false);
+                                  setCheckInForm({ room: '', roomId: '', department: '', departmentId: '', doctorId: '', appointmentId: '', isWalkIn: false, notes: '', priority: 'normal' });
                                 }
                               } catch (err) {
                                 toast.error(err.response?.data?.message || 'Check-in failed');
@@ -1306,7 +1694,10 @@ const ReceptionistDashboard = () => {
                   <div className="flex items-center space-x-3">
                     <ClipboardDocumentListIcon className="w-6 h-6 text-blue-600" />
                     <h2 className="text-xl font-bold text-gray-900">Today's Queue</h2>
-                    <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">{todaysQueue.length} active</span>
+                    <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">
+                      {queueFilter === 'all' ? todaysQueue.length : todaysQueue.filter(e => e.status === queueFilter).length}
+                      {' '}{queueFilter === 'all' ? 'total' : queueFilter.replace(/_/g, ' ')}
+                    </span>
                     {bookedNotArrived.length > 0 && (
                       <span className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-1 rounded-full">
                         {bookedNotArrived.length} booked not arrived
@@ -1399,9 +1790,14 @@ const ReceptionistDashboard = () => {
                     <ClipboardDocumentListIcon className="w-16 h-16 text-gray-300 mx-auto mb-3" />
                     <p className="text-gray-500 text-lg">No active queue entries yet today</p>
                   </div>
+                ) : todaysQueue.filter(e => queueFilter === 'all' || e.status === queueFilter).length === 0 ? (
+                  <div className="text-center py-12 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                    <ClipboardDocumentListIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                    <p className="text-gray-500">No entries with status <strong>{queueFilter.replace(/_/g, ' ')}</strong></p>
+                  </div>
                 ) : (
                   <div className="space-y-2">
-                    {todaysQueue.map(entry => {
+                    {todaysQueue.filter(entry => queueFilter === 'all' || entry.status === queueFilter).map(entry => {
                       const tokenBg = entry.tokenType === 'E' ? 'bg-red-600' : entry.tokenType === 'W' ? 'bg-amber-500' : 'bg-blue-600';
                       const isActive = ['waiting', 'ready', 'called', 'emergency_waiting'].includes(entry.status);
                       return (
@@ -1583,35 +1979,56 @@ const ReceptionistDashboard = () => {
                               <div className="flex items-center space-x-3 mb-1">
                                 <h3 className="font-semibold text-gray-900">{patient.firstName} {patient.lastName}</h3>
                                 {getStatusBadge(patient.identityVerificationStatus || 'unverified')}
+                                {patient.registeredBy && (
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
+                                    {patient.registeredBy === 'Self' ? 'Self-registered' : `Reg. by ${patient.registeredBy}`}
+                                  </span>
+                                )}
                               </div>
-                              <div className="flex space-x-4 text-xs text-gray-500">
+                              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
                                 <span>{patient.email}</span>
                                 <span>NIC: {patient.nicNumber || 'Not provided'}</span>
-                                {patient.nicDocument && <span className="text-green-600 font-medium">📄 Document uploaded</span>}
+                                {patient.nicDocument && <span className="text-green-600 font-medium">Document uploaded</span>}
+                                {patient.verifiedBy && (
+                                  <span className="text-blue-600">
+                                    Verified by {patient.verifiedBy.firstName} {patient.verifiedBy.lastName}
+                                    {patient.verifiedAt && ` · ${new Date(patient.verifiedAt).toLocaleDateString()}`}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
-                          {patient.identityVerificationStatus === 'pending' && (
-                            <button onClick={() => setSelectedPatient(patient)}
-                              className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700">
+                          {patient.identityVerificationStatus !== 'verified' && (
+                            <button onClick={() => { setSelectedPatient(patient); setVerificationNote(''); }}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 shrink-0">
                               Review
                             </button>
                           )}
                         </div>
                         {selectedPatient?._id === patient._id && (
-                          <div className="mt-4 pt-4 border-t border-gray-200">
-                            {nicImageUrl && <img src={nicImageUrl} alt="NIC Document" className="max-h-48 rounded-lg mb-3 object-contain border" />}
+                          <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
+                            {/* NIC document preview if uploaded */}
+                            {nicImageUrl && <img src={nicImageUrl} alt="NIC Document" className="max-h-48 rounded-lg object-contain border" />}
+
+                            {/* Checklist for receptionist */}
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 space-y-1">
+                              <p className="font-semibold">Before marking as verified, confirm:</p>
+                              <p>✓ NIC number matches record: <strong>{patient.nicNumber || 'Not on file'}</strong></p>
+                              <p>✓ Full name on NIC matches: <strong>{patient.firstName} {patient.lastName}</strong></p>
+                              {patient.dateOfBirth && <p>✓ Date of birth matches: <strong>{new Date(patient.dateOfBirth).toLocaleDateString()}</strong></p>}
+                            </div>
+
                             <textarea value={verificationNote} onChange={e => setVerificationNote(e.target.value)}
                               placeholder="Add a note (optional)..." rows={2}
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm mb-3" />
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
                             <div className="flex space-x-2">
                               <button onClick={() => handleVerifyIdentity(patient._id, 'verified', verificationNote)}
                                 className="flex-1 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 flex items-center justify-center space-x-1">
-                                <CheckCircleIcon className="w-4 h-4" /><span>Verify</span>
+                                <CheckCircleIcon className="w-4 h-4" /><span>NIC Seen and Verified</span>
                               </button>
                               <button onClick={() => handleVerifyIdentity(patient._id, 'rejected', verificationNote)}
                                 className="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm font-semibold hover:bg-red-600 flex items-center justify-center space-x-1">
-                                <XCircleIcon className="w-4 h-4" /><span>Reject</span>
+                                <XCircleIcon className="w-4 h-4" /><span>Cannot Verify</span>
                               </button>
                               <button onClick={() => setSelectedPatient(null)}
                                 className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">

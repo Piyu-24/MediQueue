@@ -5,8 +5,9 @@ import {
   MagnifyingGlassIcon,
   PrinterIcon,
   CheckCircleIcon,
+  BeakerIcon,
 } from '@heroicons/react/24/outline';
-import { medicalRecordsAPI, prescriptionAPI } from '../../services/api';
+import { medicalRecordsAPI, prescriptionAPI, dispensaryAPI } from '../../services/api';
 import PrescriptionForm from './PrescriptionForm';
 import icd10Codes from '../../data/icd10_codes.json';
 import toast from 'react-hot-toast';
@@ -145,6 +146,7 @@ const useICD10Search = () => {
 // ─── Main Modal ──────────────────────────────────────────────────────────────
 const ConsultationNoteModal = ({ entry, doctor, onClose, onSaved }) => {
   const [saving, setSaving] = useState(false);
+  const [sendingToDispensary, setSendingToDispensary] = useState(false);
   const [prescriptions, setPrescriptions] = useState([]);
   const [selectedDiagnoses, setSelectedDiagnoses] = useState([]);
   const [form, setForm] = useState({
@@ -208,9 +210,10 @@ const ConsultationNoteModal = ({ entry, doctor, onClose, onSaved }) => {
 
       // Persist medicines as a proper Prescription document so they appear in
       // Patient Record → Prescription History across all future visits/doctors.
+      let createdPrescriptionId = null;
       if (activeMeds.length > 0 && patient?._id) {
         try {
-          await prescriptionAPI.createPrescription({
+          const rxRes = await prescriptionAPI.createPrescription({
             patientId:     patient._id,
             diagnosis:     diagnosisDisplay,
             indication:    diagnosisDisplay,
@@ -224,6 +227,7 @@ const ConsultationNoteModal = ({ entry, doctor, onClose, onSaved }) => {
               instructions: r.instructions,
             })),
           });
+          createdPrescriptionId = rxRes.data?.data?.prescription?._id || null;
         } catch (rxErr) {
           console.error('Failed to persist prescription record:', rxErr);
           toast.error('Consultation saved but prescription history could not be recorded');
@@ -246,11 +250,32 @@ const ConsultationNoteModal = ({ entry, doctor, onClose, onSaved }) => {
       }
 
       onSaved();
+      return createdPrescriptionId;
     } catch (err) {
       console.error('Error saving consultation note:', err);
       toast.error(err.response?.data?.message || 'Failed to save notes');
+      return null;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveAndSendToDispensary = async () => {
+    if (prescriptions.filter(r => r.name).length === 0) {
+      toast.error('Add at least one medication before sending to dispensary');
+      return;
+    }
+    setSendingToDispensary(true);
+    try {
+      const prescriptionId = await handleSave(false);
+      if (prescriptionId) {
+        await dispensaryAPI.sendToDispensary(prescriptionId);
+        toast.success('Prescription saved and sent to dispensary queue!', { duration: 5000 });
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to send to dispensary');
+    } finally {
+      setSendingToDispensary(false);
     }
   };
 
@@ -426,11 +451,19 @@ const ConsultationNoteModal = ({ entry, doctor, onClose, onSaved }) => {
           </button>
           <button
             onClick={() => handleSave(true)}
-            disabled={saving}
+            disabled={saving || sendingToDispensary}
             className="px-5 py-2.5 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 disabled:opacity-60 transition-colors text-sm flex items-center space-x-2"
           >
             <PrinterIcon className="w-4 h-4" />
             <span>Save &amp; Print Rx</span>
+          </button>
+          <button
+            onClick={handleSaveAndSendToDispensary}
+            disabled={saving || sendingToDispensary}
+            className="px-5 py-2.5 bg-teal-600 text-white rounded-xl font-semibold hover:bg-teal-700 disabled:opacity-60 transition-colors text-sm flex items-center space-x-2"
+          >
+            <BeakerIcon className="w-4 h-4" />
+            <span>{sendingToDispensary ? 'Sending…' : 'Send to Dispensary'}</span>
           </button>
         </div>
       </div>

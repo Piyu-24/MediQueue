@@ -10,10 +10,11 @@ import {
   PhoneIcon,
   EnvelopeIcon,
   CalendarIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  InformationCircleIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
-import api from '../../services/api';
+import api, { userAPI } from '../../services/api';
 
 const PatientIdentityVerification = () => {
   const [patients, setPatients] = useState([]);
@@ -63,12 +64,9 @@ const PatientIdentityVerification = () => {
   const fetchPatientsForVerification = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/users/patients/verification', {
-        params: { status: filterStatus !== 'all' ? filterStatus : undefined }
-      });
-      
+      const response = await userAPI.getPatientsForVerification(filterStatus);
       if (response.data.success) {
-        setPatients(response.data.data);
+        setPatients(response.data.data || []);
       }
     } catch (error) {
       console.error('Error fetching patients:', error);
@@ -80,13 +78,18 @@ const PatientIdentityVerification = () => {
 
   const handleVerifyIdentity = async (patientId, status, note) => {
     try {
-      const response = await api.put(`/users/patients/${patientId}/verify-identity`, {
+      const response = await userAPI.verifyPatientIdentity(patientId, {
         verificationStatus: status,
-        verificationNote: note
+        verificationNote:   note,
+        verificationMethod: 'NIC_SEEN',
       });
 
       if (response.data.success) {
-        toast.success(`Patient identity ${status === 'verified' ? 'verified' : 'rejected'} successfully`);
+        toast.success(
+          status === 'verified'
+            ? 'NIC seen and verified — patient identity confirmed.'
+            : 'Verification rejected.'
+        );
         fetchPatientsForVerification();
         setSelectedPatient(null);
         setVerificationNote('');
@@ -217,11 +220,17 @@ const PatientIdentityVerification = () => {
 
                     {/* Patient Info */}
                     <div className="flex-1">
-                      <div className="flex items-center space-x-3 mb-2">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
                         <h3 className="text-lg font-semibold text-gray-900">
                           {patient.firstName} {patient.lastName}
                         </h3>
                         {getStatusBadge(patient.identityVerificationStatus || 'unverified')}
+                        {patient.registeredBy && (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">
+                            <InformationCircleIcon className="w-3.5 h-3.5 mr-1" />
+                            {patient.registeredBy === 'Self' ? 'Self-registered' : `Registered by ${patient.registeredBy}`}
+                          </span>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-gray-600">
@@ -239,7 +248,7 @@ const PatientIdentityVerification = () => {
                         </div>
                       </div>
 
-                      <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                      <div className="mt-3 p-3 bg-gray-50 rounded-lg space-y-2">
                         <div className="flex items-center space-x-2 text-sm">
                           <IdentificationIcon className="w-5 h-5 text-gray-500" />
                           <span className="font-medium text-gray-700">NIC Number:</span>
@@ -248,13 +257,21 @@ const PatientIdentityVerification = () => {
                           </span>
                         </div>
                         {patient.nicDocument && (
-                          <div className="mt-2 flex items-center space-x-2">
+                          <div className="flex items-center space-x-2">
                             <DocumentMagnifyingGlassIcon className="w-4 h-4 text-blue-600" />
-                            <span className="text-xs text-blue-600 font-medium">
-                              NIC Document uploaded
-                            </span>
+                            <span className="text-xs text-blue-600 font-medium">NIC Document uploaded</span>
                             <span className="text-xs text-gray-500">
                               {new Date(patient.nicDocument.uploadedAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                        )}
+                        {patient.identityVerificationStatus === 'verified' && patient.verifiedBy && (
+                          <div className="flex items-center space-x-2 text-xs text-green-700">
+                            <ShieldCheckIcon className="w-4 h-4" />
+                            <span>
+                              Verified by {patient.verifiedBy.firstName} {patient.verifiedBy.lastName}
+                              {patient.verificationMethod === 'NIC_SEEN' ? ' (NIC Seen)' : ''}
+                              {patient.verifiedAt ? ` · ${new Date(patient.verifiedAt).toLocaleDateString()}` : ''}
                             </span>
                           </div>
                         )}
@@ -271,8 +288,8 @@ const PatientIdentityVerification = () => {
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  {patient.identityVerificationStatus === 'pending' && (
+                  {/* Actions — admin can review any non-verified patient, or override */}
+                  {patient.identityVerificationStatus !== 'verified' && (
                     <div className="flex flex-col space-y-2 ml-4">
                       <button
                         onClick={() => setSelectedPatient(patient)}
@@ -280,6 +297,16 @@ const PatientIdentityVerification = () => {
                       >
                         <DocumentMagnifyingGlassIcon className="w-4 h-4" />
                         <span>Review</span>
+                      </button>
+                    </div>
+                  )}
+                  {patient.identityVerificationStatus === 'verified' && (
+                    <div className="ml-4">
+                      <button
+                        onClick={() => setSelectedPatient(patient)}
+                        className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors text-xs font-medium"
+                      >
+                        Override
                       </button>
                     </div>
                   )}
@@ -334,7 +361,26 @@ const PatientIdentityVerification = () => {
                         <span className="text-gray-600">NIC Number:</span>
                         <span className="font-medium font-mono">{selectedPatient.nicNumber || 'N/A'}</span>
                       </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Registered By:</span>
+                        <span className="font-medium">{selectedPatient.registeredBy || 'Self'}</span>
+                      </div>
                     </div>
+                  </div>
+
+                  {/* Verification checklist */}
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                    <h3 className="font-semibold text-amber-900 mb-2 flex items-center gap-2">
+                      <ShieldCheckIcon className="w-4 h-4" />
+                      Verification Checklist
+                    </h3>
+                    <ul className="text-sm text-amber-800 space-y-1">
+                      <li>✓ NIC number on physical card matches: <strong>{selectedPatient.nicNumber || 'Not on file'}</strong></li>
+                      <li>✓ Name on NIC matches: <strong>{selectedPatient.firstName} {selectedPatient.lastName}</strong></li>
+                      {selectedPatient.dateOfBirth && (
+                        <li>✓ Date of birth matches: <strong>{new Date(selectedPatient.dateOfBirth).toLocaleDateString()}</strong></li>
+                      )}
+                    </ul>
                   </div>
 
                   {/* NIC Document Preview */}
@@ -408,14 +454,14 @@ const PatientIdentityVerification = () => {
                     className="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold flex items-center justify-center space-x-2"
                   >
                     <CheckCircleIcon className="w-5 h-5" />
-                    <span>Verify Identity</span>
+                    <span>NIC Seen and Verified</span>
                   </button>
                   <button
                     onClick={() => handleVerifyIdentity(selectedPatient._id, 'rejected', verificationNote)}
                     className="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-semibold flex items-center justify-center space-x-2"
                   >
                     <XCircleIcon className="w-5 h-5" />
-                    <span>Reject</span>
+                    <span>Cannot Verify</span>
                   </button>
                 </div>
               </div>

@@ -769,16 +769,12 @@ const MedicalRecords = () => {
               )}
             </div>
 
-            <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 p-6 flex justify-end space-x-3">
+            <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 p-6 flex justify-end">
               <button
                 onClick={() => setShowModal(false)}
                 className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
               >
                 Close
-              </button>
-              <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2">
-                <ArrowDownTrayIcon className="w-4 h-4" />
-                <span>Download</span>
               </button>
             </div>
           </div>
@@ -792,7 +788,7 @@ const MedicalRecords = () => {
             <div className="sticky top-0 bg-white border-b border-gray-200 p-6 flex items-center justify-between rounded-t-2xl">
               <div>
                 <h3 className="text-2xl font-bold text-gray-900">Upload Medical Document</h3>
-                <p className="text-sm text-gray-600 mt-1">Documents will be reviewed by hospital reception before appearing in your records</p>
+                <p className="text-sm text-gray-600 mt-1">Documents are saved directly to your records</p>
               </div>
               <button onClick={() => setShowUploadModal(false)} className="text-gray-400 hover:text-gray-600">
                 <XCircleIcon className="w-7 h-7" />
@@ -804,11 +800,9 @@ const MedicalRecords = () => {
                 <div className="flex items-start space-x-3">
                   <CheckCircleIcon className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <h4 className="font-semibold text-blue-900 mb-1">Document Review Process</h4>
+                    <h4 className="font-semibold text-blue-900 mb-1">Upload Information</h4>
                     <ul className="text-sm text-blue-800 space-y-1">
-                      <li>• Your document will be reviewed by hospital reception staff</li>
-                      <li>• Approved documents will appear in your medical records</li>
-                      <li>• You'll receive a notification once reviewed</li>
+                      <li>• Documents appear immediately in your uploaded documents list</li>
                       <li>• Supported formats: PDF, JPEG, PNG (Max 10MB)</li>
                     </ul>
                   </div>

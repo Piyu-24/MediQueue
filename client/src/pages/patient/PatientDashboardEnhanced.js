@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   CalendarIcon,
   DocumentTextIcon,
@@ -11,7 +11,8 @@ import {
   UserCircleIcon,
   ShieldCheckIcon,
   XMarkIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  EnvelopeIcon,
 } from '@heroicons/react/24/outline';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -20,7 +21,6 @@ import socketService from '../../services/socket';
 import HealthCardDisplay from '../../components/HealthCard/HealthCardDisplay';
 import AppointmentBooking from './AppointmentBooking';
 import MedicalRecords from './MedicalRecords';
-import NICVerification from '../../components/Patient/NICVerification';
 import toast from 'react-hot-toast';
 
 const PatientDashboardEnhanced = () => {
@@ -46,7 +46,6 @@ const PatientDashboardEnhanced = () => {
   // Cancellation modal state
   const [cancelModal, setCancelModal] = useState({ open: false, appointmentId: null, appointmentTitle: '' });
   const [cancelling, setCancelling] = useState(false);
-  const isFetchingRef = useRef(false);
 
   // Tab configuration
   const tabs = [
@@ -55,8 +54,28 @@ const PatientDashboardEnhanced = () => {
     { id: 'appointments', name: 'My Appointments', icon: ClockIcon },
     { id: 'health-card', name: 'Health Card', icon: QrCodeIcon },
     { id: 'documents', name: 'Medical Records', icon: DocumentTextIcon },
-    { id: 'profile', name: 'Profile & Verification', icon: UserCircleIcon }
   ];
+
+  // Handle redirect from email-change on Profile page
+  useEffect(() => {
+    const state = location.state;
+    if (state?.emailChanged) {
+      if (state.emailVerificationSent) {
+        toast.success(
+          `Email updated to ${state.newEmail}. A verification link was sent — check that inbox.`,
+          { duration: 8000 }
+        );
+      } else {
+        toast.error(
+          `Email updated to ${state.newEmail}, but the verification email could not be sent. Use the button below to resend.`,
+          { duration: 8000 }
+        );
+      }
+      // Clear the navigation state so the toast doesn't re-appear on refresh
+      window.history.replaceState({}, '', location.pathname + location.search);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle URL parameters for tab navigation
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -140,6 +159,7 @@ const PatientDashboardEnhanced = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?._id]);
 
+
   const fetchQueueStatus = useCallback(async () => {
     try {
       setQueueLoading(true);
@@ -162,16 +182,13 @@ const PatientDashboardEnhanced = () => {
       
       // Fetch appointments - get all statuses to show both upcoming and history
       const appointmentsRes = await appointmentAPI.getAppointments({
-        status: 'booked,scheduled,confirmed,cancelled,completed,no-show,doctor-unavailable'
+        status: 'booked,scheduled,confirmed,cancelled,completed,no-show,doctor-unavailable,in_consultation,in_queue,checked_in'
       });
       
       if (appointmentsRes.data.success) {
         const allAppts = appointmentsRes.data.data.appointments || [];
         setAppointments(allAppts);
-        
-        console.log('All appointments:', allAppts);
-        console.log('Cancelled appointments:', allAppts.filter(apt => apt.status === 'cancelled'));
-        
+
         // Update stats - count only active upcoming appointments (future date/time)
         const now = new Date();
         
@@ -225,11 +242,19 @@ const PatientDashboardEnhanced = () => {
   // Format date
   const formatDate = (dateString) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric' 
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
     });
+  };
+
+  const isToday = (dateStr) => {
+    const d = new Date(dateStr);
+    const t = new Date();
+    return d.getFullYear() === t.getFullYear() &&
+      d.getMonth() === t.getMonth() &&
+      d.getDate() === t.getDate();
   };
 
   // Handle appointment cancellation — requires >2 hours in the future
@@ -351,6 +376,7 @@ const PatientDashboardEnhanced = () => {
 
           </div>
         </div>
+
 
         {unavailableAppointments.length > 0 && (
           <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
@@ -854,7 +880,7 @@ const PatientDashboardEnhanced = () => {
               </button>
 
               <button
-                onClick={() => setActiveTab('profile')}
+                onClick={() => navigate('/profile')}
                 className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 text-left"
               >
                 <div className="flex items-center space-x-4">
@@ -911,9 +937,12 @@ const PatientDashboardEnhanced = () => {
                       const upcomingAppts = appointments.filter(apt => {
                         // Combine date and time for accurate comparison
                         const apptDate = new Date(apt.appointmentDate);
-                        const [hours, minutes] = apt.appointmentTime.split(':');
-                        apptDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-                        
+                        if (apt.appointmentTime) {
+                          const [hours, minutes] = apt.appointmentTime.split(':');
+                          apptDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+                        } else {
+                          apptDate.setHours(23, 59, 59, 999);
+                        }
                         return apptDate > now && !['cancelled', 'completed', 'no-show'].includes(apt.status);
                       });
                       
@@ -1031,7 +1060,9 @@ const PatientDashboardEnhanced = () => {
                                       appointment.status === 'no-show' ? 'bg-orange-100 text-orange-800' :
                                       'bg-gray-100 text-gray-800'
                                     }`}>
-                                      {appointment.status}
+                                      {appointment.status === 'no-show' ? 'No Show' :
+                                       appointment.status === 'doctor-unavailable' ? 'Doctor Unavailable' :
+                                       appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
                                     </span>
                                   </div>
                                 </div>
@@ -1069,12 +1100,6 @@ const PatientDashboardEnhanced = () => {
           </div>
         )}
 
-        {/* Profile & Verification Tab */}
-        {activeTab === 'profile' && (
-          <div className="space-y-6">
-            <NICVerification />
-          </div>
-        )}
       </div>
     </div>
   );

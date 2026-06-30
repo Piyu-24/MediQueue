@@ -3,10 +3,20 @@ const { body, validationResult } = require('express-validator');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const auth = require('../middleware/auth');
 const sendEmail = require('../utils/sendEmail');
+
+// Tight rate limiter for registration and password-reset — 10 attempts per IP per hour
+const authStrictLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many attempts from this IP. Please try again in an hour.' },
+});
 
 const router = express.Router();
 
@@ -47,7 +57,7 @@ async function writeAuditLog({ userId, userRole, action, resourceId, ipAddress, 
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
-router.post('/register', [
+router.post('/register', authStrictLimiter, [
   body('firstName')
     .trim()
     .isLength({ min: 2, max: 50 })
@@ -57,9 +67,10 @@ router.post('/register', [
     .isLength({ min: 2, max: 50 })
     .withMessage('Last name must be between 2 and 50 characters'),
   body('email')
+    .trim()
     .isEmail()
-    .normalizeEmail()
-    .withMessage('Please provide a valid email'),
+    .normalizeEmail({ gmail_remove_dots: false, gmail_remove_subaddress: false })
+    .withMessage('Please provide a valid email address'),
   body('password')
     .isLength({ min: 8 })
     .withMessage('Password must be at least 8 characters')
@@ -67,8 +78,9 @@ router.post('/register', [
     .withMessage(PASSWORD_RULE),
   body('phone')
     .optional()
-    .matches(/^[\d\s+()-]+$/)
-    .withMessage('Please provide a valid phone number'),
+    .customSanitizer(v => (v || '').replace(/\s/g, ''))
+    .matches(/^(?:0\d{9}|\+94\d{9})$/)
+    .withMessage('Enter a valid phone number (e.g. 0712345678 or +94712345678)'),
   body('role')
     .optional()
     .isIn(['patient', 'doctor', 'staff'])
@@ -87,7 +99,7 @@ router.post('/register', [
     const {
       firstName, lastName, email, password, phone,
       role = 'patient', dateOfBirth, gender, bloodType, address,
-      emergencyContact, specialization, department, licenseNumber,
+      nicNumber, emergencyContact, specialization, department, licenseNumber,
       yearsOfExperience, qualification
     } = req.body;
 
@@ -99,13 +111,18 @@ router.post('/register', [
       });
     }
 
-    const userData = { firstName, lastName, email, password, phone, role, address };
+    // Email is trusted at registration — no verification step required.
+    // Verification is only triggered when a user later changes their email address.
+    const userData = { firstName, lastName, email, password, phone, role, address, isEmailVerified: true };
 
     if (role === 'patient') {
       if (dateOfBirth) userData.dateOfBirth = dateOfBirth;
       if (gender) userData.gender = gender;
       if (bloodType) userData.bloodType = bloodType;
+      if (nicNumber) userData.nicNumber = nicNumber;
       if (emergencyContact) userData.emergencyContact = emergencyContact;
+      userData.registeredBy = 'Self';
+      userData.identityVerificationStatus = 'pending';
     }
 
     if (role === 'doctor') {
@@ -124,20 +141,19 @@ router.post('/register', [
 
     const user = await User.create(userData);
 
-    const emailVerificationToken = crypto.randomBytes(32).toString('hex');
-    user.emailVerificationToken = crypto.createHash('sha256').update(emailVerificationToken).digest('hex');
-    user.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000;
-    await user.save();
-
-    const verificationUrl = `${process.env.CLIENT_URL}/verify-email/${emailVerificationToken}`;
-    try {
-      await sendEmail({
-        email: user.email,
-        subject: 'MediQueue - Email Verification',
-        message: `Welcome to MediQueue! Please verify your email by clicking: ${verificationUrl}`
+    // Audit log for patient self-registration
+    if (role === 'patient') {
+      await writeAuditLog({
+        userId: user._id,
+        userRole: user.role,
+        action: 'PATIENT_SELF_REGISTERED',
+        resourceId: user._id,
+        ipAddress: getClientIP(req),
+        userAgent: req.headers['user-agent'] || 'unknown',
+        status: 'SUCCESS',
+        description: `Patient self-registered: ${email}`,
+        metadata: { nicNumber: nicNumber || null, registeredBy: 'Self' },
       });
-    } catch (err) {
-      console.error('Email sending failed:', err);
     }
 
     const token = user.generateAuthToken();
@@ -149,16 +165,22 @@ router.post('/register', [
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully. Please check your email for verification.',
+      message: 'Account created successfully.',
       data: { user, token }
     });
 
   } catch (error) {
+    // MongoDB unique constraint violation — email already taken (race condition safety net)
+    if (error.code === 11000 && error.keyPattern?.email) {
+      return res.status(400).json({
+        success: false,
+        message: 'An account with this email address already exists.'
+      });
+    }
     console.error('Registration error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error during registration',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: 'Registration failed. Please try again.'
     });
   }
 });
@@ -167,7 +189,11 @@ router.post('/register', [
 // @route   POST /api/auth/login
 // @access  Public
 router.post('/login', [
-  body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email'),
+  body('email')
+    .trim()
+    .isEmail()
+    .normalizeEmail({ gmail_remove_dots: false, gmail_remove_subaddress: false })
+    .withMessage('Please provide a valid email address'),
   body('password').notEmpty().withMessage('Password is required')
 ], async (req, res) => {
   try {
@@ -404,41 +430,51 @@ router.get('/verify-email/:token', async (req, res) => {
 // @desc    Forgot password
 // @route   POST /api/auth/forgot-password
 // @access  Public
-router.post('/forgot-password', [
-  body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email')
+router.post('/forgot-password', authStrictLimiter, [
+  body('email')
+    .trim()
+    .isEmail()
+    .normalizeEmail({ gmail_remove_dots: false, gmail_remove_subaddress: false })
+    .withMessage('Please provide a valid email address')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, message: 'Please provide a valid email', errors: errors.array() });
+      return res.status(400).json({ success: false, message: 'Please provide a valid email address', errors: errors.array() });
     }
 
     const { email } = req.body;
     const user = await User.findOne({ email });
 
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'No user found with this email' });
-    }
-
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    user.passwordResetExpires = Date.now() + 10 * 60 * 1000;
-    await user.save();
-
-    const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
-    try {
-      await sendEmail({
-        email: user.email,
-        subject: 'MediQueue - Password Reset',
-        message: `You requested a password reset. Click here to reset: ${resetUrl}\n\nThis link expires in 10 minutes.`
-      });
-      res.json({ success: true, message: 'Password reset link sent to email' });
-    } catch (err) {
-      user.passwordResetToken = undefined;
-      user.passwordResetExpires = undefined;
+    // Always return the same response to prevent user enumeration.
+    // Only perform the reset actions if the user actually exists.
+    if (user) {
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+      user.passwordResetExpires = Date.now() + 10 * 60 * 1000;
       await user.save();
-      return res.status(500).json({ success: false, message: 'Email could not be sent' });
+
+      const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
+      try {
+        await sendEmail({
+          email: user.email,
+          subject: 'MediQueue - Password Reset',
+          message: `You requested a password reset. Click here to reset: ${resetUrl}\n\nThis link expires in 10 minutes.\n\nIf you did not request this, you can safely ignore this email.`
+        });
+      } catch (err) {
+        // Roll back token if email fails so the user can try again
+        user.passwordResetToken = undefined;
+        user.passwordResetExpires = undefined;
+        await user.save();
+        console.error('Password reset email failed:', err);
+      }
     }
+
+    // Return identical response whether user exists or not
+    res.json({
+      success: true,
+      message: 'If an account with that email address exists, a password reset link has been sent. Please check your inbox.'
+    });
 
   } catch (error) {
     console.error('Forgot password error:', error);
@@ -501,6 +537,123 @@ router.get('/me', auth, async (req, res) => {
     res.json({ success: true, user });
   } catch (error) {
     console.error('Get me error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @desc    Change password (authenticated user, requires current password)
+// @route   POST /api/auth/change-password
+// @access  Private
+router.post('/change-password', auth, [
+  body('currentPassword').notEmpty().withMessage('Current password is required'),
+  body('newPassword')
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+    .matches(PASSWORD_REGEX).withMessage(PASSWORD_RULE),
+  body('confirmPassword').notEmpty().withMessage('Please confirm your new password')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: errors.array()[0].msg });
+    }
+
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, message: 'New password and confirmation do not match' });
+    }
+
+    const user = await User.findById(req.user._id).select('+password');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const isCurrentValid = await user.comparePassword(currentPassword);
+    if (!isCurrentValid) {
+      return res.status(400).json({ success: false, message: 'Current password is incorrect' });
+    }
+
+    const isSamePassword = await user.comparePassword(newPassword);
+    if (isSamePassword) {
+      return res.status(400).json({ success: false, message: 'New password must be different from your current password' });
+    }
+
+    user.password = newPassword;
+    user.lastPasswordChange = new Date();
+    await user.save();
+
+    await writeAuditLog({
+      userId: user._id, userRole: user.role, action: 'PASSWORD_CHANGE',
+      ipAddress: getClientIP(req), userAgent: req.headers['user-agent'] || 'unknown',
+      status: 'SUCCESS', description: 'Password changed via profile settings',
+    });
+
+    // Invalidate the refresh token so all other sessions must re-authenticate
+    res.clearCookie('refreshToken', { path: '/' });
+
+    res.json({ success: true, message: 'Password updated successfully. Please sign in again.' });
+
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ success: false, message: 'Server error during password change' });
+  }
+});
+
+// @desc    Resend email verification
+// @route   POST /api/auth/resend-verification
+// @access  Private
+router.post('/resend-verification', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (user.isEmailVerified) {
+      return res.status(400).json({ success: false, message: 'Your email address is already verified.' });
+    }
+
+    // Cooldown: block if a token was issued less than 2 minutes ago
+    const COOLDOWN_MS = 2 * 60 * 1000;
+    const cooldownBoundary = Date.now() + 24 * 60 * 60 * 1000 - COOLDOWN_MS;
+    if (user.emailVerificationExpires && user.emailVerificationExpires > cooldownBoundary) {
+      const canRetryAt   = user.emailVerificationExpires - 24 * 60 * 60 * 1000 + COOLDOWN_MS;
+      const waitSeconds  = Math.max(1, Math.ceil((canRetryAt - Date.now()) / 1000));
+      return res.status(429).json({
+        success: false,
+        message: `A verification email was sent recently. Please wait ${waitSeconds} second${waitSeconds === 1 ? '' : 's'} before requesting another.`,
+        retryAfterSeconds: waitSeconds,
+      });
+    }
+
+    const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+    user.emailVerificationToken  = crypto.createHash('sha256').update(emailVerificationToken).digest('hex');
+    user.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000;
+    await user.save();
+
+    const verificationUrl = `${process.env.CLIENT_URL}/verify-email/${emailVerificationToken}`;
+    try {
+      await sendEmail({
+        email:   user.email,
+        subject: 'MediQueue - Verify Your Email Address',
+        message: `Please verify your email address by clicking the link below:\n\n${verificationUrl}\n\nThis link expires in 24 hours.\n\nIf you did not create a MediQueue account, you can safely ignore this email.`,
+      });
+    } catch (err) {
+      console.error('Resend verification email failed:', err);
+      // Roll back token so the cooldown does not lock the user out after a send failure
+      user.emailVerificationToken   = undefined;
+      user.emailVerificationExpires = undefined;
+      await user.save();
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send the verification email. Please try again in a moment.',
+      });
+    }
+
+    res.json({ success: true, message: `Verification email sent to ${user.email}. Please check your inbox.` });
+
+  } catch (error) {
+    console.error('Resend verification error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });

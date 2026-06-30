@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, query, param, validationResult } = require('express-validator');
 const Department = require('../models/Department');
+const Room       = require('../models/Room');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
 
@@ -69,12 +70,16 @@ router.post(
       .matches(/^[A-Z0-9_-]+$/i).withMessage('Code must contain only letters, digits, hyphens, or underscores'),
     body('description').optional().trim().isLength({ max: 500 }),
     body('averageConsultationMinutes').optional().isInt({ min: 1 }).withMessage('Must be a positive integer'),
-    body('status').optional().isIn(['active', 'inactive'])
+    body('status').optional().isIn(['active', 'inactive']),
+    body('hasMultipleRooms').optional().isBoolean()
   ],
   handleValidation,
   async (req, res) => {
     try {
-      const { name, code, description, averageConsultationMinutes, status, location, contactPhone, operatingHours } = req.body;
+      const {
+        name, code, description, averageConsultationMinutes, status,
+        location, contactPhone, operatingHours, hasMultipleRooms
+      } = req.body;
 
       const dept = await Department.create({
         name,
@@ -85,8 +90,20 @@ router.post(
         location,
         contactPhone,
         operatingHours,
+        hasMultipleRooms: !!hasMultipleRooms,
         createdBy: req.user._id
       });
+
+      // For single-room departments, auto-create the consultation room
+      if (!hasMultipleRooms) {
+        await Room.create({
+          roomNumber:    `${dept.code}-01`,
+          displayName:   `${dept.name} Consultation Room`,
+          department:    dept._id,
+          status:        'available',
+          isAutoManaged: true
+        });
+      }
 
       res.status(201).json({ success: true, data: dept, message: 'Department created successfully' });
     } catch (err) {
@@ -111,7 +128,8 @@ router.patch(
       .matches(/^[A-Z0-9_-]+$/i),
     body('description').optional().trim().isLength({ max: 500 }),
     body('averageConsultationMinutes').optional().isInt({ min: 1 }),
-    body('status').optional().isIn(['active', 'inactive'])
+    body('status').optional().isIn(['active', 'inactive']),
+    body('hasMultipleRooms').optional().isBoolean()
   ],
   handleValidation,
   async (req, res) => {

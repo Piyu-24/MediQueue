@@ -10,8 +10,10 @@ const DEFAULT_SLOT_DURATION = 15; // minutes
 // Day names matching User.availability keys (Sunday = 0)
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-// Appointment statuses that consume a slot
+// Appointment statuses that consume a slot.
+// 'booked' is the initial status for token-based (block and specialist+token) bookings.
 const ACTIVE_BOOKING_STATUSES = [
+  'booked',
   'scheduled', 'confirmed', 'checked_in', 'in_queue',
   'in-progress', 'in_consultation', 'late', 'delayed', 'skipped'
 ];

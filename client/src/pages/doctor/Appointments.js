@@ -6,7 +6,6 @@ import {
   PhoneIcon,
   CheckCircleIcon,
   XCircleIcon,
-  EyeIcon,
   FunnelIcon,
   MagnifyingGlassIcon,
   ExclamationTriangleIcon,
@@ -22,8 +21,6 @@ const Appointments = () => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedAppointment, setSelectedAppointment] = useState(null);
-  const [showDetailModal, setShowDetailModal] = useState(false);
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -335,17 +332,6 @@ const Appointments = () => {
                     
                         {/* Action Buttons */}
                         <div className="flex flex-col space-y-2 ml-4">
-                          <button
-                            onClick={() => {
-                              setSelectedAppointment(appointment);
-                              setShowDetailModal(true);
-                            }}
-                            className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
-                            title="View Details"
-                          >
-                            <EyeIcon className="w-5 h-5" />
-                          </button>
-                          
                           {appointment.status !== 'completed' && appointment.status !== 'cancelled' && (
                             <>
                               {appointment.status !== 'confirmed' && (
@@ -405,139 +391,6 @@ const Appointments = () => {
           </div>
         )}
         
-        {/* Appointment Detail Modal */}
-        {showDetailModal && selectedAppointment && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900">
-                      {selectedAppointment.patient ? 
-                        `${selectedAppointment.patient.firstName} ${selectedAppointment.patient.lastName}` : 
-                        'Unknown Patient'}
-                    </h2>
-                    <p className="text-gray-600">
-                      {new Date(selectedAppointment.appointmentDate).toLocaleDateString()} at {selectedAppointment.appointmentTime}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setShowDetailModal(false)}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    <XCircleIcon className="w-6 h-6 text-gray-500" />
-                  </button>
-                </div>
-              </div>
-              
-              <div className="p-6">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Patient Information */}
-                  <div className="space-y-6">
-                    <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-4 rounded-xl">
-                      <h3 className="font-semibold text-blue-900 mb-3">Patient Details</h3>
-                      <div className="space-y-2 text-sm">
-                        <p><span className="font-medium">Age:</span> {selectedAppointment.patient?.age || 'N/A'}</p>
-                        <p><span className="font-medium">Blood Type:</span> {selectedAppointment.patient?.bloodType || 'N/A'}</p>
-                        <p><span className="font-medium">Phone:</span> {selectedAppointment.patient?.phone || 'N/A'}</p>
-                        <p><span className="font-medium">Insurance:</span> {selectedAppointment.patient?.insurance || 'N/A'}</p>
-                        <p><span className="font-medium">Emergency Contact:</span> {selectedAppointment.patient?.emergencyContact || 'N/A'}</p>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-gradient-to-r from-red-50 to-red-100 p-4 rounded-xl">
-                      <h3 className="font-semibold text-red-900 mb-3">Allergies & Warnings</h3>
-                      <div className="flex flex-wrap gap-2">
-                        {(selectedAppointment.patient?.allergies || []).map((allergy, index) => (
-                          <span key={index} className="px-3 py-1 bg-red-200 text-red-800 text-sm font-medium rounded-full">
-                            {allergy}
-                          </span>
-                        ))}
-                        {(!selectedAppointment.patient?.allergies || selectedAppointment.patient.allergies.length === 0) && (
-                          <span className="text-sm text-gray-500 italic">No known allergies</span>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div className="bg-gradient-to-r from-green-50 to-green-100 p-4 rounded-xl">
-                      <h3 className="font-semibold text-green-900 mb-3">Current Vitals</h3>
-                      <div className="grid grid-cols-2 gap-3 text-sm">
-                        <div className="text-center p-2 bg-white rounded-lg">
-                          <div className="font-bold text-red-600">{selectedAppointment.vitals?.bp}</div>
-                          <div className="text-xs text-gray-600">Blood Pressure</div>
-                        </div>
-                        <div className="text-center p-2 bg-white rounded-lg">
-                          <div className="font-bold text-blue-600">{selectedAppointment.vitals?.hr}</div>
-                          <div className="text-xs text-gray-600">Heart Rate</div>
-                        </div>
-                        <div className="text-center p-2 bg-white rounded-lg">
-                          <div className="font-bold text-yellow-600">{selectedAppointment.vitals?.temp}</div>
-                          <div className="text-xs text-gray-600">Temperature</div>
-                        </div>
-                        <div className="text-center p-2 bg-white rounded-lg">
-                          <div className="font-bold text-green-600">{selectedAppointment.vitals?.weight}</div>
-                          <div className="text-xs text-gray-600">Weight</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Medical Information */}
-                  <div className="space-y-6">
-                    <div className="bg-gradient-to-r from-teal-50 to-teal-100 p-4 rounded-xl">
-                      <h3 className="font-semibold text-teal-900 mb-3">Appointment Details</h3>
-                      <div className="space-y-2 text-sm">
-                        <p><span className="font-medium">Type:</span> {selectedAppointment.appointmentType || 'Consultation'}</p>
-                        <p><span className="font-medium">Reason:</span> {selectedAppointment.chiefComplaint || 'N/A'}</p>
-                        <p><span className="font-medium">Status:</span> 
-                          <span className={`ml-2 px-2 py-1 rounded-full text-xs ${getStatusColor(selectedAppointment.status)}`}>
-                            {selectedAppointment.status.replace('-', ' ').toUpperCase()}
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-gradient-to-r from-orange-50 to-orange-100 p-4 rounded-xl">
-                      <h3 className="font-semibold text-orange-900 mb-3">Current Medications</h3>
-                      <div className="space-y-1">
-                        {selectedAppointment.patient?.currentMedications?.map((med, index) => (
-                          <div key={index} className="text-sm bg-white p-2 rounded-lg">{med}</div>
-                        )) || <div className="text-sm text-gray-500 italic">No current medications</div>}
-                      </div>
-                    </div>
-                    
-                    <div className="bg-gradient-to-r from-teal-50 to-teal-100 p-4 rounded-xl">
-                      <h3 className="font-semibold text-teal-900 mb-3">Recent Lab Results</h3>
-                      <div className="space-y-1">
-                        {selectedAppointment.patient?.labResults?.map((result, index) => (
-                          <div key={index} className="text-sm bg-white p-2 rounded-lg">{result}</div>
-                        )) || <div className="text-sm text-gray-500 italic">No recent lab results</div>}
-                      </div>
-                    </div>
-                    
-                    {selectedAppointment.notes && (
-                      <div className="bg-gradient-to-r from-gray-50 to-gray-100 p-4 rounded-xl">
-                        <h3 className="font-semibold text-gray-900 mb-3">Appointment Notes</h3>
-                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedAppointment.notes}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="flex justify-end space-x-3 mt-6 pt-6 border-t border-gray-200">
-                  <button
-                    onClick={() => setShowDetailModal(false)}
-                    className="px-6 py-2 bg-gray-200 text-gray-800 rounded-xl hover:bg-gray-300 transition-colors font-medium"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        
-
         {/* Summary Stats */}
         {filteredAppointments.length > 0 && (
           <div className="mt-8 grid grid-cols-1 md:grid-cols-4 gap-6">

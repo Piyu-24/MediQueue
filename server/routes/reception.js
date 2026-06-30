@@ -3,6 +3,7 @@ const { body, query: qv, param, validationResult } = require('express-validator'
 const QRCode     = require('qrcode');
 const bcrypt     = require('bcryptjs');
 const User       = require('../models/User');
+const AuditLog   = require('../models/AuditLog');
 const Appointment = require('../models/Appointment');
 const QueueEntry = require('../models/QueueEntry');
 const QueueEventLog = require('../models/QueueEventLog');
@@ -10,6 +11,7 @@ const HealthCard = require('../models/HealthCard');
 const Department = require('../models/Department');
 const TimeBlock  = require('../models/TimeBlock');
 const DoctorQueueSession = require('../models/DoctorQueueSession');
+const Room       = require('../models/Room');
 const auth       = require('../middleware/auth');
 const authorize  = require('../middleware/authorize');
 const { checkInAppointment, checkInWalkIn } = require('../services/CheckInService');
@@ -173,16 +175,27 @@ router.post('/patients',
     body('dateOfBirth').optional().isISO8601().withMessage('Invalid date of birth'),
     body('gender').optional().isIn(['male', 'female', 'other', 'prefer-not-to-say']),
     body('bloodType').optional().isIn(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
-    body('hasSmartphone').optional().isBoolean()
+    body('email').optional({ checkFalsy: true }).isEmail().withMessage('Invalid email address').normalizeEmail(),
+    body('hasSmartphone').optional().isBoolean(),
+    body('nicSeenAndVerified').optional().isBoolean()
   ],
   handleValidation,
   async (req, res) => {
     try {
       const {
-        firstName, lastName, phone, nicNumber, dateOfBirth,
+        firstName, lastName, phone, email, nicNumber, dateOfBirth,
         gender, bloodType, hasSmartphone = false,
-        emergencyContact, address
+        emergencyContact, address,
+        nicSeenAndVerified = false
       } = req.body;
+
+      // NIC is mandatory when receptionist marks it as seen
+      if (nicSeenAndVerified && !nicNumber?.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: 'NIC number is required when marking NIC as seen and verified.'
+        });
+      }
 
       // Check for NIC duplicate
       if (nicNumber) {
@@ -209,15 +222,39 @@ router.post('/patients',
         });
       }
 
-      // Generate a placeholder email so the unique email index is satisfied
-      // Reception-registered patients don't have email until they choose one
-      const placeholderEmail = `reception.${Date.now()}.${Math.random().toString(36).slice(2, 6)}@mediqueue.internal`;
+      // If reception didn't capture an email, generate a placeholder so the
+      // unique email index is satisfied; the patient can update it later.
+      const resolvedEmail = email?.trim()
+        || `reception.${Date.now()}.${Math.random().toString(36).slice(2, 6)}@mediqueue.lk`;
+
+      if (email?.trim()) {
+        const dupEmail = await User.findOne({ email: resolvedEmail });
+        if (dupEmail) {
+          return res.status(409).json({
+            success: false,
+            message: 'A patient with this email address already exists.',
+            data: { existingPatientId: dupEmail._id }
+          });
+        }
+      }
+
       const tempPassword = await bcrypt.hash(Math.random().toString(36), 10);
+
+      // Determine verification fields based on whether receptionist confirmed NIC
+      const now = new Date();
+      const verificationFields = nicSeenAndVerified && nicNumber?.trim()
+        ? {
+            identityVerificationStatus: 'verified',
+            verifiedBy:        req.user.id,
+            verifiedAt:        now,
+            verificationMethod: 'NIC_SEEN',
+          }
+        : { identityVerificationStatus: 'pending' };
 
       const patient = await User.create({
         firstName:   firstName.trim(),
         lastName:    lastName.trim(),
-        email:       placeholderEmail,
+        email:       resolvedEmail,
         password:    tempPassword,
         phone:       phone.trim(),
         phoneNumber: phone.trim(),
@@ -230,8 +267,9 @@ router.post('/patients',
         address:     address || undefined,
         role:        'patient',
         isActive:    true,
-        isEmailVerified: false,
-        identityVerificationStatus: 'pending'
+        isEmailVerified: true,
+        registeredBy: 'Receptionist',
+        ...verificationFields,
       });
 
       // Auto-generate health card
@@ -260,9 +298,33 @@ router.post('/patients',
       await User.findByIdAndUpdate(patient._id, { digitalHealthCardId: cardNumber });
       patient.digitalHealthCardId = cardNumber;
 
+      // Audit log for patient registration by receptionist
+      try {
+        await AuditLog.createLog({
+          userId:       req.user.id,
+          userRole:     req.user.role,
+          action:       'PATIENT_REGISTERED_BY_RECEPTION',
+          resourceType: 'User',
+          resourceId:   patient._id,
+          ipAddress:    req.ip || 'unknown',
+          userAgent:    req.headers['user-agent'] || 'unknown',
+          status:       'SUCCESS',
+          description:  `Receptionist registered patient ${patient.firstName} ${patient.lastName} (${cardNumber})${nicSeenAndVerified ? ' — NIC seen and verified' : ''}`,
+          metadata: {
+            patientId:          patient._id.toString(),
+            cardNumber,
+            registeredBy:       'Receptionist',
+            nicSeenAndVerified: !!nicSeenAndVerified,
+            verificationMethod: nicSeenAndVerified ? 'NIC_SEEN' : null,
+          },
+        });
+      } catch (auditErr) {
+        console.error('Audit log write failed:', auditErr.message);
+      }
+
       res.status(201).json({
         success: true,
-        message: `Patient registered. Health card ${cardNumber} issued.`,
+        message: `Patient registered. Health card ${cardNumber} issued.${nicSeenAndVerified ? ' Identity verified.' : ''}`,
         data: {
           patient: {
             _id:                patient._id,
@@ -271,7 +333,8 @@ router.post('/patients',
             phone:              patient.phone,
             nicNumber:          patient.nicNumber,
             digitalHealthCardId: cardNumber,
-            hasSmartphone
+            hasSmartphone,
+            identityVerificationStatus: patient.identityVerificationStatus,
           },
           healthCard: {
             cardNumber: healthCard.cardNumber,
@@ -364,12 +427,13 @@ router.post('/check-in/:appointmentId',
     body('room').notEmpty().withMessage('Room is required'),
     body('department').notEmpty().withMessage('Department name is required'),
     body('departmentId').optional().isMongoId(),
-    body('timeBlockId').optional().isMongoId()
+    body('timeBlockId').optional().isMongoId(),
+    body('roomId').optional().isMongoId()
   ],
   handleValidation,
   async (req, res) => {
     try {
-      const { doctorId, room, department, departmentId, timeBlockId, notes, priority } = req.body;
+      const { doctorId, room, department, departmentId, timeBlockId, roomId, notes, priority } = req.body;
       const { appointmentId } = req.params;
 
       // Fetch the appointment to get the patient ID
@@ -379,12 +443,19 @@ router.post('/check-in/:appointmentId',
         return res.status(404).json({ success: false, message: 'Appointment not found' });
       }
 
+      // Resolve room string from roomId if provided (prefers explicit string from client)
+      let resolvedRoom = room;
+      if (roomId && !room) {
+        const roomDoc = await Room.findById(roomId).select('roomNumber').lean();
+        if (roomDoc) resolvedRoom = roomDoc.roomNumber;
+      }
+
       const result = await checkInAppointment({
         appointmentId,
         patientId:       appointment.patient.toString(),
         performedById:   req.user.id,
         performedByRole: req.user.role,
-        room,
+        room:            resolvedRoom,
         department,
         doctorId,
         departmentId:   departmentId || appointment.departmentId?.toString(),
@@ -392,6 +463,11 @@ router.post('/check-in/:appointmentId',
         notes,
         priority
       });
+
+      // Persist room assignment on the appointment
+      if (roomId) {
+        await Appointment.findByIdAndUpdate(appointmentId, { $set: { assignedRoom: roomId } });
+      }
 
       const io = req.app.get('io');
       await QueueEngine.recalculate(doctorId, localDateStr(), io);
@@ -434,18 +510,26 @@ router.post('/walk-in',
     body('room').notEmpty().withMessage('Room is required'),
     body('department').notEmpty().withMessage('Department name is required'),
     body('departmentId').optional().isMongoId(),
-    body('isEmergency').optional().isBoolean()
+    body('isEmergency').optional().isBoolean(),
+    body('roomId').optional().isMongoId()
   ],
   handleValidation,
   async (req, res) => {
     try {
-      const { patientId, doctorId, room, department, departmentId, notes, isEmergency, priority } = req.body;
+      const { patientId, doctorId, room, department, departmentId, roomId, notes, isEmergency, priority } = req.body;
+
+      // Resolve room string from roomId when explicit string not supplied
+      let resolvedRoom = room;
+      if (roomId && !room) {
+        const roomDoc = await Room.findById(roomId).select('roomNumber').lean();
+        if (roomDoc) resolvedRoom = roomDoc.roomNumber;
+      }
 
       const result = await checkInWalkIn({
         patientId,
         performedById:   req.user.id,
         performedByRole: req.user.role,
-        room,
+        room:            resolvedRoom,
         department,
         departmentId,
         doctorId,

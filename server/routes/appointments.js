@@ -5,10 +5,11 @@ const User = require('../models/User');
 const TimeBlock = require('../models/TimeBlock');
 const Department = require('../models/Department');
 const QueuePolicy = require('../models/QueuePolicy');
+const Notification = require('../models/Notification');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
-const { getSlotAvailability, getAvailableDoctors, checkBookingEligibility } = require('../services/AvailabilityService');
-const { getAvailableBlocks } = require('../services/TimeBlockService');
+const { getSlotAvailability, getAvailableDoctors, checkBookingEligibility, ACTIVE_BOOKING_STATUSES } = require('../services/AvailabilityService');
+const { getAvailableBlocks, isSessionClosed } = require('../services/TimeBlockService');
 const { nextAppointmentToken, buildScope } = require('../services/TokenSequenceService');
 
 const router = express.Router();
@@ -294,7 +295,7 @@ router.get('/pending-reschedule', auth, authorize('patient'), async (req, res) =
 //   Optional: timeBlockId (if specialist also uses blocks), symptoms
 //   Result  : Legacy exact-time booking preserved; A token issued if timeBlockId given.
 router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
-  body('appointmentDate').isISO8601().withMessage('Valid appointment date is required'),
+  body('appointmentDate').isISO8601().withMessage('Please select a valid appointment date.'),
   body('appointmentType')
     .isIn(['consultation', 'follow-up', 'check-up', 'emergency', 'routine'])
     .withMessage('Invalid appointment type'),
@@ -310,7 +311,10 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
   body('appointmentTime')
     .optional()
     .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
-    .withMessage('Valid time format required (HH:MM)')
+    .withMessage('Valid time format required (HH:MM)'),
+  // Security: validate IDs supplied by the client to prevent forged requests
+  body('patientId').optional().isMongoId().withMessage('Invalid patientId'),
+  body('rescheduledFromAppointmentId').optional().isMongoId().withMessage('Invalid rescheduledFromAppointmentId')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -338,6 +342,15 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
       ['receptionist', 'staff', 'admin'].includes(req.user.role) && req.body.patientId
     ) ? req.body.patientId : req.user.id;
 
+    // Security: verify the patientId actually refers to an active patient account.
+    // This prevents staff from booking against fabricated or non-patient IDs.
+    if (['receptionist', 'staff', 'admin'].includes(req.user.role) && req.body.patientId) {
+      const patientUser = await User.findOne({ _id: patientId, role: 'patient', isActive: true });
+      if (!patientUser) {
+        return res.status(404).json({ success: false, message: 'Patient not found or account inactive.' });
+      }
+    }
+
     // ── MODE A: General OPD ──────────────────────────────────────────────────
     if (bookingType === 'general_opd') {
       if (!departmentId || !timeBlockId) {
@@ -350,14 +363,54 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
       // Verify department is active
       const dept = await Department.findOne({ _id: departmentId, status: 'active' });
       if (!dept) {
-        return res.status(404).json({ success: false, message: 'Department not found or inactive' });
+        return res.status(404).json({ success: false, message: 'Department not found or inactive.' });
       }
 
       // Prevent past-date booking
       const apptDate = new Date(appointmentDate);
       apptDate.setHours(23, 59, 59, 999);
       if (apptDate <= new Date()) {
-        return res.status(400).json({ success: false, message: 'You cannot book an appointment in the past.' });
+        return res.status(400).json({ success: false, message: 'Appointments cannot be booked for past dates.' });
+      }
+
+      // Security: verify the time block belongs to the stated department and date.
+      // Prevents a patient from using a block from a different department or day.
+      const dateStr = new Date(appointmentDate).toISOString().slice(0, 10);
+      const blockOwnership = await TimeBlock.findOne({ _id: timeBlockId, departmentId, date: dateStr });
+      if (!blockOwnership) {
+        return res.status(400).json({
+          success: false,
+          message: 'The selected session does not match this department and date. Please select a valid appointment date.'
+        });
+      }
+
+      // Validate block status — reject closed, cancelled, or manually disabled blocks
+      if (!['active'].includes(blockOwnership.status)) {
+        return res.status(409).json({
+          success: false,
+          message: `This appointment slot is ${blockOwnership.status}. Please choose another session.`
+        });
+      }
+
+      // Time-of-day guard: the booking window closes once the session start time
+      // passes on the day of the appointment. Evaluated against the server clock so
+      // the client cannot bypass this by manipulating its local time.
+      if (isSessionClosed(dateStr, blockOwnership.startTime)) {
+        const sessionLabel = blockOwnership.sessionName || `${blockOwnership.startTime} session`;
+        return res.status(409).json({
+          success: false,
+          message: `Booking for the ${sessionLabel} has closed — the session has already started. Please choose a later session or a different date.`
+        });
+      }
+
+      // Duplicate booking guard: prevent the same patient from booking the same session twice.
+      // This runs before slot deduction so we don't waste an atomic counter.
+      const isOPDDuplicate = await Appointment.hasOPDDuplicate(patientId, timeBlockId);
+      if (isOPDDuplicate) {
+        return res.status(409).json({
+          success: false,
+          message: 'You already have an appointment booked for this session. Please choose a different date or session.'
+        });
       }
 
       // Atomically deduct one appointment slot from the time block
@@ -415,7 +468,10 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
         // Roll back slot on DB error
         await TimeBlock.releaseAppointmentSlot(timeBlockId);
         if (createErr.code === 11000) {
-          return res.status(409).json({ success: false, message: 'Duplicate appointment detected.' });
+          return res.status(409).json({
+            success: false,
+            message: 'This appointment slot has already been booked. Please choose another session.'
+          });
         }
         throw createErr;
       }
@@ -433,6 +489,20 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
         { path: 'departmentId', select: 'name code' },
         { path: 'timeBlockId', select: 'startTime endTime sessionName reportingTime' }
       ]);
+
+      // Booking confirmation notification — General OPD
+      try {
+        const apptDateStr = new Date(appointmentDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+        await Notification.create({
+          recipient: patientId,
+          type: 'appointment-reminder',
+          title: 'Appointment Booked – Confirmation',
+          message: `Your ${appointmentType} appointment at ${dept.name} is confirmed for ${apptDateStr} (${block.sessionName || block.startTime + '–' + block.endTime}). Your token is ${appointment.appointmentToken}. Please arrive by ${appointment.reportingTime}.`,
+          metadata: { appointmentId: appointment._id, appointmentDate: appointmentDate, department: dept.name }
+        });
+      } catch (notifErr) {
+        console.error('Notification create failed (non-fatal):', notifErr.message);
+      }
 
       return res.status(201).json({
         success: true,
@@ -473,7 +543,23 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
     // Verify doctor exists and is active
     const doctorUser = await User.findOne({ _id: doctor, role: 'doctor', isActive: true });
     if (!doctorUser) {
-      return res.status(404).json({ success: false, message: 'Doctor not found or unavailable' });
+      return res.status(404).json({ success: false, message: 'The selected doctor is unavailable. Please choose another doctor.' });
+    }
+
+    // Security: if a departmentId was provided, verify the doctor actually belongs to it.
+    // Prevents crafted requests that pair a real doctor with an unrelated department.
+    if (departmentId) {
+      const dept = await Department.findOne({ _id: departmentId, status: 'active' });
+      if (!dept) {
+        return res.status(404).json({ success: false, message: 'The selected department was not found or is inactive.' });
+      }
+      const doctorDept = (doctorUser.department || '').toLowerCase();
+      if (doctorDept !== dept.name.toLowerCase() && doctorDept !== (dept.code || '').toLowerCase()) {
+        return res.status(400).json({
+          success: false,
+          message: 'The selected doctor does not belong to the selected department. Please select a valid department-doctor combination.'
+        });
+      }
     }
 
     // Prevent booking in the past
@@ -481,7 +567,7 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
     const slotDateTime = new Date(appointmentDate);
     slotDateTime.setHours(h, m, 0, 0);
     if (slotDateTime <= new Date()) {
-      return res.status(400).json({ success: false, message: 'You cannot book an appointment in the past.' });
+      return res.status(400).json({ success: false, message: 'Appointments cannot be booked for past dates.' });
     }
 
     // Check doctor availability: working schedule, DoctorSlot blocks, slot capacity
@@ -492,16 +578,22 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
       return res.status(statusCode).json({ success: false, message: eligibility.reason });
     }
 
-    // Doctor-side time overlap
+    // Doctor-side time overlap (slot no longer available — race condition safety net)
     const doctorConflict = await Appointment.hasConflict(doctor, appointmentDate, appointmentTime, duration);
     if (doctorConflict) {
-      return res.status(409).json({ success: false, message: 'This doctor is fully booked for the selected time slot.' });
+      return res.status(409).json({
+        success: false,
+        message: 'The selected slot is no longer available. Please choose another slot.'
+      });
     }
 
-    // Patient-side conflict
+    // Patient-side conflict: patient already has an overlapping appointment elsewhere
     const patientConflict = await Appointment.hasPatientConflict(patientId, appointmentDate, appointmentTime, duration);
     if (patientConflict) {
-      return res.status(409).json({ success: false, message: 'You already have an overlapping appointment at this time.' });
+      return res.status(409).json({
+        success: false,
+        message: 'You already have an appointment for this doctor at the selected time. Please select a different slot.'
+      });
     }
 
     // Validate reschedule source
@@ -512,15 +604,38 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
       }
     }
 
-    // If specialist booking also uses a time block, deduct its slot and issue A token
+    // If specialist booking also uses a time block, validate it then deduct its slot
     let specialistToken = null;
     let specialistBlock = null;
     if (timeBlockId) {
+      // Security: verify the block belongs to this doctor and date
+      const specBlockOwnership = await TimeBlock.findOne({ _id: timeBlockId, date: dateStr });
+      if (!specBlockOwnership) {
+        return res.status(400).json({
+          success: false,
+          message: 'The selected session does not match the appointment date. Please select a valid appointment date.'
+        });
+      }
+      if (specBlockOwnership.status !== 'active') {
+        return res.status(409).json({
+          success: false,
+          message: `Booking failed because the schedule changed while you were booking. The session is now ${specBlockOwnership.status}. Please choose another session.`
+        });
+      }
+      // Prevent duplicate booking into the same block
+      const isBlockDuplicate = await Appointment.hasOPDDuplicate(patientId, timeBlockId);
+      if (isBlockDuplicate) {
+        return res.status(409).json({
+          success: false,
+          message: 'You already have an appointment booked for this session. Please choose a different session.'
+        });
+      }
+
       specialistBlock = await TimeBlock.deductAppointmentSlot(timeBlockId);
       if (!specialistBlock) {
         return res.status(409).json({
           success: false,
-          message: 'The selected time block is full. Please choose another.'
+          message: 'This appointment slot has already been booked. Please choose another session.'
         });
       }
       const policy = await QueuePolicy.resolveFor(doctor, doctorUser.department);
@@ -565,7 +680,10 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
     } catch (createErr) {
       if (timeBlockId && specialistBlock) await TimeBlock.releaseAppointmentSlot(timeBlockId);
       if (createErr.code === 11000) {
-        return res.status(409).json({ success: false, message: 'You already have an appointment at this time.' });
+        return res.status(409).json({
+          success: false,
+          message: 'This appointment slot has already been booked. Please choose another slot.'
+        });
       }
       throw createErr;
     }
@@ -582,6 +700,22 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
       { path: 'patient', select: 'firstName lastName email phone' },
       { path: 'doctor', select: 'firstName lastName specialization department' }
     ]);
+
+    // Booking confirmation notification — Specialist
+    try {
+      const apptDateStr = new Date(appointmentDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+      const doctorName = `Dr. ${appointment.doctor.firstName} ${appointment.doctor.lastName}`;
+      const tokenInfo = specialistToken ? ` Your token is ${appointment.appointmentToken}.` : '';
+      await Notification.create({
+        recipient: patientId,
+        type: 'appointment-reminder',
+        title: 'Appointment Booked – Confirmation',
+        message: `Your ${appointmentType} appointment with ${doctorName} is confirmed for ${apptDateStr} at ${appointmentTime}.${tokenInfo} Ref: ${appointment.appointmentReference}.`,
+        metadata: { appointmentId: appointment._id, appointmentDate: appointmentDate, appointmentTime: appointmentTime, doctorName }
+      });
+    } catch (notifErr) {
+      console.error('Notification create failed (non-fatal):', notifErr.message);
+    }
 
     const tokenMsg = specialistToken
       ? ` Your appointment token is ${appointment.appointmentToken}. Please arrive by ${appointment.reportingTime}.`
@@ -608,6 +742,68 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
+
+// @desc    Return dates (YYYY-MM-DD) within a window where the patient already has
+//          an active booking for a specific department. Used by the frontend to
+//          highlight/block those dates on the OPD calendar before session selection.
+// @route   GET /api/appointments/booked-dates
+// @access  Private (Patient, Receptionist, Staff, Admin)
+router.get('/booked-dates',
+  auth,
+  authorize('patient', 'receptionist', 'staff', 'admin'),
+  [
+    queryValidator('departmentId').isMongoId().withMessage('Valid departmentId is required'),
+    queryValidator('from').optional().isISO8601(),
+    queryValidator('to').optional().isISO8601(),
+    queryValidator('patientId').optional().isMongoId()
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+      }
+
+      const { departmentId } = req.query;
+
+      // Staff can query on behalf of a patient; patients only see their own data
+      const patientId = (
+        ['receptionist', 'staff', 'admin'].includes(req.user.role) && req.query.patientId
+      ) ? req.query.patientId : req.user.id;
+
+      // Default window: today → 3 months ahead (mirrors the booking UI range)
+      const fromDate = req.query.from ? new Date(req.query.from) : new Date();
+      fromDate.setHours(0, 0, 0, 0);
+      const toDate = req.query.to ? new Date(req.query.to) : (() => {
+        const d = new Date(); d.setMonth(d.getMonth() + 3); return d;
+      })();
+      toDate.setHours(23, 59, 59, 999);
+
+      const appointments = await Appointment.find({
+        patient: patientId,
+        departmentId,
+        appointmentDate: { $gte: fromDate, $lte: toDate },
+        status: { $in: ACTIVE_BOOKING_STATUSES }
+      }).select('appointmentDate appointmentToken timeBlockId').lean();
+
+      // Deduplicate to one entry per calendar date
+      const seen = new Set();
+      const dates = [];
+      for (const a of appointments) {
+        const d = new Date(a.appointmentDate).toISOString().slice(0, 10);
+        if (!seen.has(d)) {
+          seen.add(d);
+          dates.push({ date: d, token: a.appointmentToken || null });
+        }
+      }
+
+      return res.json({ success: true, data: { dates, departmentId } });
+    } catch (error) {
+      console.error('Booked dates error:', error);
+      res.status(500).json({ success: false, message: 'Server error' });
+    }
+  }
+);
 
 // @desc    Get appointment by ID
 // @route   GET /api/appointments/:id
@@ -712,7 +908,7 @@ router.put('/:id', auth, async (req, res) => {
     const canEdit =
       appointment.patient.toString() === req.user.id ||
       (appointment.doctor && appointment.doctor.toString() === req.user.id) ||
-      ['staff', 'admin', 'receptionist'].includes(req.user.role);
+      ['receptionist', 'staff', 'admin'].includes(req.user.role);
 
     if (!canEdit) {
       return res.status(403).json({ success: false, message: 'Not authorized to update this appointment' });
@@ -720,11 +916,11 @@ router.put('/:id', auth, async (req, res) => {
 
     // Allowed fields for update based on role
     const allowedUpdates = {
-      patient:  ['appointmentDate', 'appointmentTime', 'chiefComplaint', 'symptoms', 'notes.patient'],
-      doctor:   ['status', 'notes.doctor', 'prescription', 'vitalSigns', 'diagnosis', 'labTests', 'referrals', 'followUp'],
-      staff:    ['status', 'checkIn', 'room', 'notes.staff'],
-      manager:  ['status', 'room', 'department'],
-      admin:    ['status', 'room', 'department', 'appointmentDate', 'appointmentTime']
+      patient:       ['appointmentDate', 'appointmentTime', 'chiefComplaint', 'symptoms', 'notes.patient'],
+      doctor:        ['status', 'notes.doctor', 'prescription', 'vitalSigns', 'diagnosis', 'labTests', 'referrals', 'followUp'],
+      receptionist:  ['status', 'checkIn', 'room', 'notes.staff'],
+      staff:         ['status', 'checkIn', 'room', 'notes.staff'],
+      admin:         ['status', 'room', 'department', 'appointmentDate', 'appointmentTime']
     };
 
     const userAllowedUpdates = allowedUpdates[req.user.role] || [];
@@ -818,7 +1014,7 @@ router.delete('/:id', auth, async (req, res) => {
     // Check authorization
     const canCancel =
       appointment.patient.toString() === req.user.id ||
-      ['staff', 'admin'].includes(req.user.role);
+      ['receptionist', 'staff', 'admin'].includes(req.user.role);
 
     if (!canCancel) {
       return res.status(403).json({ success: false, message: 'Not authorized to cancel this appointment' });
