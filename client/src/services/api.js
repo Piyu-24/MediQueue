@@ -72,6 +72,8 @@ export const authAPI = {
   verifyEmail: (token) => api.get(`/auth/verify-email/${token}`),
   refreshToken: () => api.post('/auth/refresh'),
   reAuthenticate: (password) => api.post('/auth/re-authenticate', { password }),
+  changePassword: (data) => api.post('/auth/change-password', data),
+  resendVerification: () => api.post('/auth/resend-verification'),
 };
 
 // User API endpoints
@@ -85,11 +87,16 @@ export const userAPI = {
   getDoctors: (params) => api.get('/users/doctors', { params }),
   getDoctorById: (id) => api.get(`/users/doctors/${id}`),
   searchUsers: (query, params) => api.get('/users/search', { params: { q: query || '', ...params } }),
+  getPatientsForVerification: (status) =>
+    api.get('/users/patients/verification', { params: status && status !== 'all' ? { status } : {} }),
+  verifyPatientIdentity: (patientId, data) =>
+    api.put(`/users/patients/${patientId}/verify-identity`, data),
 };
 
 // Admin API endpoints
 export const adminAPI = {
   toggleUserStatus: (userId) => api.patch(`/users/${userId}/toggle-status`),
+  createStaffUser:  (data)   => api.post('/users/staff', data),
 };
 
 // Manager/Health-monitoring API endpoints (now accessible to admin too)
@@ -125,6 +132,10 @@ export const appointmentAPI = {
   getDoctorAppointments: (doctorId, params) => api.get(`/appointments/doctor/${doctorId}`, { params }),
   getPatientAppointments: (patientId, params) => api.get(`/appointments/patient/${patientId}`, { params }),
   getPendingReschedule: () => api.get('/appointments/pending-reschedule'),
+  // Returns dates within the booking window where the patient already has an active
+  // OPD booking for the given department — used to block those dates on the calendar.
+  getBookedDates: (departmentId, patientId) =>
+    api.get('/appointments/booked-dates', { params: { departmentId, ...(patientId && { patientId }) } }),
 };
 
 // Department API endpoints
@@ -133,6 +144,15 @@ export const departmentAPI = {
   getDepartmentById: (id) => api.get(`/departments/${id}`),
   createDepartment: (data) => api.post('/departments', data),
   updateDepartment: (id, data) => api.patch(`/departments/${id}`, data),
+};
+
+// Room API endpoints
+export const roomAPI = {
+  getRooms: (params) => api.get('/rooms', { params }),
+  getDepartmentAutoRoom: (deptId) => api.get(`/rooms/department/${deptId}/auto`),
+  createRoom: (data) => api.post('/rooms', data),
+  updateRoom: (id, data) => api.patch(`/rooms/${id}`, data),
+  deleteRoom: (id) => api.delete(`/rooms/${id}`),
 };
 
 // Time Block API endpoints
@@ -184,13 +204,14 @@ export const leaveAPI = {
 // Medical Records API endpoints
 export const medicalRecordsAPI = {
   getRecords: (patientId) => api.get('/medical-records', { params: { patientId } }),
+  getRecord: (id) => api.get(`/medical-records/${id}`),
+  getPatientRecords: (patientId) => api.get(`/medical-records/patient/${patientId}`),
   createRecord: (recordData) => api.post('/medical-records', recordData),
   updateRecord: (id, recordData) => api.put(`/medical-records/${id}`, recordData),
   deleteRecord: (id) => api.delete(`/medical-records/${id}`),
-  uploadDocument: (recordId, formData) => api.post(`/medical-records/${recordId}/document`, formData, {
+  uploadDocuments: (recordId, formData) => api.post(`/medical-records/${recordId}/documents`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
-  downloadDocument: (recordId, documentId) => api.get(`/medical-records/${recordId}/document/${documentId}`),
 };
 
 // Prescription API endpoints
@@ -261,6 +282,16 @@ export const reportAPI = {
 
 // Alias for backward compatibility
 export const reportsAPI = reportAPI;
+
+// Dispensary API endpoints
+export const dispensaryAPI = {
+  scan:          (data) => api.post('/dispensary/scan', data),
+  getQueue:      ()     => api.get('/dispensary/queue'),
+  sendToDispensary: (id) => api.patch(`/dispensary/prescriptions/${id}/send`),
+  dispense:      (id, data) => api.post(`/dispensary/prescriptions/${id}/dispense`, data),
+  getPrescription: (id) => api.get(`/dispensary/prescriptions/${id}`),
+  getHistory:    (params) => api.get('/dispensary/history', { params }),
+};
 
 // Chatbot API endpoints
 export const chatbotAPI = {

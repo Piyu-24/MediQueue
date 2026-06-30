@@ -38,6 +38,8 @@ const departmentRoutes = require('./routes/departments');
 const timeBlockRoutes = require('./routes/timeBlocks');
 const receptionRoutes = require('./routes/reception');
 const prescriptionRoutes = require('./routes/prescriptions');
+const dispensaryRoutes = require('./routes/dispensary');
+const roomRoutes = require('./routes/rooms');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -57,7 +59,7 @@ const io = new Server(server, {
 // Make io accessible to routes
 app.set('io', io);
 
-// MongoDB Connection
+// MongoDB Connection — server only starts listening after DB is ready
 connectMongo(mongoose)
 .then(async ({ source, fallbackFrom, atlasErrorKind }) => {
   const fallbackNote = fallbackFrom ? ` (fallback from ${fallbackFrom})` : '';
@@ -77,6 +79,26 @@ connectMongo(mongoose)
   } catch (error) {
     console.error('Error migrating manager users:', error.message);
   }
+
+  // Drop the old appointment slot uniqueness index (renamed to unique_active_booking_slot
+  // which now includes 'booked' status). Safe to run on every startup — silent no-op if gone.
+  try {
+    const Appointment = require('./models/Appointment');
+    await Appointment.collection.dropIndex('unique_active_patient_doctor_slot');
+    console.log('Dropped legacy index unique_active_patient_doctor_slot (replaced by unique_active_booking_slot).');
+  } catch {
+    // Index already removed or never existed — nothing to do
+  }
+
+  // Start server only after DB connection is confirmed
+  const PORT = process.env.PORT || 5000;
+  if (process.env.NODE_ENV !== 'test') {
+    server.listen(PORT, () => {
+      console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+      console.log(`API Base URL: http://localhost:${PORT}/api`);
+      console.log(`Health Check: http://localhost:${PORT}/health`);
+    });
+  }
 })
 .catch(err => {
   console.error('MongoDB connection error:', err);
@@ -91,6 +113,8 @@ connectMongo(mongoose)
   } else if (err && err.mongoErrorKind === 'network') {
     console.error('Hint: Network/server selection failure. Check DNS, connectivity, and that the cluster is reachable.');
   }
+
+  process.exit(1);
 });
 
 // Security middleware
@@ -213,6 +237,8 @@ app.use('/api/departments', departmentRoutes);
 app.use('/api/time-blocks', timeBlockRoutes);
 app.use('/api/reception', receptionRoutes);
 app.use('/api/prescriptions', prescriptionRoutes);
+app.use('/api/dispensary', dispensaryRoutes);
+app.use('/api/rooms', roomRoutes);
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
@@ -272,16 +298,6 @@ app.use((req, res, next) => {
 // Error handling middleware
 app.use(notFound);
 app.use(errorHandler);
-
-// Start server
-const PORT = process.env.PORT || 5000;
-if (process.env.NODE_ENV !== 'test') {
-  server.listen(PORT, () => {
-    console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-    console.log(`API Base URL: http://localhost:${PORT}/api`);
-    console.log(`Health Check: http://localhost:${PORT}/health`);
-  });
-}
 
 module.exports = app;
 

@@ -116,13 +116,36 @@ const generateBlocksForRange = async ({
 };
 
 /**
+ * Return true if a time block's booking window has already closed.
+ *
+ * A block is closed only after its end time has passed — patients can still
+ * book into a session that has started but not yet ended.
+ *
+ * @param {string} blockDate   YYYY-MM-DD  (the block's own date field)
+ * @param {string} endTime     HH:MM       (the block's end time)
+ * @param {Date}   [now]       Override for unit testing; defaults to new Date()
+ * @returns {boolean}
+ */
+const isSessionClosed = (blockDate, endTime, now = new Date()) => {
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  if (blockDate !== todayStr) return false; // only today's blocks can be "closed"
+
+  const [eh, em] = endTime.split(':').map(Number);
+  const sessionEndMinutes = eh * 60 + em;
+  const currentMinutes    = now.getHours() * 60 + now.getMinutes();
+  return currentMinutes >= sessionEndMinutes;
+};
+
+/**
  * Get available blocks for appointment booking.
  * Only returns blocks where bookedAppointmentCount < appointmentCapacity.
+ * For today's date, blocks whose start time has already passed are marked CLOSED.
  *
  * @param {string} departmentId
  * @param {string} date           YYYY-MM-DD
  * @param {string|null} doctorId  null = General OPD, set = specialist
- * @returns {Promise<object[]>}   lean blocks with virtuals
+ * @returns {Promise<object[]>}   lean blocks with virtuals, each annotated with
+ *                                 availabilityStatus and remainingSlots
  */
 const getAvailableBlocks = async (departmentId, date, doctorId = null) => {
   const query = {
@@ -135,8 +158,20 @@ const getAvailableBlocks = async (departmentId, date, doctorId = null) => {
 
   const blocks = await TimeBlock.find(query).sort({ startTime: 1 }).lean({ virtuals: true });
 
+  const now = new Date(); // single reference time for the entire batch
+
   // Annotate each block with availability status (mirrors frontend colour coding)
   return blocks.map(b => {
+    // Today's sessions: closed once the session end time has passed
+    if (isSessionClosed(b.date, b.endTime, now)) {
+      return {
+        ...b,
+        remainingSlots:     0,
+        availabilityStatus: 'CLOSED',
+        closedReason:       'Booking window has passed for this session'
+      };
+    }
+
     const remaining = b.appointmentCapacity - b.bookedAppointmentCount;
     let availabilityStatus;
     if (remaining <= 0) {
@@ -190,4 +225,4 @@ const updateBlock = async (blockId, updates) => {
   return block.save();
 };
 
-module.exports = { generateBlocksForRange, getAvailableBlocks, createBlock, updateBlock, splitCapacity };
+module.exports = { generateBlocksForRange, getAvailableBlocks, createBlock, updateBlock, splitCapacity, isSessionClosed };

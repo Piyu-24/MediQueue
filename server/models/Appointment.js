@@ -260,7 +260,17 @@ const appointmentSchema = new mongoose.Schema({
   bookingType: {
     type: String,
     enum: ['general_opd', 'specialist'],
-    default: 'specialist'
+    default: 'general_opd'
+  },
+
+  // ── Room Assignment (set at check-in, not booking) ───────────────────────────
+  // References the Room document for the consultation room assigned to this appointment.
+  assignedRoom: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Room',
+    default: null,
+    index: true,
+    sparse: true
   },
 
   // ── Reporting Time ────────────────────────────────────────────────────────────
@@ -336,6 +346,9 @@ appointmentSchema.index({
 
 // Partial unique index — prevents same patient booking same doctor/date/time
 // while any active appointment exists. Cancelled/completed/no-show are excluded.
+// 'booked' is included so the new token-based flow is covered.
+// Index renamed from unique_active_patient_doctor_slot to v2 to force recreation
+// when upgrading — run: db.appointments.dropIndex('unique_active_patient_doctor_slot')
 appointmentSchema.index(
   { patient: 1, doctor: 1, appointmentDate: 1, appointmentTime: 1 },
   {
@@ -343,12 +356,13 @@ appointmentSchema.index(
     partialFilterExpression: {
       status: {
         $in: [
+          'booked',
           'scheduled', 'confirmed', 'checked_in', 'in_queue',
           'in_consultation', 'in-progress', 'late', 'delayed', 'skipped'
         ]
       }
     },
-    name: 'unique_active_patient_doctor_slot'
+    name: 'unique_active_booking_slot'
   }
 );
 
@@ -396,11 +410,37 @@ appointmentSchema.pre('save', function(next) {
   next();
 });
 
-// All statuses that occupy a slot (conflict-causing)
+// All statuses that occupy a slot (conflict-causing).
+// 'booked' must be included: it is the initial status for new-flow appointments
+// (block-based OPD and specialist+token). Without it, a second booking for the
+// same slot would not detect the first one as a conflict.
 const ACTIVE_CONFLICT_STATUSES = [
+  'booked',
   'scheduled', 'confirmed', 'checked_in', 'in_queue',
   'in-progress', 'in_consultation', 'late', 'delayed', 'skipped'
 ];
+
+// Partial unique index — prevents same patient booking the same time block twice
+// (covers both General OPD and specialist+block concurrency).
+// Sparse: appointments without a timeBlockId are excluded entirely.
+appointmentSchema.index(
+  { patient: 1, timeBlockId: 1 },
+  {
+    unique: true,
+    sparse: true,
+    partialFilterExpression: {
+      timeBlockId: { $exists: true, $ne: null },
+      status: {
+        $in: [
+          'booked',
+          'scheduled', 'confirmed', 'checked_in', 'in_queue',
+          'in_consultation', 'in-progress', 'late', 'delayed', 'skipped'
+        ]
+      }
+    },
+    name: 'unique_active_patient_timeblock'
+  }
+);
 
 // Static method to find booked slots for a doctor (availability display)
 appointmentSchema.statics.findAvailableSlots = async function(doctorId, date) {
@@ -461,6 +501,25 @@ appointmentSchema.statics.hasPatientConflict = async function(patientId, date, t
 
   const existing = await this.find(query).select('appointmentTime duration');
   return _overlapsAny(time, duration, existing);
+};
+
+/**
+ * Check whether a patient already has an active booking for the same time block.
+ * Used to prevent duplicate OPD / specialist+block bookings before slot deduction.
+ *
+ * @param {string} patientId
+ * @param {string} timeBlockId
+ * @param {string|null} excludeId — exclude this appointment (for future reschedule flows)
+ * @returns {Promise<boolean>}
+ */
+appointmentSchema.statics.hasOPDDuplicate = async function(patientId, timeBlockId, excludeId = null) {
+  const query = {
+    patient: patientId,
+    timeBlockId,
+    status: { $in: ACTIVE_CONFLICT_STATUSES }
+  };
+  if (excludeId) query._id = { $ne: excludeId };
+  return (await this.countDocuments(query)) > 0;
 };
 
 /** Return true if [time, time+duration) overlaps any appointment in the list. */

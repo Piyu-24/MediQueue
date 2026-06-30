@@ -1,11 +1,29 @@
-const express = require('express');
+const express    = require('express');
 const { body, validationResult } = require('express-validator');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-const User = require('../models/User');
-const auth = require('../middleware/auth');
-const authorize = require('../middleware/authorize');
+const multer     = require('multer');
+const path       = require('path');
+const fs         = require('fs');
+const crypto     = require('crypto');
+const User       = require('../models/User');
+const AuditLog   = require('../models/AuditLog');
+const auth       = require('../middleware/auth');
+const authorize  = require('../middleware/authorize');
+const sendEmail  = require('../utils/sendEmail');
+
+async function writeAuditLog({ userId, userRole, action, resourceId, ipAddress, userAgent, status = 'SUCCESS', description, metadata }) {
+  try {
+    await AuditLog.createLog({
+      userId, userRole, action,
+      resourceType: 'User',
+      resourceId: resourceId || userId,
+      ipAddress: ipAddress || 'unknown',
+      userAgent: userAgent || 'unknown',
+      status, description, metadata,
+    });
+  } catch (err) {
+    console.error('Audit log write failed:', err.message);
+  }
+}
 
 const router = express.Router();
 
@@ -453,7 +471,8 @@ router.put('/:id/profile', auth, [
   body('phone').optional().matches(/^\+?[\d\s-()]+$/),
   body('dateOfBirth').optional().isISO8601(),
   body('gender').optional().isIn(['male', 'female', 'other', 'prefer-not-to-say']),
-  body('availability').optional().isObject()
+  body('availability').optional().isObject(),
+  body('email').optional().isEmail().normalizeEmail({ gmail_remove_dots: false }).withMessage('Invalid email address')
 ], async (req, res) => {
   try {
     // Check if user is updating their own profile or is admin/manager
@@ -473,11 +492,59 @@ router.put('/:id/profile', auth, [
       });
     }
 
-    console.log('Updating user profile with data:', JSON.stringify(req.body, null, 2));
+    // Allowlisted fields — never accept role, isActive, password, or verification status from body
+    const SHARED_FIELDS = ['firstName', 'lastName', 'phone', 'phoneNumber', 'address', 'dateOfBirth', 'gender'];
+    const DOCTOR_FIELDS = [
+      'specialization', 'department', 'licenseNumber', 'yearsOfExperience',
+      'qualification', 'qualifications', 'consultationFee', 'bio',
+      'languages', 'workingDays', 'workingHours', 'availability', 'experience',
+    ];
+    const STAFF_FIELDS  = ['department', 'employeeId', 'joiningDate'];
+
+    const targetUser = await User.findById(req.params.id).select('role');
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const allowedFields = [...SHARED_FIELDS];
+    if (targetUser.role === 'doctor')                                         allowedFields.push(...DOCTOR_FIELDS);
+    if (['staff', 'receptionist', 'pharmacist', 'admin'].includes(targetUser.role)) allowedFields.push(...STAFF_FIELDS);
+    if (targetUser.role === 'patient')                                        allowedFields.push('medicalInfo', 'emergencyContact');
+
+    const updateData = {};
+    allowedFields.forEach(f => {
+      if (req.body[f] !== undefined) updateData[f] = req.body[f];
+    });
+
+    // Email change — patients only, with uniqueness check + verification token + email send
+    let pendingVerificationEmail = null; // { to, url } — set when an email needs sending
+    if (targetUser.role === 'patient' && req.body.email !== undefined) {
+      const newEmail = req.body.email.trim().toLowerCase();
+      const current  = await User.findById(req.params.id).select('email');
+      if (current && newEmail !== current.email) {
+        const taken = await User.findOne({ email: newEmail, _id: { $ne: req.params.id } });
+        if (taken) {
+          return res.status(409).json({ success: false, message: 'This email address is already in use.' });
+        }
+        // Generate a fresh verification token for the new address
+        const rawToken    = crypto.randomBytes(32).toString('hex');
+        const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+        updateData.email                   = newEmail;
+        updateData.isEmailVerified         = false;
+        updateData.emailVerificationToken  = hashedToken;
+        updateData.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000;
+
+        pendingVerificationEmail = {
+          to:  newEmail,
+          url: `${process.env.CLIENT_URL}/verify-email/${rawToken}`,
+        };
+      }
+    }
 
     const user = await User.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      { $set: updateData },
       { new: true, runValidators: true }
     ).select('-password');
 
@@ -488,10 +555,29 @@ router.put('/:id/profile', auth, [
       });
     }
 
+    // Send verification email to the new address (after DB write succeeds)
+    let emailVerificationSent = false;
+    if (pendingVerificationEmail) {
+      try {
+        await sendEmail({
+          email:   pendingVerificationEmail.to,
+          subject: 'MediQueue — Verify Your New Email Address',
+          message: `Your MediQueue email address has been changed.\n\nPlease verify your new address by clicking the link below:\n\n${pendingVerificationEmail.url}\n\nThis link expires in 24 hours.\n\nIf you did not request this change, please contact us immediately.`,
+        });
+        emailVerificationSent = true;
+      } catch (emailErr) {
+        console.error('Verification email send failed:', emailErr.message);
+        // Roll back the token so the resend-verification cooldown does not block the user
+        await User.findByIdAndUpdate(req.params.id, {
+          $unset: { emailVerificationToken: 1, emailVerificationExpires: 1 },
+        });
+      }
+    }
+
     res.json({
       success: true,
       message: 'Profile updated successfully',
-      data: { user }
+      data: { user, emailVerificationSent },
     });
   } catch (error) {
     console.error('Update user profile error:', error);
@@ -569,7 +655,8 @@ router.get('/patients/verification', auth, authorize('staff', 'receptionist', 'a
     }
 
     const patients = await User.find(filters)
-      .select('firstName lastName email phone dateOfBirth nicNumber nicDocument identityVerificationStatus verificationNote verifiedBy verifiedAt')
+      .select('firstName lastName email phone dateOfBirth nicNumber nicDocument identityVerificationStatus verificationNote verifiedBy verifiedAt registeredBy verificationMethod createdAt')
+      .populate('verifiedBy', 'firstName lastName role')
       .sort({ createdAt: -1 });
 
     console.log(`Found ${patients.length} patients for verification`);
@@ -591,10 +678,10 @@ router.get('/patients/verification', auth, authorize('staff', 'receptionist', 'a
 
 // @desc    Verify patient identity
 // @route   PUT /api/users/patients/:id/verify-identity
-// @access  Private (Manager, Staff, Receptionist)
+// @access  Private (Staff, Receptionist, Admin)
 router.put('/patients/:id/verify-identity', auth, authorize('staff', 'receptionist', 'admin'), async (req, res) => {
   try {
-    const { verificationStatus, verificationNote } = req.body;
+    const { verificationStatus, verificationNote, verificationMethod = 'NIC_SEEN' } = req.body;
 
     if (!['verified', 'rejected', 'pending'].includes(verificationStatus)) {
       return res.status(400).json({
@@ -603,16 +690,23 @@ router.put('/patients/:id/verify-identity', auth, authorize('staff', 'receptioni
       });
     }
 
+    const updateFields = {
+      identityVerificationStatus: verificationStatus,
+      verificationNote: verificationNote || '',
+      verifiedBy: req.user.id,
+      verifiedAt: new Date(),
+    };
+
+    // Only record verificationMethod when actually verifying (not when resetting to pending)
+    if (verificationStatus === 'verified') {
+      updateFields.verificationMethod = verificationMethod;
+    }
+
     const patient = await User.findOneAndUpdate(
       { _id: req.params.id, role: 'patient' },
-      {
-        identityVerificationStatus: verificationStatus,
-        verificationNote: verificationNote || '',
-        verifiedBy: req.user.id,
-        verifiedAt: new Date()
-      },
+      updateFields,
       { new: true, runValidators: true }
-    ).select('firstName lastName email identityVerificationStatus verificationNote');
+    ).select('firstName lastName email identityVerificationStatus verificationNote verificationMethod');
 
     if (!patient) {
       return res.status(404).json({
@@ -620,6 +714,23 @@ router.put('/patients/:id/verify-identity', auth, authorize('staff', 'receptioni
         message: 'Patient not found'
       });
     }
+
+    // Audit log
+    await writeAuditLog({
+      userId:      req.user.id,
+      userRole:    req.user.role,
+      action:      verificationStatus === 'verified' ? 'VERIFY_IDENTITY' : 'REJECT_IDENTITY',
+      resourceId:  patient._id,
+      ipAddress:   req.ip,
+      userAgent:   req.headers['user-agent'],
+      status:      'SUCCESS',
+      description: `Patient identity ${verificationStatus} for ${patient.firstName} ${patient.lastName}`,
+      metadata: {
+        patientId:          patient._id.toString(),
+        verificationStatus,
+        verificationMethod: verificationStatus === 'verified' ? verificationMethod : null,
+      },
+    });
 
     res.json({
       success: true,
@@ -684,6 +795,149 @@ router.get('/verify-health-card/:healthCardId', auth, authorize('staff', 'recept
       message: 'Server error',
       error: error.message
     });
+  }
+});
+
+// @desc    Create a staff/doctor/pharmacist user account (admin only)
+// @route   POST /api/users/staff
+// @access  Private (Admin only)
+router.post('/staff', auth, authorize('admin'), [
+  body('firstName').trim().notEmpty().withMessage('First name is required').isLength({ max: 50 }),
+  body('lastName').trim().notEmpty().withMessage('Last name is required').isLength({ max: 50 }),
+  body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
+  body('phone').optional({ checkFalsy: true }).matches(/^\+?[\d\s\-()]+$/).withMessage('Invalid phone number'),
+  body('role').isIn(['doctor', 'staff', 'receptionist', 'pharmacist', 'admin']).withMessage('Invalid role'),
+  body('department').optional({ checkFalsy: true }).trim(),
+  body('specialization').optional({ checkFalsy: true }).trim(),
+  // Doctor & pharmacist: license required
+  body('licenseNumber')
+    .if(body('role').isIn(['doctor', 'pharmacist']))
+    .notEmpty().withMessage('License number is required for doctors and pharmacists')
+    .matches(/^[A-Z0-9\/\-]+$/i).withMessage('License number may only contain letters, numbers, hyphens and slashes'),
+  // Doctor-only fields
+  body('qualification').optional({ checkFalsy: true }).trim().isLength({ max: 100 }),
+  body('yearsOfExperience')
+    .optional({ checkFalsy: true })
+    .isInt({ min: 0, max: 60 }).withMessage('Years of experience must be between 0 and 60'),
+  body('consultationFee')
+    .optional({ checkFalsy: true })
+    .isFloat({ min: 0 }).withMessage('Consultation fee must be a positive number'),
+  body('bio').optional({ checkFalsy: true }).trim().isLength({ max: 1000 }),
+  body('employeeId').optional({ checkFalsy: true }).trim(),
+  body('joiningDate').optional({ checkFalsy: true }).isISO8601().withMessage('Invalid joining date'),
+  body('password').optional({ checkFalsy: true })
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/)
+    .withMessage('Password must contain uppercase, lowercase, number and special character (@$!%*?&)')
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, message: errors.array()[0].msg, errors: errors.array() });
+  }
+
+  try {
+    const {
+      firstName, lastName, email, phone, role, department, specialization, password,
+      licenseNumber, qualification, yearsOfExperience, consultationFee, bio, employeeId, joiningDate,
+    } = req.body;
+
+    const existing = await User.findOne({ email });
+    if (existing) {
+      return res.status(409).json({ success: false, message: 'An account with this email already exists.' });
+    }
+
+    // Auto-generate a policy-compliant password if none provided
+    const chars = 'abcdefghijklmnopqrstuvwxyz';
+    const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const digits = '0123456789';
+    const specials = '@$!%*?&';
+    const rand = (s) => s[Math.floor(Math.random() * s.length)];
+    const autoPassword = password || (
+      rand(upper) + rand(upper) +
+      rand(chars) + rand(chars) + rand(chars) +
+      rand(digits) + rand(digits) +
+      rand(specials)
+    );
+
+    const bcrypt = require('bcryptjs');
+    const hashed = await bcrypt.hash(autoPassword, 10);
+
+    const userData = {
+      firstName: firstName.trim(),
+      lastName:  lastName.trim(),
+      email,
+      password:  hashed,
+      role,
+      isActive:        true,
+      isEmailVerified: true,
+      identityVerificationStatus: 'verified',
+      // Professional credentials start as pending — admin must verify externally
+      credentialVerificationStatus: (role === 'doctor' || role === 'pharmacist') ? 'pending' : 'verified',
+    };
+
+    // Common optional fields
+    if (phone)      userData.phone      = phone.trim();
+    if (department) userData.department = department.trim();
+    if (employeeId) userData.employeeId = employeeId.trim();
+    if (joiningDate) userData.joiningDate = joiningDate;
+
+    // Doctor-specific fields
+    if (role === 'doctor') {
+      if (specialization)    userData.specialization    = specialization.trim();
+      if (licenseNumber)     userData.licenseNumber     = licenseNumber.trim().toUpperCase();
+      if (qualification)     userData.qualification     = qualification.trim();
+      if (yearsOfExperience !== undefined && yearsOfExperience !== '') {
+        userData.yearsOfExperience = Number(yearsOfExperience);
+      }
+      if (consultationFee !== undefined && consultationFee !== '') {
+        userData.consultationFee = Number(consultationFee);
+      }
+      if (bio) userData.bio = bio.trim();
+    }
+
+    // Pharmacist fields
+    if (role === 'pharmacist') {
+      if (licenseNumber) userData.licenseNumber = licenseNumber.trim().toUpperCase();
+      userData.department = department?.trim() || 'Pharmacy';
+    }
+
+    const user = await User.create(userData);
+
+    await writeAuditLog({
+      userId:      req.user.id,
+      userRole:    req.user.role,
+      action:      'CREATE_STAFF_USER',
+      resourceId:  user._id,
+      ipAddress:   req.ip,
+      userAgent:   req.headers['user-agent'],
+      status:      'SUCCESS',
+      description: `Admin created ${role} account for ${email}`,
+      metadata:    { createdRole: role, createdUserId: user._id.toString() },
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Account created for ${firstName} ${lastName}.`,
+      data: {
+        user: {
+          _id:       user._id,
+          firstName: user.firstName,
+          lastName:  user.lastName,
+          email:     user.email,
+          role:      user.role,
+          isActive:  user.isActive,
+          createdAt: user.createdAt,
+          credentialVerificationStatus: user.credentialVerificationStatus,
+        },
+        temporaryPassword: password ? null : autoPassword,
+      }
+    });
+  } catch (err) {
+    console.error('Create staff user error:', err);
+    if (err.code === 11000) {
+      return res.status(409).json({ success: false, message: 'An account with this email already exists.' });
+    }
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 

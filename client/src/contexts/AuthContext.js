@@ -109,7 +109,7 @@ export const AuthProvider = ({ children }) => {
         const { user, token } = authData;
         tokenStorage.setToken(token);
         dispatch({ type: 'AUTH_SUCCESS', payload: { user, token } });
-        toast.success('Registration successful! Please check your email for verification.');
+        toast.success('Registration successful!');
         return { success: true, user };
       } else {
         throw new Error(response.data.message || 'Registration failed');

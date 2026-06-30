@@ -44,6 +44,9 @@ import ReceptionistDashboard from './pages/receptionist/ReceptionistDashboard';
 // Admin Pages
 import AdminDashboard from './pages/admin/DashboardFull';
 
+// Dispensary Pages
+import DispensaryDashboard from './pages/dispensary/DispensaryDashboard';
+
 // Shared Pages
 import AppointmentDetails from './pages/AppointmentDetails';
 
@@ -124,7 +127,8 @@ const PublicRoute = ({ children }) => {
       doctor: '/doctor/dashboard',
       staff: '/staff/dashboard',
       receptionist: '/receptionist/dashboard',
-      admin: '/admin/dashboard'
+      admin: '/admin/dashboard',
+      pharmacist: '/dispensary/dashboard'
     };
     return <Navigate to={roleRoutes[user.role] || '/dashboard'} replace />;
   }
@@ -231,7 +235,7 @@ function App() {
               } />
               
               <Route path="/profile" element={
-                <ProtectedRoute allowedRoles={['patient', 'doctor', 'staff', 'receptionist', 'admin']}>
+                <ProtectedRoute allowedRoles={['patient', 'doctor', 'staff', 'receptionist', 'admin', 'pharmacist']}>
                   <Layout>
                     <Profile />
                   </Layout>
@@ -239,7 +243,7 @@ function App() {
               } />
 
               <Route path="/profile/edit" element={
-                <ProtectedRoute allowedRoles={['patient', 'doctor', 'staff', 'receptionist', 'admin']}>
+                <ProtectedRoute allowedRoles={['patient', 'doctor', 'staff', 'receptionist', 'admin', 'pharmacist']}>
                   <Layout>
                     <ProfileEditor />
                   </Layout>
@@ -313,6 +317,17 @@ function App() {
                   <ErrorBoundary>
                     <Layout>
                       <ReceptionistDashboard />
+                    </Layout>
+                  </ErrorBoundary>
+                </ProtectedRoute>
+              } />
+
+              {/* Dispensary Routes */}
+              <Route path="/dispensary/dashboard" element={
+                <ProtectedRoute allowedRoles={['pharmacist', 'admin', 'staff']}>
+                  <ErrorBoundary>
+                    <Layout>
+                      <DispensaryDashboard />
                     </Layout>
                   </ErrorBoundary>
                 </ProtectedRoute>

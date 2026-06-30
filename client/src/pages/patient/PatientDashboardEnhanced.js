@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   CalendarIcon,
   DocumentTextIcon,
@@ -11,7 +11,8 @@ import {
   UserCircleIcon,
   ShieldCheckIcon,
   XMarkIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  EnvelopeIcon,
 } from '@heroicons/react/24/outline';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -20,7 +21,6 @@ import socketService from '../../services/socket';
 import HealthCardDisplay from '../../components/HealthCard/HealthCardDisplay';
 import AppointmentBooking from './AppointmentBooking';
 import MedicalRecords from './MedicalRecords';
-import NICVerification from '../../components/Patient/NICVerification';
 import toast from 'react-hot-toast';
 
 const PatientDashboardEnhanced = () => {
@@ -46,7 +46,6 @@ const PatientDashboardEnhanced = () => {
   // Cancellation modal state
   const [cancelModal, setCancelModal] = useState({ open: false, appointmentId: null, appointmentTitle: '' });
   const [cancelling, setCancelling] = useState(false);
-  const isFetchingRef = useRef(false);
 
   // Tab configuration
   const tabs = [
@@ -55,8 +54,28 @@ const PatientDashboardEnhanced = () => {
     { id: 'appointments', name: 'My Appointments', icon: ClockIcon },
     { id: 'health-card', name: 'Health Card', icon: QrCodeIcon },
     { id: 'documents', name: 'Medical Records', icon: DocumentTextIcon },
-    { id: 'profile', name: 'Profile & Verification', icon: UserCircleIcon }
   ];
+
+  // Handle redirect from email-change on Profile page
+  useEffect(() => {
+    const state = location.state;
+    if (state?.emailChanged) {
+      if (state.emailVerificationSent) {
+        toast.success(
+          `Email updated to ${state.newEmail}. A verification link was sent — check that inbox.`,
+          { duration: 8000 }
+        );
+      } else {
+        toast.error(
+          `Email updated to ${state.newEmail}, but the verification email could not be sent. Use the button below to resend.`,
+          { duration: 8000 }
+        );
+      }
+      // Clear the navigation state so the toast doesn't re-appear on refresh
+      window.history.replaceState({}, '', location.pathname + location.search);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle URL parameters for tab navigation
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -140,6 +159,7 @@ const PatientDashboardEnhanced = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?._id]);
 
+
   const fetchQueueStatus = useCallback(async () => {
     try {
       setQueueLoading(true);
@@ -162,16 +182,13 @@ const PatientDashboardEnhanced = () => {
       
       // Fetch appointments - get all statuses to show both upcoming and history
       const appointmentsRes = await appointmentAPI.getAppointments({
-        status: 'booked,scheduled,confirmed,cancelled,completed,no-show,doctor-unavailable'
+        status: 'booked,scheduled,confirmed,cancelled,completed,no-show,doctor-unavailable,in_consultation,in_queue,checked_in'
       });
       
       if (appointmentsRes.data.success) {
         const allAppts = appointmentsRes.data.data.appointments || [];
         setAppointments(allAppts);
-        
-        console.log('All appointments:', allAppts);
-        console.log('Cancelled appointments:', allAppts.filter(apt => apt.status === 'cancelled'));
-        
+
         // Update stats - count only active upcoming appointments (future date/time)
         const now = new Date();
         
@@ -225,11 +242,19 @@ const PatientDashboardEnhanced = () => {
   // Format date
   const formatDate = (dateString) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric' 
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
     });
+  };
+
+  const isToday = (dateStr) => {
+    const d = new Date(dateStr);
+    const t = new Date();
+    return d.getFullYear() === t.getFullYear() &&
+      d.getMonth() === t.getMonth() &&
+      d.getDate() === t.getDate();
   };
 
   // Handle appointment cancellation — requires >2 hours in the future
@@ -351,6 +376,7 @@ const PatientDashboardEnhanced = () => {
             
           </div>
         </div>
+
 
         {unavailableAppointments.length > 0 && (
           <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
@@ -554,6 +580,96 @@ const PatientDashboardEnhanced = () => {
                 </div>
               </div>
             </div>
+
+            {/* Today's Appointments */}
+            {(() => {
+              const statusConfig = {
+                in_consultation: { label: '🩺 In Consultation', badge: 'bg-purple-100 text-purple-800', border: 'border-purple-200', bg: 'from-purple-50 to-white' },
+                in_queue:        { label: 'In Queue',           badge: 'bg-teal-100 text-teal-800',   border: 'border-teal-200',   bg: 'from-teal-50 to-white'   },
+                checked_in:      { label: 'Checked In',         badge: 'bg-blue-100 text-blue-800',   border: 'border-blue-200',   bg: 'from-blue-50 to-white'   },
+                confirmed:       { label: 'Confirmed',          badge: 'bg-green-100 text-green-800', border: 'border-green-200',  bg: 'from-green-50 to-white'  },
+                scheduled:       { label: 'Scheduled',          badge: 'bg-gray-100 text-gray-700',   border: 'border-gray-200',   bg: 'from-gray-50 to-white'   },
+                booked:          { label: 'Booked',             badge: 'bg-gray-100 text-gray-700',   border: 'border-gray-200',   bg: 'from-gray-50 to-white'   },
+              };
+              const todayAppts = appointments.filter(apt =>
+                isToday(apt.appointmentDate) &&
+                !['cancelled', 'completed', 'no-show'].includes(apt.status)
+              );
+              if (todayAppts.length === 0) return null;
+              return (
+                <div className="bg-white rounded-2xl shadow-xl border border-gray-100 mb-8">
+                  <div className="p-6 border-b border-gray-100">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center">
+                        <CalendarIcon className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold text-gray-900">Today's Appointments</h2>
+                        <p className="text-sm text-emerald-600 font-medium">
+                          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-6 space-y-4">
+                    {todayAppts.map((appointment) => {
+                      const cfg = statusConfig[appointment.status] || statusConfig.scheduled;
+                      return (
+                        <div
+                          key={appointment._id}
+                          className={`bg-gradient-to-r ${cfg.bg} border-2 ${cfg.border} p-5 rounded-2xl hover:shadow-md transition-all duration-300`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-4">
+                              <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-md flex-shrink-0">
+                                <UserIcon className="w-6 h-6 text-white" />
+                              </div>
+                              <div>
+                                <h3 className="text-base font-bold text-gray-900">
+                                  {appointment.doctor
+                                    ? `Dr. ${appointment.doctor.firstName} ${appointment.doctor.lastName}`
+                                    : appointment.department || 'General OPD'}
+                                </h3>
+                                <p className="text-sm text-gray-500 mb-1.5">
+                                  {appointment.doctor?.specialization && `${appointment.doctor.specialization} · `}{appointment.appointmentType}
+                                </p>
+                                <div className="flex items-center flex-wrap gap-2">
+                                  {appointment.appointmentTime && (
+                                    <div className="flex items-center space-x-1">
+                                      <ClockIcon className="w-3.5 h-3.5 text-gray-400" />
+                                      <span className="text-sm text-gray-600 font-medium">{appointment.appointmentTime}</span>
+                                    </div>
+                                  )}
+                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${cfg.badge}`}>
+                                    {cfg.label}
+                                  </span>
+                                  {appointment.appointmentToken && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-600 text-white">
+                                      🎫 {appointment.appointmentToken}
+                                    </span>
+                                  )}
+                                  {appointment.appointmentReference && (
+                                    <span className="text-xs text-gray-400 font-mono bg-gray-100 px-2 py-0.5 rounded">
+                                      {appointment.appointmentReference}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => navigate(`/appointments/${appointment._id}`)}
+                              className="px-4 py-2 bg-white text-emerald-600 border-2 border-emerald-200 rounded-xl hover:bg-emerald-50 transition-colors font-semibold text-sm shadow-sm flex-shrink-0"
+                            >
+                              View
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Upcoming Appointments */}
             <div className="bg-white rounded-2xl shadow-xl border border-gray-100 mb-8">
@@ -764,7 +880,7 @@ const PatientDashboardEnhanced = () => {
               </button>
 
               <button
-                onClick={() => setActiveTab('profile')}
+                onClick={() => navigate('/profile')}
                 className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 text-left"
               >
                 <div className="flex items-center space-x-4">
@@ -821,9 +937,12 @@ const PatientDashboardEnhanced = () => {
                       const upcomingAppts = appointments.filter(apt => {
                         // Combine date and time for accurate comparison
                         const apptDate = new Date(apt.appointmentDate);
-                        const [hours, minutes] = apt.appointmentTime.split(':');
-                        apptDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-                        
+                        if (apt.appointmentTime) {
+                          const [hours, minutes] = apt.appointmentTime.split(':');
+                          apptDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+                        } else {
+                          apptDate.setHours(23, 59, 59, 999);
+                        }
                         return apptDate > now && !['cancelled', 'completed', 'no-show'].includes(apt.status);
                       });
                       
@@ -941,7 +1060,9 @@ const PatientDashboardEnhanced = () => {
                                       appointment.status === 'no-show' ? 'bg-orange-100 text-orange-800' :
                                       'bg-gray-100 text-gray-800'
                                     }`}>
-                                      {appointment.status}
+                                      {appointment.status === 'no-show' ? 'No Show' :
+                                       appointment.status === 'doctor-unavailable' ? 'Doctor Unavailable' :
+                                       appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
                                     </span>
                                   </div>
                                 </div>
@@ -979,12 +1100,6 @@ const PatientDashboardEnhanced = () => {
           </div>
         )}
 
-        {/* Profile & Verification Tab */}
-        {activeTab === 'profile' && (
-          <div className="space-y-6">
-            <NICVerification />
-          </div>
-        )}
       </div>
     </div>
   );

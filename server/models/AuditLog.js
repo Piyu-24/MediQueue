@@ -14,7 +14,7 @@ const auditLogSchema = new mongoose.Schema({
   },
   userRole: {
     type: String,
-    enum: ['patient', 'doctor', 'staff', 'admin', 'receptionist'],
+    enum: ['patient', 'doctor', 'staff', 'admin', 'receptionist', 'pharmacist'],
     required: [true, 'User role is required']
   },
   
@@ -58,7 +58,13 @@ const auditLogSchema = new mongoose.Schema({
       'CREATE_MEDICAL_RECORD',
       // Doctor leave actions
       'DOCTOR_LEAVE_SUBMITTED',
-      'PATIENT_NOTIFIED_LEAVE'
+      'PATIENT_NOTIFIED_LEAVE',
+      // Identity verification actions
+      'VERIFY_IDENTITY',
+      'REJECT_IDENTITY',
+      'PATIENT_SELF_REGISTERED',
+      'PATIENT_REGISTERED_BY_RECEPTION',
+      'CREATE_STAFF_USER'
     ],
     required: [true, 'Action is required'],
     index: true
