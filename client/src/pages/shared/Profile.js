@@ -205,6 +205,10 @@ const Profile = () => {
   if (loading) return <LoadingSpinner />;
   if (!user) return null;
 
+  const handleEditClick = () => {
+    navigate('/profile/edit');
+  };
+
   const toggleOpen = () => {
     setPwOpen(prev => !prev);
     setForm(INITIAL_FORM);
