@@ -64,9 +64,7 @@ const printQueueSlip = (queueEntry, isWalkIn = false) => {
 
   const tokenColor = tokenType === 'E' ? '#dc2626' : tokenType === 'W' ? '#d97706' : '#2563eb';
   const patientTypeLabel = tokenType === 'E' ? 'Emergency' : tokenType === 'W' ? 'Walk-in' : 'Appointment';
-  const importantMsg = (tokenType === 'W')
-    ? 'Your token number is used for calling. Appointment patients and emergency cases may be prioritized according to hospital policy. Please watch the display board.'
-    : 'Your token number is used for calling. Your selected time is a planned priority window. Live queue order may vary due to emergency cases, doctor availability, and consultation duration. Please watch the display board.';
+  const importantMsg = 'Please wait until your token number is displayed or announced.\nQueue order may change due to emergency cases or consultation duration.\n\nThank you.';
 
   const slipHTML = `
     <html><head><title>Queue Token Slip</title>
@@ -79,7 +77,7 @@ const printQueueSlip = (queueEntry, isWalkIn = false) => {
       .value { font-weight: 600; color: #1f2937; }
       .title { font-size: 18px; font-weight: bold; color: #1f2937; }
       .sub { font-size: 11px; color: #9ca3af; }
-      .msg { font-size: 11px; color: #374151; margin-top: 8px; line-height: 1.4; border: 1px solid #e5e7eb; padding: 8px; border-radius: 4px; text-align: left; }
+      .msg { font-size: 11px; color: #374151; margin-top: 8px; line-height: 1.4; border: 1px solid #e5e7eb; padding: 8px; border-radius: 4px; text-align: left; white-space: pre-line; }
       .badge { display: inline-block; background: ${tokenColor}20; color: ${tokenColor}; font-size: 11px; font-weight: bold; padding: 2px 10px; border-radius: 20px; margin-bottom: 4px; }
     </style></head>
     <body onload="window.print();window.close()">
@@ -94,8 +92,6 @@ const printQueueSlip = (queueEntry, isWalkIn = false) => {
       <div class="row"><span class="label">Room:</span><span class="value">${room}</span></div>
       <div class="row"><span class="label">Department:</span><span class="value">${department}</span></div>
       ${appointment?.appointmentTime ? `<div class="row"><span class="label">Appt. Time:</span><span class="value">${appointment.appointmentTime}</span></div>` : ''}
-      <div class="row"><span class="label">Checked In:</span><span class="value">${time}</span></div>
-      <div class="row"><span class="label">Est. Wait:</span><span class="value">~${estimatedWaitMinutes || '?'} min</span></div>
       <div class="divider"></div>
       <div class="msg">${importantMsg}</div>
     </body></html>
