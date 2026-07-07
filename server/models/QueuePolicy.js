@@ -86,6 +86,86 @@ const queuePolicySchema = new mongoose.Schema({
     default: true
   },
 
+  // ── Dynamic Queue Policy (v2) ─────────────────────────────────────────────
+  /** Master toggle — when false the engine falls back to legacy priorityScore sort */
+  queueRecalculationEnabled: {
+    type: Boolean,
+    default: true
+  },
+  /** Protects the in_consultation entry from being moved by recalculation */
+  currentConsultationLocked: {
+    type: Boolean,
+    default: true
+  },
+  /** Enable the emergency priority zone (next-to-call after current consultation) */
+  emergencyPriorityEnabled: {
+    type: Boolean,
+    default: true
+  },
+  /**
+   * Where emergency patients are placed:
+   *   'after_current_before_ready' — between current consultation and ready zone (default)
+   */
+  emergencyPlacement: {
+    type: String,
+    enum: ['after_current_before_ready'],
+    default: 'after_current_before_ready'
+  },
+  /** Emergency patients do NOT automatically interrupt the current consultation */
+  emergencyInterruptsCurrentConsultation: {
+    type: Boolean,
+    default: false
+  },
+  /** Ready-zone patients are not reordered during normal appointment/walk-in recalculation */
+  readyZoneLockedForNormalPatients: {
+    type: Boolean,
+    default: true
+  },
+  /** Emergency patients are allowed to shift the ready zone down */
+  readyZoneCanBeShiftedByEmergency: {
+    type: Boolean,
+    default: true
+  },
+  /** Enable ratio-based fairness mixing between appointment and walk-in patients */
+  appointmentWalkInFairnessEnabled: {
+    type: Boolean,
+    default: true
+  },
+  /**
+   * How many appointment patients to serve per cycle.
+   * Default ratio is 2 appointment : 1 walk-in.
+   */
+  appointmentRatio: {
+    type: Number,
+    default: 2,
+    min: 1
+  },
+  /** How many walk-in patients to serve per cycle */
+  walkInRatio: {
+    type: Number,
+    default: 1,
+    min: 1
+  },
+  /**
+   * How to treat appointment patients who arrive after lateGraceMinutes:
+   *   'walk_in' — demote to walk-in pool for ordering purposes (default)
+   */
+  lateOutsideGraceTreatedAs: {
+    type: String,
+    enum: ['walk_in'],
+    default: 'walk_in'
+  },
+  /**
+   * Queue sort mode:
+   *   'policy_based' — use the dynamic zone-aware engine (default)
+   *   'legacy'       — fall back to legacy priorityScore sort
+   */
+  defaultSortMode: {
+    type: String,
+    enum: ['policy_based', 'legacy'],
+    default: 'policy_based'
+  },
+
   // ── Session Auto-close ────────────────────────────────────────────────────────
   /** Minutes of inactivity before the doctor session auto-closes (0 = disabled) */
   sessionAutoCloseMinutes: {
@@ -190,6 +270,7 @@ queuePolicySchema.statics.resolveFor = async function (doctorId, departmentId) {
 
   // Hard-coded fallback — no DB entry needed
   return {
+    // ── Existing fields ──────────────────────────────────────────────────────
     earlyCheckInMinutes: 30,
     gracePeriodMinutes: 15,
     readyZoneSize: 3,
@@ -198,7 +279,20 @@ queuePolicySchema.statics.resolveFor = async function (doctorId, departmentId) {
     lateArrivalRule: 'end_of_pool',
     latePenaltyPositions: 5,
     emergencyOverrideAllowed: true,
-    sessionAutoCloseMinutes: 0
+    sessionAutoCloseMinutes: 0,
+    // ── Dynamic queue policy (v2) fields ─────────────────────────────────────
+    queueRecalculationEnabled: true,
+    currentConsultationLocked: true,
+    emergencyPriorityEnabled: true,
+    emergencyPlacement: 'after_current_before_ready',
+    emergencyInterruptsCurrentConsultation: false,
+    readyZoneLockedForNormalPatients: true,
+    readyZoneCanBeShiftedByEmergency: true,
+    appointmentWalkInFairnessEnabled: true,
+    appointmentRatio: 2,
+    walkInRatio: 1,
+    lateOutsideGraceTreatedAs: 'walk_in',
+    defaultSortMode: 'policy_based'
   };
 };
 

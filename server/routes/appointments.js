@@ -9,7 +9,7 @@ const Notification = require('../models/Notification');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
 const { getSlotAvailability, getAvailableDoctors, checkBookingEligibility, ACTIVE_BOOKING_STATUSES } = require('../services/AvailabilityService');
-const { getAvailableBlocks, isSessionClosed } = require('../services/TimeBlockService');
+const { getAvailableBlocks, isSessionClosed, isBookingCutoffReached } = require('../services/TimeBlockService');
 const { nextAppointmentToken, buildScope } = require('../services/TokenSequenceService');
 
 const router = express.Router();
@@ -392,14 +392,14 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
         });
       }
 
-      // Time-of-day guard: the booking window closes once the session start time
-      // passes on the day of the appointment. Evaluated against the server clock so
-      // the client cannot bypass this by manipulating its local time.
-      if (isSessionClosed(dateStr, blockOwnership.startTime)) {
-        const sessionLabel = blockOwnership.sessionName || `${blockOwnership.startTime} session`;
+      // Time-of-day guard: booking closes `minimumArrivalBufferMinutes` before the session
+      // end time, giving the patient enough time to arrive and check in.
+      // Example: slot 16:00-18:00 with 30-min buffer → cutoff 17:30.
+      // Booking at 16:33 is allowed; booking at 17:30 or later is rejected.
+      if (isBookingCutoffReached(dateStr, blockOwnership.endTime, 30)) {
         return res.status(409).json({
           success: false,
-          message: `Booking for the ${sessionLabel} has closed — the session has already started. Please choose a later session or a different date.`
+          message: 'Booking for this session has closed because there is not enough time to arrive before the doctor session ends. Please choose a later session or a different date.'
         });
       }
 
@@ -410,6 +410,30 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
         return res.status(409).json({
           success: false,
           message: 'You already have an appointment booked for this session. Please choose a different date or session.'
+        });
+      }
+
+      // ── Booking Conflict Rule 1: Same department, same day ─────────────────
+      // Block if the patient already has any active appointment for this department today.
+      const sameDeptConflict = await Appointment.hasActiveSameDeptDayConflict(
+        patientId, departmentId, appointmentDate
+      );
+      if (sameDeptConflict) {
+        return res.status(409).json({
+          success: false,
+          message: 'You already have an active appointment for this department on this date. Please cancel or reschedule the existing appointment before booking another.'
+        });
+      }
+
+      // ── Booking Conflict Rule 2: Different department, time overlap ─────────
+      // Block if the new time block overlaps with any active appointment in another department.
+      const timeOverlapConflict = await Appointment.hasActiveTimeBlockOverlap(
+        patientId, departmentId, appointmentDate, blockOwnership.startTime, blockOwnership.endTime
+      );
+      if (timeOverlapConflict) {
+        return res.status(409).json({
+          success: false,
+          message: 'You already have another appointment during this time. Please choose a non-conflicting time slot.'
         });
       }
 
@@ -629,6 +653,33 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
           success: false,
           message: 'You already have an appointment booked for this session. Please choose a different session.'
         });
+      }
+
+      // ── Booking Conflict Rule 1: Same department, same day ─────────────────
+      if (departmentId) {
+        const specSameDeptConflict = await Appointment.hasActiveSameDeptDayConflict(
+          patientId, departmentId, appointmentDate
+        );
+        if (specSameDeptConflict) {
+          return res.status(409).json({
+            success: false,
+            message: 'You already have an active appointment for this department on this date. Please cancel or reschedule the existing appointment before booking another.'
+          });
+        }
+      }
+
+      // ── Booking Conflict Rule 2: Different department, time overlap ─────────
+      if (departmentId) {
+        const specTimeOverlap = await Appointment.hasActiveTimeBlockOverlap(
+          patientId, departmentId, appointmentDate,
+          specBlockOwnership.startTime, specBlockOwnership.endTime
+        );
+        if (specTimeOverlap) {
+          return res.status(409).json({
+            success: false,
+            message: 'You already have another appointment during this time. Please choose a non-conflicting time slot.'
+          });
+        }
       }
 
       specialistBlock = await TimeBlock.deductAppointmentSlot(timeBlockId);

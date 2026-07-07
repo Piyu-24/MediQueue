@@ -137,6 +137,23 @@ const queueEntrySchema = new mongoose.Schema({
   isWalkIn: { type: Boolean, default: false },
   isEmergency: { type: Boolean, default: false },
   isLate: { type: Boolean, default: false },
+  /**
+   * Arrival classification stored at check-in time by CheckInService.
+   * Used by QueueEngine during recalculation to classify pool entries
+   * without needing to re-fetch and re-compute appointment windows.
+   *
+   *   'on_time'           — arrived within the allowed check-in window (≤ lateGraceMinutes late)
+   *   'early_allowed'     — arrived before appointment but within earlyCheckInWindowMinutes
+   *   'late_within_grace' — arrived late but within the grace period (still gets appt priority)
+   *   'late_outside_grace'— arrived after the grace period (treated as walk-in for ordering)
+   *   'walk_in'           — genuine walk-in patient (isWalkIn = true)
+   *   'emergency'         — emergency patient (isEmergency = true)
+   */
+  arrivalStatus: {
+    type: String,
+    enum: ['on_time', 'early_allowed', 'late_within_grace', 'late_outside_grace', 'walk_in', 'emergency'],
+    default: 'on_time'
+  },
 
   // ── Appointment Context ───────────────────────────────────────────────────────
   /** Scheduled appointment time (copied at check-in for ordering; null for block-based) */

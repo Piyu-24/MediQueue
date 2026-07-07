@@ -420,6 +420,18 @@ const ACTIVE_CONFLICT_STATUSES = [
   'in-progress', 'in_consultation', 'late', 'delayed', 'skipped'
 ];
 
+/**
+ * Active statuses for patient-level booking conflict checks.
+ * Matches the business-rule definition exactly:
+ *   active = booked | confirmed | checked_in | in_queue | in_consultation
+ * Also includes legacy aliases used across the codebase.
+ */
+const ACTIVE_BOOKING_STATUSES = [
+  'booked',
+  'scheduled', 'confirmed', 'checked_in', 'in_queue',
+  'in-progress', 'in_consultation', 'late', 'delayed', 'skipped'
+];
+
 // Partial unique index — prevents same patient booking the same time block twice
 // (covers both General OPD and specialist+block concurrency).
 // Sparse: appointments without a timeBlockId are excluded entirely.
@@ -439,6 +451,24 @@ appointmentSchema.index(
       }
     },
     name: 'unique_active_patient_timeblock'
+  }
+);
+
+// ── Patient same-department same-day uniqueness index ─────────────────────────
+// Prevents the same patient from holding two active appointments for the same
+// department on the same date, even across different time slots.
+// Only enforced for new-flow (block-based) bookings that carry a departmentId.
+// Sparse: legacy appointments without departmentId are excluded.
+appointmentSchema.index(
+  { patient: 1, departmentId: 1, appointmentDate: 1 },
+  {
+    unique: true,
+    sparse: true,
+    partialFilterExpression: {
+      departmentId: { $exists: true, $ne: null },
+      status: { $in: ACTIVE_BOOKING_STATUSES }
+    },
+    name: 'unique_active_patient_dept_day'
   }
 );
 
@@ -520,6 +550,112 @@ appointmentSchema.statics.hasOPDDuplicate = async function(patientId, timeBlockI
   };
   if (excludeId) query._id = { $ne: excludeId };
   return (await this.countDocuments(query)) > 0;
+};
+
+/**
+ * Validation Rule 1: Same-department same-day block.
+ *
+ * Returns true if the patient already has an active appointment for the same
+ * departmentId on the same date, regardless of time slot.
+ *
+ * Rule: One patient cannot hold two active appointments for the same department
+ * on the same calendar day.
+ *
+ * @param {string}      patientId
+ * @param {string}      departmentId    — ObjectId string
+ * @param {string|Date} appointmentDate — YYYY-MM-DD or Date object (start of day used)
+ * @param {string|null} excludeId       — exclude this appointment ID (for reschedule)
+ * @returns {Promise<boolean>}  true = conflict exists, block the booking
+ */
+appointmentSchema.statics.hasActiveSameDeptDayConflict = async function(
+  patientId,
+  departmentId,
+  appointmentDate,
+  excludeId = null
+) {
+  // Build day boundaries from the given date string/object
+  const dayStart = new Date(appointmentDate);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(appointmentDate);
+  dayEnd.setHours(23, 59, 59, 999);
+
+  const query = {
+    patient:        patientId,
+    departmentId,
+    appointmentDate: { $gte: dayStart, $lte: dayEnd },
+    status:         { $in: ACTIVE_BOOKING_STATUSES }
+  };
+  if (excludeId) query._id = { $ne: excludeId };
+
+  return (await this.countDocuments(query)) > 0;
+};
+
+/**
+ * Validation Rule 2: Cross-department time-block overlap check.
+ *
+ * Returns a conflicting appointment if the patient has an active appointment on
+ * the same date whose time block overlaps the candidate block's window.
+ *
+ * Overlap condition: newStart < existingEnd AND newEnd > existingStart
+ *
+ * This check is only needed when the patient is booking a DIFFERENT department
+ * (same-department is already caught by hasActiveSameDeptDayConflict above).
+ *
+ * @param {string}      patientId
+ * @param {string}      departmentId     — the NEW booking's department (excluded from search)
+ * @param {string|Date} appointmentDate
+ * @param {string}      newBlockStart    — HH:MM start time of the candidate block
+ * @param {string}      newBlockEnd      — HH:MM end time of the candidate block
+ * @param {string|null} excludeId
+ * @returns {Promise<object|null>}  conflicting appointment doc, or null if clear
+ */
+appointmentSchema.statics.hasActiveTimeBlockOverlap = async function(
+  patientId,
+  departmentId,
+  appointmentDate,
+  newBlockStart,
+  newBlockEnd,
+  excludeId = null
+) {
+  const dayStart = new Date(appointmentDate);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(appointmentDate);
+  dayEnd.setHours(23, 59, 59, 999);
+
+  // Fetch all active appointments for this patient on this date, for OTHER departments,
+  // that have a timeBlockId (so we can compare block windows).
+  const query = {
+    patient:         patientId,
+    departmentId:    { $ne: departmentId },   // different department only
+    appointmentDate: { $gte: dayStart, $lte: dayEnd },
+    status:          { $in: ACTIVE_BOOKING_STATUSES },
+    timeBlockId:     { $exists: true, $ne: null }
+  };
+  if (excludeId) query._id = { $ne: excludeId };
+
+  const existing = await this.find(query)
+    .populate('timeBlockId', 'startTime endTime')
+    .lean();
+
+  // Convert HH:MM to minutes-from-midnight for arithmetic
+  const toMin = (hhmm) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    return h * 60 + m;
+  };
+
+  const newStart = toMin(newBlockStart);
+  const newEnd   = toMin(newBlockEnd);
+
+  for (const appt of existing) {
+    const block = appt.timeBlockId;
+    if (!block?.startTime || !block?.endTime) continue; // skip if block missing
+    const eStart = toMin(block.startTime);
+    const eEnd   = toMin(block.endTime);
+    // Standard overlap: newStart < eEnd AND newEnd > eStart
+    if (newStart < eEnd && newEnd > eStart) return appt;
+  }
+
+  return null; // no overlap
 };
 
 /** Return true if [time, time+duration) overlaps any appointment in the list. */

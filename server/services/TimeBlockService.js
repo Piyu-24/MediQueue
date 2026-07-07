@@ -137,6 +137,39 @@ const isSessionClosed = (blockDate, endTime, now = new Date()) => {
 };
 
 /**
+ * Return true if the booking window for a time block has closed.
+ *
+ * Booking remains open while the session is running, up until
+ * `minimumArrivalBufferMinutes` before the session end time. This gives
+ * patients enough time to travel and check in after booking.
+ *
+ * bookingCutoffTime = slotEndTime - minimumArrivalBufferMinutes
+ *
+ * Examples (buffer = 30 min, slot 16:00-18:00):
+ *   currentTime 16:33 → allowed  (cutoff is 17:30)
+ *   currentTime 17:20 → allowed
+ *   currentTime 17:30 → blocked  (at or after cutoff)
+ *   currentTime 17:45 → blocked
+ *   currentTime 18:01 → blocked
+ *
+ * @param {string} blockDate                   YYYY-MM-DD
+ * @param {string} endTime                     HH:MM  (block end time)
+ * @param {number} [minimumArrivalBufferMinutes=30]  Minutes before end time at which booking closes
+ * @param {Date}   [now]                        Override for unit testing; defaults to new Date()
+ * @returns {boolean}  true = booking should be rejected
+ */
+const isBookingCutoffReached = (blockDate, endTime, minimumArrivalBufferMinutes = 30, now = new Date()) => {
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  if (blockDate !== todayStr) return false; // future-date blocks are always bookable
+
+  const [eh, em] = endTime.split(':').map(Number);
+  const sessionEndMinutes  = eh * 60 + em;
+  const cutoffMinutes      = sessionEndMinutes - minimumArrivalBufferMinutes;
+  const currentMinutes     = now.getHours() * 60 + now.getMinutes();
+  return currentMinutes >= cutoffMinutes;
+};
+
+/**
  * Get available blocks for appointment booking.
  * Only returns blocks where bookedAppointmentCount < appointmentCapacity.
  * For today's date, blocks whose start time has already passed are marked CLOSED.
@@ -162,8 +195,8 @@ const getAvailableBlocks = async (departmentId, date, doctorId = null) => {
 
   // Annotate each block with availability status (mirrors frontend colour coding)
   return blocks.map(b => {
-    // Today's sessions: closed once the session end time has passed
-    if (isSessionClosed(b.date, b.endTime, now)) {
+    // Today's sessions: closed once the booking cutoff has passed (endTime - 30 min buffer)
+    if (isBookingCutoffReached(b.date, b.endTime, 30, now)) {
       return {
         ...b,
         remainingSlots:     0,
@@ -225,4 +258,5 @@ const updateBlock = async (blockId, updates) => {
   return block.save();
 };
 
-module.exports = { generateBlocksForRange, getAvailableBlocks, createBlock, updateBlock, splitCapacity, isSessionClosed };
+module.exports = { generateBlocksForRange, getAvailableBlocks, createBlock, updateBlock, splitCapacity, isSessionClosed, isBookingCutoffReached };
+

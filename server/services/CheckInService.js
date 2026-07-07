@@ -160,6 +160,33 @@ const getAppointmentEligibility = async (appointmentId, patientId) => {
   return { eligible, reason, arrivalStatus, minutesUntilAppointment, appointment, policy };
 };
 
+/**
+ * Map the arrivalStatus from getAppointmentEligibility() to the refined
+ * classification stored on the QueueEntry.arrivalStatus field.
+ *
+ * This classification is read by QueueEngine during recalculation to
+ * determine which bucket (on-time appointment / grace appointment /
+ * walk-in / late-outside-grace) the entry belongs to.
+ *
+ * @param {string} arrivalStatus  — raw status from getAppointmentEligibility
+ * @param {number} minutesLate    — positive = late, negative = early
+ * @param {object} policy         — resolved QueuePolicy
+ * @returns {string} refined arrivalStatus for QueueEntry
+ */
+const computeRefinedArrivalStatus = (arrivalStatus, minutesLate, policy) => {
+  // minutesLate: positive means patient is late, negative means patient is early
+  if (arrivalStatus === 'too_early') return 'on_time'; // check-in blocked upstream; fallback
+  if (arrivalStatus === 'early')     return 'early_allowed';
+  if (arrivalStatus === 'on_time')   return 'on_time';
+  if (arrivalStatus === 'late') {
+    // minutesUntilAppointment is negative when late; convert to positive minutes late
+    const gracePeriod = policy.gracePeriodMinutes ?? 15;
+    if (minutesLate <= gracePeriod) return 'late_within_grace';
+    return 'late_outside_grace';
+  }
+  return 'on_time'; // safety fallback
+};
+
 // ── Appointment Check-in ──────────────────────────────────────────────────────
 
 /**
@@ -207,6 +234,11 @@ const checkInAppointment = async ({
   const { appointment, policy, arrivalStatus } = eligibility;
   const queueDate = localDateStr();
   const isLate    = arrivalStatus === 'late';
+
+  // Compute refined arrival status to store on the QueueEntry.
+  // minutesUntilAppointment is negative when the patient is late.
+  const minutesLate        = -(eligibility.minutesUntilAppointment ?? 0); // positive = late
+  const refinedArrivalStatus = computeRefinedArrivalStatus(arrivalStatus, minutesLate, policy);
 
   // ETA from session or policy
   const session   = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate });
@@ -293,9 +325,11 @@ const checkInAppointment = async ({
         priority,
         priorityScore,
         // Flags
-        isWalkIn:    false,
-        isEmergency: false,
+        isWalkIn:     false,
+        isEmergency:  false,
         isLate,
+        // Arrival classification (read by QueueEngine during recalculation)
+        arrivalStatus: refinedArrivalStatus,
         // Context
         appointmentTime: appointment.appointmentTime || null,
         notes,
@@ -481,6 +515,8 @@ const checkInWalkIn = async ({
     isWalkIn:    !isEmergency,
     isEmergency,
     isLate:      false,
+    // Arrival classification (read by QueueEngine during recalculation)
+    arrivalStatus: isEmergency ? 'emergency' : 'walk_in',
     notes,
     estimatedWaitMinutes,
     checkInTime: new Date(),
@@ -516,4 +552,5 @@ const checkInWalkIn = async ({
   return { queueEntry, token: queueEntry.queueNumber, estimatedWaitMinutes, policy };
 };
 
-module.exports = { getAppointmentEligibility, checkInAppointment, checkInWalkIn };
+module.exports = { getAppointmentEligibility, checkInAppointment, checkInWalkIn, computeRefinedArrivalStatus };
+
