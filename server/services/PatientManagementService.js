@@ -642,7 +642,7 @@ class PatientManagementService {
           type: 'SEVERE_ALLERGY',
           severity: 'HIGH',
           message: `Patient has severe allergies: ${severeAllergies.map(a => a.allergen).join(', ')}`,
-          icon: '⚠️'
+          icon: ''
         });
       }
     }
@@ -653,7 +653,7 @@ class PatientManagementService {
         type: 'CHRONIC_CONDITIONS',
         severity: 'MEDIUM',
         message: `Chronic conditions: ${patient.chronicConditions.join(', ')}`,
-        icon: '📋'
+        icon: ''
       });
     }
 

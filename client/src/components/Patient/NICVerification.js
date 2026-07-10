@@ -277,7 +277,7 @@ const NICVerification = () => {
 
               {/* Instructions */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="text-sm font-semibold text-blue-900 mb-2">📌 Upload Instructions:</h4>
+                <h4 className="text-sm font-semibold text-blue-900 mb-2"> Upload Instructions:</h4>
                 <ul className="text-sm text-blue-800 space-y-1 ml-4 list-disc">
                   <li>Upload a clear photo or scan of your NIC (front side)</li>
                   <li>Ensure all details are visible and readable</li>

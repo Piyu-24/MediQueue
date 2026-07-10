@@ -140,7 +140,7 @@ const DispensaryDashboard = () => {
       if (res.data.success) {
         setScanResult(res.data.data);
         if (res.data.data.prescriptions.length === 0) {
-          toast('No active prescriptions found for this patient', { icon: 'ℹ️' });
+          toast('No active prescriptions found for this patient', { icon: '' });
         } else {
           toast.success(`Found ${res.data.data.prescriptions.length} prescription(s)`);
         }

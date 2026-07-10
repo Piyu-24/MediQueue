@@ -13,6 +13,7 @@ const authorize = require('../middleware/authorize');
 const auditLog = require('../middleware/auditLog');
 const QueueEngine = require('../services/QueueEngine');
 const { localDateStr } = require('../services/TokenGenerator');
+const { closeClinicSession, getDayEndReport } = require('../services/ClinicSessionService');
 
 const router = express.Router();
 
@@ -64,6 +65,18 @@ router.post(
       const doctor = await User.findOne({ _id: doctorId, role: 'doctor', isActive: true });
       if (!doctor) {
         return res.status(404).json({ success: false, message: 'Doctor not found' });
+      }
+
+      // ── Session-closed guard ─────────────────────────────────────────────────
+      // Applies to both walk-ins and appointment patients. Emergencies are flagged
+      // via the isEmergency field in the new walk-in flow, not here.
+      const legacySession = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate }).lean();
+      if (legacySession?.status === 'ended') {
+        return res.status(409).json({
+          success: false,
+          message: 'Check-in is closed. The clinic session for this doctor has ended for today. Please inform the patient that no further appointments are being accepted.',
+          data: { sessionStatus: 'ended' }
+        });
       }
 
       const existingEntry = await QueueEntry.findOne({
@@ -508,7 +521,7 @@ router.get('/stats', auth, authorize('admin', 'staff', 'receptionist'), async (r
 // DOCTOR — Call next patient  (waiting/ready → called)
 // PATCH /api/queue/:id/call
 // ─────────────────────────────────────────────────────────────────────────────
-router.patch('/:id/call', auth, authorize('doctor', 'receptionist', 'admin'), async (req, res) => {
+router.patch('/:id/call', auth, authorize('doctor'), async (req, res) => {
   try {
     const entry = await QueueEntry.findById(req.params.id);
     if (!entry) return res.status(404).json({ success: false, message: 'Queue entry not found' });
@@ -1015,6 +1028,111 @@ router.patch('/session/:doctorId/resume', auth, authorize('doctor', 'admin'), as
   } catch (error) {
     console.error('Resume queue error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DOCTOR (own session only) / ADMIN — Close queue session (end of day)
+// PATCH /api/queue/session/:doctorId/end
+//
+// Only the doctor assigned to the session (or admin for system-level ops) may
+// close the session. Receptionists cannot close sessions — they may only VIEW
+// the session status via GET /session/:doctorId/day-end-report.
+// Stops all check-ins, bulk-marks remaining unserved patients, and generates
+// the day-end report. Doctor must complete any active consultation first.
+// ─────────────────────────────────────────────────────────────────────────────
+router.patch('/session/:doctorId/end', auth, authorize('doctor', 'admin'), async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+
+    // Doctors may only close their own session
+    if (req.user.role === 'doctor' && req.user.id !== doctorId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized. Only the assigned doctor may close their own session.'
+      });
+    }
+
+    const queueDate = req.query.date || localDateStr();
+
+    const { session, report, unservedCount } = await closeClinicSession(
+      doctorId,
+      queueDate,
+      req.user.id,
+      req.user.role
+    );
+
+    // Broadcast session close to all connected clients so the display board
+    // and reception dashboards update in real time.
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('queue:session:closed', {
+        doctorId,
+        queueDate,
+        report,
+        message: 'The clinic session has ended. Walk-in registrations are now closed.'
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `Session closed. ${unservedCount} patient(s) marked as unserved.`,
+      data: {
+        session: {
+          id:       session._id,
+          status:   session.status,
+          closedAt: session.closedAt,
+          queueDate: session.queueDate
+        },
+        report
+      }
+    });
+  } catch (error) {
+    console.error('Close session error:', error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Server error while closing session.'
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ALL STAFF — Fetch day-end report + unserved patient list
+// GET /api/queue/session/:doctorId/day-end-report
+//
+// Returns the report generated at session close plus a per-patient list of
+// everyone who was not seen (for staff manual follow-up).
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/session/:doctorId/day-end-report', auth, authorize('doctor', 'admin', 'receptionist', 'staff'), async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+
+    if (req.user.role === 'doctor' && req.user.id !== doctorId) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    const queueDate = req.query.date || localDateStr();
+    const { session, report, unservedPatients } = await getDayEndReport(doctorId, queueDate);
+
+    return res.json({
+      success: true,
+      data: {
+        queueDate,
+        doctor: session.doctor,
+        department: session.department,
+        room: session.room,
+        sessionStatus: session.status,
+        closedAt: session.closedAt,
+        report,
+        unservedPatients
+      }
+    });
+  } catch (error) {
+    console.error('Day-end report error:', error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Server error fetching day-end report.'
+    });
   }
 });
 

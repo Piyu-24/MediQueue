@@ -451,7 +451,7 @@ const ReportingDashboard = () => {
 
         {/* Recent Reports */}
         <div className="mb-6">
-          <h3 className="text-[14px] mb-3">📋 Recent Reports</h3>
+          <h3 className="text-[14px] mb-3"> Recent Reports</h3>
           <div className="space-y-2">
             {recentReports.length > 0 ? (
               recentReports.map((report, index) => {
@@ -599,7 +599,7 @@ const ReportingDashboard = () => {
                 disabled={loading || !selectedReportType}
                 className="bg-[#4169e1] hover:bg-[#3155c6] text-white rounded-full px-6 py-2 text-[12px] font-medium disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
-                {loading ? 'Generating...' : 'Generate Report 🎯'}
+                {loading ? 'Generating...' : 'Generate Report '}
               </button>
             </div>
           </div>
@@ -610,7 +610,7 @@ const ReportingDashboard = () => {
           <div className="mt-6 bg-white border-2 border-blue-500 rounded-lg p-6">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-[16px] font-bold text-gray-900">Report Preview 📊</h3>
+                <h3 className="text-[16px] font-bold text-gray-900">Report Preview </h3>
                 <p className="text-[12px] text-gray-600">
                   {reportPreview.reportType === 'patient-visit' && 'Patient Visit Report'}
                   {reportPreview.reportType === 'staff-utilization' && 'Staff Utilization Report'}
@@ -972,7 +972,7 @@ const ReportingDashboard = () => {
         <div className="mt-8 border-t-2 border-gray-100 pt-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-base font-bold text-gray-900">📊 OPD Queue Analytics — Today</h3>
+              <h3 className="text-base font-bold text-gray-900"> OPD Queue Analytics — Today</h3>
               <p className="text-[11px] text-gray-500 mt-0.5">{new Date().toLocaleDateString('en-LK', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
             </div>
             <button

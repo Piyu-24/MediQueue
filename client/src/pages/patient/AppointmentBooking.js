@@ -21,6 +21,7 @@ const BLOCK_STYLES = {
   LIMITED:      'border-amber-300 hover:border-amber-500 hover:bg-amber-50 bg-amber-50/30 cursor-pointer',
   FULLY_BOOKED: 'border-red-200 bg-red-50 cursor-not-allowed opacity-60',
   CLOSED:       'border-gray-200 bg-gray-50 cursor-not-allowed opacity-50',
+  CONFLICT:     'border-red-300 bg-red-50/80 hover:border-red-400 hover:bg-red-100 cursor-pointer',
   SELECTED:     'border-blue-600 bg-blue-600 text-white shadow-lg cursor-pointer',
 };
 
@@ -82,9 +83,9 @@ const TokenCard = ({ result, onDone }) => {
               <span className="font-semibold text-gray-800">{fmtDate(token.timeBlock.date)}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Session</span>
+              <span className="text-gray-500">Consultation Time</span>
               <span className="font-semibold text-gray-800">
-                {token.timeBlock.sessionName || `${fmt12(token.timeBlock.startTime)} – ${fmt12(token.timeBlock.endTime)}`}
+                {fmt12(token.timeBlock.startTime)} – {fmt12(token.timeBlock.endTime)}
               </span>
             </div>
           </>
@@ -138,10 +139,12 @@ const TimeBlockGrid = ({ blocks, selectedBlock, onSelect, loading, error }) => {
         const isSelected  = selectedBlock?._id === block._id;
         const isClosed    = block.availabilityStatus === 'CLOSED';
         const isFull      = block.availabilityStatus === 'FULLY_BOOKED';
+        const isConflict   = Boolean(block.patientConflict);
         const isDisabled  = isClosed || isFull;
 
         let styleKey;
         if (isSelected)                                   styleKey = 'SELECTED';
+        else if (isConflict)                              styleKey = 'CONFLICT';
         else if (isClosed)                                styleKey = 'CLOSED';
         else if (isFull)                                  styleKey = 'FULLY_BOOKED';
         else if (block.availabilityStatus === 'LIMITED')  styleKey = 'LIMITED';
@@ -171,6 +174,11 @@ const TimeBlockGrid = ({ blocks, selectedBlock, onSelect, loading, error }) => {
                   {block.reportingTime && !isClosed && (
                     <p className={`text-xs mt-0.5 ${isSelected ? 'text-blue-100' : 'text-gray-500'}`}>
                       Arrive by {fmt12(block.reportingTime)}
+                    </p>
+                  )}
+                  {isConflict && !isClosed && !isFull && (
+                    <p className="text-xs mt-0.5 text-red-600 font-medium">
+                    You already have a booking during this time.
                     </p>
                   )}
                   {isClosed && <p className="text-xs mt-0.5 text-gray-400">Session has ended</p>}
@@ -242,6 +250,16 @@ const AppointmentBooking = () => {
   const [bookedDatesForDept, setBookedDatesForDept] = useState([]);
   const [dateAlreadyBooked, setDateAlreadyBooked]   = useState(false);
 
+  const handleSelectBlock = useCallback((block) => {
+    if (block.patientConflict) {
+      toast.error(block.conflictMessage || 'You already have another appointment during this time. Please choose a non-conflicting time slot.');
+      setSelectedBlock(null);
+      return;
+    }
+
+    setSelectedBlock(block);
+  }, []);
+
   // ── Date bounds ────────────────────────────────────────────────────────────
   const minDate = new Date().toISOString().split('T')[0];
   const maxDate = (() => {
@@ -299,7 +317,7 @@ const AppointmentBooking = () => {
     setTimeBlocks([]);
     setSelectedBlock(null);
     try {
-      const res = await appointmentAPI.getBlockAvailability(selectedDepartment._id, selectedDate);
+      const res = await appointmentAPI.getBlockAvailability(selectedDepartment._id, selectedDate, null, user?._id || null);
       if (res.data.success) {
         setTimeBlocks(res.data.data || []);
         if ((res.data.data || []).length === 0) setBlockError('No sessions available for this date.');
@@ -309,7 +327,7 @@ const AppointmentBooking = () => {
     } finally {
       setLoadingBlocks(false);
     }
-  }, [selectedDepartment, selectedDate, dateAlreadyBooked]);
+  }, [selectedDepartment, selectedDate, dateAlreadyBooked, user?._id]);
 
   useEffect(() => { fetchBlocks(); }, [fetchBlocks]);
 
@@ -523,7 +541,7 @@ const AppointmentBooking = () => {
                 <TimeBlockGrid
                   blocks={timeBlocks}
                   selectedBlock={selectedBlock}
-                  onSelect={setSelectedBlock}
+                  onSelect={handleSelectBlock}
                   loading={loadingBlocks}
                   error={blockError}
                 />
@@ -590,8 +608,8 @@ const AppointmentBooking = () => {
                 label="Date" value={fmtDate(selectedDate)} />
 
               <Row icon={<ClockIcon className="w-5 h-5 text-blue-500" />}
-                label="Session"
-                value={selectedBlock.sessionName || `${fmt12(selectedBlock.startTime)} – ${fmt12(selectedBlock.endTime)}`}
+                label="Consultation Time"
+                value={`${fmt12(selectedBlock.startTime)} – ${fmt12(selectedBlock.endTime)}`}
                 sub={selectedBlock.reportingTime ? `Arrive by ${fmt12(selectedBlock.reportingTime)}` : null}
               />
 

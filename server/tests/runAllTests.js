@@ -8,7 +8,7 @@
 const { execSync } = require('child_process');
 const path = require('path');
 
-console.log('🚀 Starting MediQueue Unit Test Suite...\n');
+console.log(' Starting MediQueue Unit Test Suite...\n');
 
 const testSuites = [
   {
@@ -35,14 +35,14 @@ const testSuites = [
 
 async function runTests() {
   try {
-    console.log('📋 Test Suites to Execute:');
+    console.log(' Test Suites to Execute:');
     testSuites.forEach((suite, index) => {
       console.log(`${index + 1}. ${suite.name}`);
-      console.log(`   📄 ${suite.description}`);
-      console.log(`   📁 ${suite.file}\n`);
+      console.log(`    ${suite.description}`);
+      console.log(`    ${suite.file}\n`);
     });
 
-    console.log('🔧 Running all tests with coverage...\n');
+    console.log(' Running all tests with coverage...\n');
     
     // Run all tests with coverage
     const testCommand = `jest ${testSuites.map(s => s.file).join(' ')} --coverage --coverageReporters=text --coverageReporters=html --coverageReporters=json --verbose`;
@@ -55,12 +55,12 @@ async function runTests() {
       stdio: 'inherit'
     });
 
-    console.log('\n✅ All tests completed successfully!');
-    console.log('\n📊 Coverage report generated in ./coverage/ directory');
-    console.log('📄 Open ./coverage/lcov-report/index.html to view detailed coverage');
+    console.log('\n All tests completed successfully!');
+    console.log('\n Coverage report generated in ./coverage/ directory');
+    console.log(' Open ./coverage/lcov-report/index.html to view detailed coverage');
 
   } catch (error) {
-    console.error('\n❌ Test execution failed:');
+    console.error('\n Test execution failed:');
     console.error(error.message);
     process.exit(1);
   }
@@ -68,12 +68,12 @@ async function runTests() {
 
 // Run individual test suites for detailed analysis
 async function runIndividualTests() {
-  console.log('\n🔍 Running individual test suites for detailed analysis...\n');
+  console.log('\n Running individual test suites for detailed analysis...\n');
   
   for (const suite of testSuites) {
     try {
-      console.log(`\n🧪 Testing: ${suite.name}`);
-      console.log(`📄 ${suite.description}`);
+      console.log(`\n Testing: ${suite.name}`);
+      console.log(` ${suite.description}`);
       console.log('─'.repeat(60));
       
       const command = `jest ${suite.file} --coverage --coverageReporters=text`;
@@ -83,10 +83,10 @@ async function runIndividualTests() {
         stdio: 'inherit'
       });
       
-      console.log(`✅ ${suite.name} - PASSED\n`);
+      console.log(` ${suite.name} - PASSED\n`);
       
     } catch (error) {
-      console.error(`❌ ${suite.name} - FAILED`);
+      console.error(` ${suite.name} - FAILED`);
       console.error(`Error: ${error.message}\n`);
     }
   }

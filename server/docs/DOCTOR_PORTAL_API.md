@@ -17,19 +17,19 @@ All endpoints require:
 
 ## User Stories Implemented
 
-### ✅ User Story 3: View Patient Medical History
+###  User Story 3: View Patient Medical History
 **Endpoint:** `GET /patients/:patientId/medical-history`
 
-### ✅ User Story 4: Add Treatment Notes
+###  User Story 4: Add Treatment Notes
 **Endpoint:** `POST /patients/:patientId/treatment-notes`
 
-### ✅ User Story 5: Update Records with Audit Logging
+###  User Story 5: Update Records with Audit Logging
 **Endpoint:** `PUT /treatment-notes/:recordId`
 
-### ✅ User Story 6: Manage Schedule
+###  User Story 6: Manage Schedule
 **Endpoint:** `PUT /availability`
 
-### ✅ User Story 7: Check Available Slots
+###  User Story 7: Check Available Slots
 **Endpoint:** `GET /schedule`
 
 ---
@@ -379,7 +379,7 @@ All endpoints return consistent error responses:
 
 ## Security Features
 
-### 🔒 **Audit Logging**
+###  **Audit Logging**
 Every action is logged with:
 - User ID and role
 - Action performed
@@ -388,18 +388,18 @@ Every action is logged with:
 - Timestamp
 - Change details (for updates)
 
-### 🛡️ **Input Validation**
+###  **Input Validation**
 - Comprehensive validation using express-validator
 - XSS protection
 - NoSQL injection prevention
 - Parameter pollution protection
 
-### 🔐 **Authentication & Authorization**
+###  **Authentication & Authorization**
 - JWT-based authentication
 - Role-based access control
 - Doctor role verification on all endpoints
 
-### 📊 **Rate Limiting**
+###  **Rate Limiting**
 - 100 requests per 15 minutes per IP
 - Configurable via environment variables
 

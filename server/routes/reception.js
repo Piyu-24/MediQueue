@@ -450,6 +450,20 @@ router.post('/check-in/:appointmentId',
         if (roomDoc) resolvedRoom = roomDoc.roomNumber;
       }
 
+      // ── Session-closed guard ───────────────────────────────────────────────
+      // Once a doctor's session is ended, no further check-ins are accepted.
+      // Receptionists should inform arriving patients that the clinic is closed.
+      const sessionForClose = await DoctorQueueSession.findOne({
+        doctor: doctorId, queueDate: localDateStr()
+      }).lean();
+      if (sessionForClose?.status === 'ended') {
+        return res.status(409).json({
+          success: false,
+          message: 'Check-in is closed. The clinic session for this doctor has ended for today. Please inform the patient that no further appointments are being accepted.',
+          data: { sessionStatus: 'ended' }
+        });
+      }
+
       const result = await checkInAppointment({
         appointmentId,
         patientId:       appointment.patient.toString(),
@@ -517,6 +531,20 @@ router.post('/walk-in',
   async (req, res) => {
     try {
       const { patientId, doctorId, room, department, departmentId, roomId, notes, isEmergency, priority } = req.body;
+
+      // ── Session-closed guard ───────────────────────────────────────────
+      // Emergency walk-ins always bypass this check.
+      if (!isEmergency) {
+        const existingSession = await DoctorQueueSession.findOne({
+          doctor: doctorId, queueDate: localDateStr()
+        }).lean();
+        if (existingSession?.status === 'ended') {
+          return res.status(409).json({
+            success: false,
+            message: 'Walk-in registration is closed. The clinic session for this doctor has ended for today.'
+          });
+        }
+      }
 
       // Resolve room string from roomId when explicit string not supplied
       let resolvedRoom = room;

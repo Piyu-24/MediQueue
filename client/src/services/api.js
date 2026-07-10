@@ -123,8 +123,16 @@ export const appointmentAPI = {
   getSlotAvailability: (doctorId, date, patientId) =>
     api.get('/appointments/availability', { params: { doctorId, date, patientId } }),
   // Block-based availability (General OPD booking)
-  getBlockAvailability: (departmentId, date, doctorId) =>
-    api.get('/appointments/availability', { params: { departmentId, date, doctorId, blockBased: 'true' } }),
+  getBlockAvailability: (departmentId, date, doctorId, patientId) =>
+    api.get('/appointments/availability', {
+      params: {
+        departmentId,
+        date,
+        doctorId,
+        patientId,
+        blockBased: 'true'
+      }
+    }),
   getAvailableDoctors: (date, departmentId, patientId) =>
     api.get('/appointments/doctors/available', { params: { date, departmentId, patientId } }),
   updateStatus: (id, status) => api.patch(`/appointments/${id}/status`, { status }),

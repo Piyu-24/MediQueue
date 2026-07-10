@@ -83,7 +83,7 @@ router.get('/availability',
           return res.status(400).json({ success: false, message: 'departmentId is required for block-based availability' });
         }
 
-        const blocks = await getAvailableBlocks(departmentId, date, doctorId || null);
+        const blocks = await getAvailableBlocks(departmentId, date, doctorId || null, patientId || null);
         return res.json({
           success: true,
           mode: 'block',
@@ -170,6 +170,7 @@ router.get('/', auth, async (req, res) => {
     const appointments = await Appointment.find(query)
       .populate('patient', 'firstName lastName email phone digitalHealthCardId')
       .populate('doctor', 'firstName lastName specialization department')
+      .populate('timeBlockId', 'startTime endTime')
       .sort({ appointmentDate: 1, appointmentTime: 1 });
 
     console.log('Query built:', JSON.stringify(query));

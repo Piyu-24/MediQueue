@@ -1,4 +1,5 @@
 const TimeBlock = require('../models/TimeBlock');
+const Appointment = require('../models/Appointment');
 const QueuePolicy = require('../models/QueuePolicy');
 
 /**
@@ -94,7 +95,7 @@ const generateBlocksForRange = async ({
           walkInCapacity,
           emergencyBuffer,
           operationalBuffer,
-          reportingOffsetMinutes: tpl.reportingOffsetMinutes ?? 15,
+          reportingOffsetMinutes: tpl.reportingOffsetMinutes ?? 30,
           status: 'active',
           createdBy
         });
@@ -180,7 +181,7 @@ const isBookingCutoffReached = (blockDate, endTime, minimumArrivalBufferMinutes 
  * @returns {Promise<object[]>}   lean blocks with virtuals, each annotated with
  *                                 availabilityStatus and remainingSlots
  */
-const getAvailableBlocks = async (departmentId, date, doctorId = null) => {
+const getAvailableBlocks = async (departmentId, date, doctorId = null, patientId = null) => {
   const query = {
     departmentId,
     date,
@@ -192,17 +193,24 @@ const getAvailableBlocks = async (departmentId, date, doctorId = null) => {
   const blocks = await TimeBlock.find(query).sort({ startTime: 1 }).lean({ virtuals: true });
 
   const now = new Date(); // single reference time for the entire batch
+  let sameDeptConflict = false;
+
+  if (patientId) {
+    sameDeptConflict = await Appointment.hasActiveSameDeptDayConflict(patientId, departmentId, date);
+  }
 
   // Annotate each block with availability status (mirrors frontend colour coding)
-  return blocks.map(b => {
+  const annotated = [];
+  for (const b of blocks) {
     // Today's sessions: closed once the booking cutoff has passed (endTime - 30 min buffer)
     if (isBookingCutoffReached(b.date, b.endTime, 30, now)) {
-      return {
+      annotated.push({
         ...b,
         remainingSlots:     0,
         availabilityStatus: 'CLOSED',
         closedReason:       'Booking window has passed for this session'
-      };
+      });
+      continue;
     }
 
     const remaining = b.appointmentCapacity - b.bookedAppointmentCount;
@@ -214,8 +222,27 @@ const getAvailableBlocks = async (departmentId, date, doctorId = null) => {
     } else {
       availabilityStatus = 'AVAILABLE';
     }
-    return { ...b, remainingSlots: Math.max(0, remaining), availabilityStatus };
-  });
+
+    const conflictMessage = patientId
+      ? (
+          sameDeptConflict
+            ? 'You already have another appointment during this time. Please choose a non-conflicting time slot.'
+            : await Appointment.hasActiveTimeBlockOverlap(patientId, departmentId, date, b.startTime, b.endTime)
+              ? 'You already have another appointment during this time. Please choose a non-conflicting time slot.'
+              : null
+        )
+      : null;
+
+    annotated.push({
+      ...b,
+      remainingSlots: Math.max(0, remaining),
+      availabilityStatus,
+      patientConflict: Boolean(conflictMessage),
+      conflictMessage
+    });
+  }
+
+  return annotated;
 };
 
 /**

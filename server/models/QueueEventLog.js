@@ -57,7 +57,10 @@ const queueEventLogSchema = new mongoose.Schema({
       'ETA_UPDATED',
       // New event types added for reception workflow
       'MARKED_LATE',
-      'DOCTOR_REASSIGNED'
+      'DOCTOR_REASSIGNED',
+      // Clinic closing events
+      'SESSION_CLOSED',         // session-level: fired once when doctor closes the day
+      'UNSERVED_CLINIC_CLOSED'  // entry-level: fired for each patient marked unserved
     ],
     index: true
   },
