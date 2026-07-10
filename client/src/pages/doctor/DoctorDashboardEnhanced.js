@@ -112,7 +112,7 @@ const DoctorDashboardEnhanced = () => {
           <div className={`bg-blue-600 text-white px-6 py-4 rounded-xl shadow-xl flex items-center space-x-3 ${
             t.visible ? 'animate-enter' : 'animate-leave'
           }`}>
-            <span className="text-xl">🔔</span>
+            <span className="text-xl"></span>
             <div>
               <p className="font-bold">New Patient in Queue</p>
               <p className="text-sm opacity-90">Queue #{data.queueEntry.queueNumber} — {data.room}</p>
@@ -715,9 +715,9 @@ const DoctorDashboardEnhanced = () => {
                           {selectedPatient.firstName} {selectedPatient.lastName}
                         </h2>
                         <div className="flex items-center space-x-4 text-sm text-gray-600">
-                          <span>📧 {selectedPatient.email}</span>
-                          <span>📞 {selectedPatient.phone || 'N/A'}</span>
-                          <span>🎂 {selectedPatient.dateOfBirth 
+                          <span> {selectedPatient.email}</span>
+                          <span> {selectedPatient.phone || 'N/A'}</span>
+                          <span> {selectedPatient.dateOfBirth 
                             ? new Date(selectedPatient.dateOfBirth).toLocaleDateString()
                             : 'N/A'
                           }</span>
@@ -1090,8 +1090,8 @@ const QueueCard = ({ entry, onAction, onNotes }) => {
             <span className="font-semibold text-gray-900 truncate">
               {entry.patient?.firstName} {entry.patient?.lastName}
             </span>
-            {entry.isEmergency && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">🚨 EMERGENCY</span>}
-            {entry.priority === 'urgent' && !entry.isEmergency && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">🔴 URGENT</span>}
+            {entry.isEmergency && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold"> EMERGENCY</span>}
+            {entry.priority === 'urgent' && !entry.isEmergency && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold"> URGENT</span>}
             {entry.isWalkIn && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Walk-in</span>}
             {entry.isLate && <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Late</span>}
             {entry.status === 'temporarily_away' && <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Away</span>}
@@ -1113,7 +1113,7 @@ const QueueCard = ({ entry, onAction, onNotes }) => {
               : '—'}
             {isActive && entry.estimatedWaitMinutes > 0 && ` · ~${entry.estimatedWaitMinutes} min wait`}
           </p>
-          {entry.notes && <p className="text-xs text-amber-600 mt-0.5 truncate">📝 {entry.notes}</p>}
+          {entry.notes && <p className="text-xs text-amber-600 mt-0.5 truncate"> {entry.notes}</p>}
         </div>
 
         {/* Actions */}
@@ -1122,11 +1122,11 @@ const QueueCard = ({ entry, onAction, onNotes }) => {
             <>
               <button onClick={() => onAction(entry._id, 'call')}
                 className="px-3 py-1.5 bg-orange-500 text-white rounded-lg text-xs font-semibold hover:bg-orange-600 transition-all">
-                📢 Call
+                 Call
               </button>
               <button onClick={() => onAction(entry._id, 'start')}
                 className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-semibold hover:bg-purple-700 transition-all">
-                🩺 Start
+                 Start
               </button>
               <button onClick={() => onAction(entry._id, 'skip')}
                 className="px-2 py-1.5 border border-yellow-300 text-yellow-700 rounded-lg text-xs hover:bg-yellow-50 transition-all">
@@ -1142,7 +1142,7 @@ const QueueCard = ({ entry, onAction, onNotes }) => {
             <>
               <button onClick={() => onAction(entry._id, 'start')}
                 className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-semibold hover:bg-purple-700 transition-all">
-                🩺 Start
+                 Start
               </button>
               <button onClick={() => onAction(entry._id, 'away')}
                 className="px-2 py-1.5 border border-yellow-300 text-yellow-700 rounded-lg text-xs hover:bg-yellow-50 transition-all">
@@ -1163,7 +1163,7 @@ const QueueCard = ({ entry, onAction, onNotes }) => {
           {(entry.status === 'temporarily_away' || entry.status === 'skipped') && (
             <button onClick={() => onAction(entry._id, 'returned')}
               className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 transition-all">
-              ↩ Returned
+               Returned
             </button>
           )}
           {entry.status === 'completed' && (
@@ -1229,12 +1229,12 @@ const LiveQueueTab = ({ user, liveQueue, queueLoading, onFetch, onAction, onNote
           ) : (
             <button onClick={() => setShowPauseBox(true)}
               className="px-3 py-1.5 bg-yellow-100 text-yellow-700 border border-yellow-300 rounded-lg text-sm font-semibold hover:bg-yellow-200 transition-all">
-              ⏸ Pause Queue
+               Pause Queue
             </button>
           )}
           <button onClick={() => onAction(null, 'resume')}
             className="px-3 py-1.5 bg-green-100 text-green-700 border border-green-300 rounded-lg text-sm font-semibold hover:bg-green-200 transition-all">
-            ▶ Resume
+             Resume
           </button>
           <button onClick={onFetch}
             className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 hover:text-blue-600 border border-gray-200 rounded-lg hover:border-blue-300 transition-all">
@@ -1292,7 +1292,7 @@ const LiveQueueTab = ({ user, liveQueue, queueLoading, onFetch, onAction, onNote
             <section>
               <h3 className="text-xs font-bold text-orange-700 uppercase tracking-widest mb-2 flex items-center gap-2">
                 <span className="w-2 h-2 bg-orange-500 rounded-full inline-block" />
-                ⏰ Late Arrivals — Next After Current
+                 Late Arrivals — Next After Current
                 <span className="normal-case font-normal text-orange-500 text-[10px]">
                   (arrived late — served next per hospital policy)
                 </span>

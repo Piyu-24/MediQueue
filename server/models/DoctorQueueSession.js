@@ -40,6 +40,8 @@ const doctorQueueSessionSchema = new mongoose.Schema({
   pausedAt: { type: Date, default: null },
   resumedAt: { type: Date, default: null },
   endedAt: { type: Date, default: null },
+  /** Set when the session is explicitly closed via ClinicSessionService */
+  closedAt: { type: Date, default: null },
 
   // ── Pause Reason ─────────────────────────────────────────────────────────────
   pauseReason: {
@@ -73,6 +75,25 @@ const doctorQueueSessionSchema = new mongoose.Schema({
     type: String,
     maxlength: 300,
     default: null
+  },
+
+  // ── Day-End Report ────────────────────────────────────────────────────────────
+  /**
+   * Populated by ClinicSessionService.closeClinicSession().
+   * Stores the daily summary inline so it survives without a separate Report doc.
+   */
+  dayEndReport: {
+    generatedAt:            { type: Date,   default: null },
+    totalServed:            { type: Number, default: null }, // status: completed
+    totalWaiting:           { type: Number, default: null }, // still in queue at close time
+    totalUnserved:          { type: Number, default: null }, // marked unserved_clinic_closed
+    totalEmergency:         { type: Number, default: null }, // isEmergency across all entries
+    avgConsultationMinutes: { type: Number, default: null }, // from session rolling average
+    closedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    }
   }
 
 }, {

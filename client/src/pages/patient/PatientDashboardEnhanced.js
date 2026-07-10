@@ -23,6 +23,15 @@ import AppointmentBooking from './AppointmentBooking';
 import MedicalRecords from './MedicalRecords';
 import toast from 'react-hot-toast';
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Convert HH:MM (24-hour) to 12-hour with AM/PM. */
+const fmt12 = (hhmm) => {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+};
+
 const PatientDashboardEnhanced = () => {
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
@@ -108,7 +117,7 @@ const PatientDashboardEnhanced = () => {
     socketService.joinRoom(user._id);
 
     const handleYourTurn = (data) => {
-      toast.success(`🔔 It's your turn! Queue ${data.queueNumber} — please go to ${data.room}`, {
+      toast.success(` It's your turn! Queue ${data.queueNumber} — please go to ${data.room}`, {
         duration: 10000,
       });
       // Attempt browser notification
@@ -367,7 +376,7 @@ const PatientDashboardEnhanced = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1 sm:mb-2">
-                Welcome back, {user?.firstName}! 👋
+                Welcome back, {user?.firstName}! 
               </h1>
               <p className="text-sm sm:text-base text-gray-600">
                 Manage your appointments, health card, and medical records
@@ -447,7 +456,7 @@ const PatientDashboardEnhanced = () => {
                     {/* Paused / delay banner */}
                     {queueStatus.sessionStatus === 'paused' && (
                       <div className="mb-3 bg-yellow-200 text-yellow-900 text-sm font-semibold px-4 py-2 rounded-xl flex items-center gap-2">
-                        ⏸ Queue is temporarily paused.
+                         Queue is temporarily paused.
                         {queueStatus.delayMessage && ` ${queueStatus.delayMessage}`}
                       </div>
                     )}
@@ -472,11 +481,11 @@ const PatientDashboardEnhanced = () => {
                             queueStatus.status === 'ready' ? 'text-amber-800' :
                             'text-blue-800'
                           }`}>
-                            {(queueStatus.status === 'in_consultation' || queueStatus.status === 'in-consultation') ? '🩺 In Consultation' :
-                             queueStatus.status === 'called' ? '📢 Please proceed to the room!' :
-                             queueStatus.status === 'ready' ? '✅ Please be ready — you are next!' :
-                             queueStatus.status === 'temporarily_away' ? '⏳ Temporarily Away — Please return' :
-                             queueStatus.zone === 'READY' ? '✅ Please be ready — you are next!' :
+                            {(queueStatus.status === 'in_consultation' || queueStatus.status === 'in-consultation') ? ' In Consultation' :
+                             queueStatus.status === 'called' ? ' Please proceed to the room!' :
+                             queueStatus.status === 'ready' ? ' Please be ready — you are next!' :
+                             queueStatus.status === 'temporarily_away' ? ' Temporarily Away — Please return' :
+                             queueStatus.zone === 'READY' ? ' Please be ready — you are next!' :
                              `Position ${queueStatus.position} in queue`}
                           </p>
                           <p className="text-sm text-gray-600 mt-1">
@@ -584,7 +593,7 @@ const PatientDashboardEnhanced = () => {
             {/* Today's Appointments */}
             {(() => {
               const statusConfig = {
-                in_consultation: { label: '🩺 In Consultation', badge: 'bg-purple-100 text-purple-800', border: 'border-purple-200', bg: 'from-purple-50 to-white' },
+                in_consultation: { label: ' In Consultation', badge: 'bg-purple-100 text-purple-800', border: 'border-purple-200', bg: 'from-purple-50 to-white' },
                 in_queue:        { label: 'In Queue',           badge: 'bg-teal-100 text-teal-800',   border: 'border-teal-200',   bg: 'from-teal-50 to-white'   },
                 checked_in:      { label: 'Checked In',         badge: 'bg-blue-100 text-blue-800',   border: 'border-blue-200',   bg: 'from-blue-50 to-white'   },
                 confirmed:       { label: 'Confirmed',          badge: 'bg-green-100 text-green-800', border: 'border-green-200',  bg: 'from-green-50 to-white'  },
@@ -645,7 +654,7 @@ const PatientDashboardEnhanced = () => {
                                   </span>
                                   {appointment.appointmentToken && (
                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-600 text-white">
-                                      🎫 {appointment.appointmentToken}
+                                       {appointment.appointmentToken}
                                     </span>
                                   )}
                                   {appointment.appointmentReference && (
@@ -734,11 +743,13 @@ const PatientDashboardEnhanced = () => {
                                   <CalendarIcon className="w-4 h-4 text-gray-500" />
                                   <span className="text-sm text-gray-600">{formatDate(appointment.appointmentDate)}</span>
                                 </div>
-                                {/* Time: show block session name or exact time */}
-                                {appointment.timeBlockId?.sessionName ? (
+                                {/* Time: always show the block's time period, fall back to exact appointmentTime */}
+                                {appointment.timeBlockId?.startTime && appointment.timeBlockId?.endTime ? (
                                   <div className="flex items-center space-x-2">
                                     <ClockIcon className="w-4 h-4 text-gray-500" />
-                                    <span className="text-sm text-gray-600">{appointment.timeBlockId.sessionName}</span>
+                                    <span className="text-sm text-gray-600">
+                                      {fmt12(appointment.timeBlockId.startTime)} – {fmt12(appointment.timeBlockId.endTime)}
+                                    </span>
                                   </div>
                                 ) : appointment.appointmentTime ? (
                                   <div className="flex items-center space-x-2">
@@ -764,7 +775,7 @@ const PatientDashboardEnhanced = () => {
                                 {/* Appointment token badge — shown for block-based bookings */}
                                 {appointment.appointmentToken && (
                                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-600 text-white">
-                                    🎫 {appointment.appointmentToken}
+                                     {appointment.appointmentToken}
                                   </span>
                                 )}
 

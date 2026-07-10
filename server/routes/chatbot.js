@@ -251,7 +251,7 @@ async function processUserMessage(message, user, context = {}) {
     return {
       type: 'emergency',
       priority: 'critical',
-      message: '🚨 EMERGENCY DETECTED 🚨\n\nIf this is a medical emergency:\n• Call 911 immediately\n• Go to the nearest emergency room\n• Contact emergency services\n\nEmergency Contacts:\n• Emergency: 911\n• Hospital: (555) 123-4567',
+      message: ' EMERGENCY DETECTED \n\nIf this is a medical emergency:\n• Call 911 immediately\n• Go to the nearest emergency room\n• Contact emergency services\n\nEmergency Contacts:\n• Emergency: 911\n• Hospital: (555) 123-4567',
       actions: [
         { label: 'Call 911', action: 'call', number: '911' },
         { label: 'Find Emergency Room', action: 'navigate', path: '/emergency' }
@@ -270,7 +270,7 @@ async function processUserMessage(message, user, context = {}) {
 
       return {
         type: 'appointment',
-        message: `📅 I can help you with appointments!\n\nYou have ${upcomingAppointments.length} upcoming appointments.\n\nWhat would you like to do?`,
+        message: ` I can help you with appointments!\n\nYou have ${upcomingAppointments.length} upcoming appointments.\n\nWhat would you like to do?`,
         suggestions: ['Book new appointment', 'View my appointments', 'Cancel appointment', 'Find doctors'],
         actions: [
           { label: 'Book Appointment', action: 'navigate', path: '/appointments/book' },
@@ -293,7 +293,7 @@ async function processUserMessage(message, user, context = {}) {
       
       return {
         type: 'records',
-        message: `📋 You have ${recordsCount} medical records in your account.\n\nI can help you:\n• View your medical history\n• Download reports\n• Upload new documents\n• Share records with doctors`,
+        message: ` You have ${recordsCount} medical records in your account.\n\nI can help you:\n• View your medical history\n• Download reports\n• Upload new documents\n• Share records with doctors`,
         suggestions: ['View records', 'Download reports', 'Upload document', 'Share with doctor'],
         actions: [
           { label: 'View Records', action: 'navigate', path: '/records' },
@@ -323,7 +323,7 @@ async function processUserMessage(message, user, context = {}) {
     if (symptomInfo) {
       return {
         type: 'symptom',
-        message: `🩺 Information about ${symptomInfo.symptom}:\n\n${symptomInfo.description}\n\nCommon causes: ${symptomInfo.commonCauses.join(', ')}\n\nWhen to seek help: ${symptomInfo.whenToSeekHelp}`,
+        message: ` Information about ${symptomInfo.symptom}:\n\n${symptomInfo.description}\n\nCommon causes: ${symptomInfo.commonCauses.join(', ')}\n\nWhen to seek help: ${symptomInfo.whenToSeekHelp}`,
         suggestions: ['Book doctor appointment', 'More symptoms info', 'Home remedies', 'Emergency help'],
         disclaimer: 'This information is for educational purposes only. Please consult a healthcare professional for proper diagnosis.',
         data: symptomInfo
@@ -332,7 +332,7 @@ async function processUserMessage(message, user, context = {}) {
 
     return {
       type: 'symptom',
-      message: '🩺 I understand you\'re experiencing symptoms.\n\n**Important:** I can provide general information, but cannot diagnose medical conditions.\n\nFor proper medical evaluation:\n• Book an appointment with a doctor\n• Visit urgent care if symptoms are severe\n• Call 911 for emergencies',
+      message: ' I understand you\'re experiencing symptoms.\n\n**Important:** I can provide general information, but cannot diagnose medical conditions.\n\nFor proper medical evaluation:\n• Book an appointment with a doctor\n• Visit urgent care if symptoms are severe\n• Call 911 for emergencies',
       suggestions: ['Book appointment', 'Find urgent care', 'Symptom checker', 'Health tips'],
       disclaimer: 'This is not medical advice. Please consult a healthcare professional.'
     };
@@ -346,7 +346,7 @@ async function processUserMessage(message, user, context = {}) {
     
     return {
       type: 'health_tips',
-      message: `🌟 Here are some ${randomCategory} tips:\n\n${tips.slice(0, 3).map(tip => `• ${tip}`).join('\n')}`,
+      message: ` Here are some ${randomCategory} tips:\n\n${tips.slice(0, 3).map(tip => `• ${tip}`).join('\n')}`,
       suggestions: ['Nutrition tips', 'Exercise tips', 'Sleep tips', 'Mental health tips'],
       data: {
         category: randomCategory,

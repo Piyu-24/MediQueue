@@ -31,7 +31,7 @@ const ChatBot = () => {
       const welcomeMessage = {
         id: Date.now(),
         type: 'bot',
-        message: `Hello ${user?.firstName || 'there'}! 👋 I'm MediQueue Assistant, your healthcare companion. How can I help you today?`,
+        message: `Hello ${user?.firstName || 'there'}!  I'm MediQueue Assistant, your healthcare companion. How can I help you today?`,
         timestamp: new Date(),
         suggestions: [
           'Book an appointment',
@@ -64,7 +64,7 @@ const ChatBot = () => {
     if (isEmergency) {
       return {
         type: 'emergency',
-        message: '🚨 **EMERGENCY DETECTED** 🚨\n\nIf this is a medical emergency, please:\n• Call 911 immediately\n• Go to the nearest emergency room\n• Contact emergency services\n\nFor non-emergency urgent care, I can help you find the nearest urgent care facility or schedule an urgent appointment.',
+        message: ' **EMERGENCY DETECTED** \n\nIf this is a medical emergency, please:\n• Call 911 immediately\n• Go to the nearest emergency room\n• Contact emergency services\n\nFor non-emergency urgent care, I can help you find the nearest urgent care facility or schedule an urgent appointment.',
         suggestions: ['Find emergency room', 'Call ambulance', 'Urgent appointment', 'Contact doctor'],
         priority: 'high'
       };
@@ -75,7 +75,7 @@ const ChatBot = () => {
     if (appointmentKeywords.some(keyword => lowerMessage.includes(keyword))) {
       return {
         type: 'appointment',
-        message: '📅 I can help you with appointments!\n\nWhat would you like to do?\n• Book a new appointment\n• View upcoming appointments\n• Cancel/reschedule existing appointment\n• Find available doctors',
+        message: ' I can help you with appointments!\n\nWhat would you like to do?\n• Book a new appointment\n• View upcoming appointments\n• Cancel/reschedule existing appointment\n• Find available doctors',
         suggestions: ['Book appointment', 'View appointments', 'Find doctors', 'Reschedule'],
         actions: [
           { label: 'Book Now', action: 'navigate', path: '/appointments/book' },
@@ -89,7 +89,7 @@ const ChatBot = () => {
     if (symptomKeywords.some(keyword => lowerMessage.includes(keyword))) {
       return {
         type: 'symptom',
-        message: '🩺 I understand you\'re experiencing symptoms.\n\n**Important:** I can provide general information, but cannot diagnose medical conditions.\n\nFor proper medical advice, please:\n• Consult with a healthcare professional\n• Book an appointment with a doctor\n• Visit urgent care if symptoms are severe',
+        message: ' I understand you\'re experiencing symptoms.\n\n**Important:** I can provide general information, but cannot diagnose medical conditions.\n\nFor proper medical advice, please:\n• Consult with a healthcare professional\n• Book an appointment with a doctor\n• Visit urgent care if symptoms are severe',
         suggestions: ['Book doctor appointment', 'Find urgent care', 'Symptom tracker', 'Health tips'],
         disclaimer: 'This is not medical advice. Please consult a healthcare professional.'
       };
@@ -100,7 +100,7 @@ const ChatBot = () => {
     if (recordsKeywords.some(keyword => lowerMessage.includes(keyword))) {
       return {
         type: 'records',
-        message: '📋 I can help you access your medical information!\n\n• View medical records\n• Download reports\n• Upload documents\n• Share with doctors\n• Health card information',
+        message: ' I can help you access your medical information!\n\n• View medical records\n• Download reports\n• Upload documents\n• Share with doctors\n• Health card information',
         suggestions: ['View records', 'Download reports', 'Upload documents', 'Health card'],
         actions: [
           { label: 'Medical Records', action: 'navigate', path: '/records' },
@@ -114,7 +114,7 @@ const ChatBot = () => {
     if (healthCardKeywords.some(keyword => lowerMessage.includes(keyword))) {
       return {
         type: 'healthcard',
-        message: '🆔 Your Digital Health Card contains:\n\n• QR code for quick identification\n• Medical information\n• Emergency contacts\n• Insurance details\n• Access history',
+        message: ' Your Digital Health Card contains:\n\n• QR code for quick identification\n• Medical information\n• Emergency contacts\n• Insurance details\n• Access history',
         suggestions: ['View health card', 'Update info', 'QR code help', 'Emergency contacts'],
         actions: [
           { label: 'View Health Card', action: 'tab', tab: 'health-card' }
@@ -127,7 +127,7 @@ const ChatBot = () => {
     if (healthTipsKeywords.some(keyword => lowerMessage.includes(keyword))) {
       return {
         type: 'health_tips',
-        message: '🌟 Here are some general health tips:\n\n• Stay hydrated (8 glasses of water daily)\n• Get 7-9 hours of sleep\n• Exercise regularly (30 min/day)\n• Eat balanced meals\n• Regular health checkups\n• Manage stress levels',
+        message: ' Here are some general health tips:\n\n• Stay hydrated (8 glasses of water daily)\n• Get 7-9 hours of sleep\n• Exercise regularly (30 min/day)\n• Eat balanced meals\n• Regular health checkups\n• Manage stress levels',
         suggestions: ['Nutrition tips', 'Exercise guide', 'Sleep hygiene', 'Stress management']
       };
     }
@@ -282,7 +282,7 @@ const ChatBot = () => {
 
               {msg.disclaimer && (
                 <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-                  ⚠️ {msg.disclaimer}
+                   {msg.disclaimer}
                 </div>
               )}
 

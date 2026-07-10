@@ -121,7 +121,7 @@ const timeBlockSchema = new mongoose.Schema({
   // Reporting time offset: how many minutes before startTime patients should arrive
   reportingOffsetMinutes: {
     type: Number,
-    default: 15,
+    default: 300,
     min: [0, 'Reporting offset cannot be negative']
   },
   createdBy: {

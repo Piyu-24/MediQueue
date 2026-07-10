@@ -7,6 +7,7 @@ const { getAppointmentEligibility, checkInAppointment, checkInWalkIn } = require
 const QueueEngine = require('../services/QueueEngine');
 const { localDateStr } = require('../services/TokenGenerator');
 const Appointment = require('../models/Appointment');
+const DoctorQueueSession = require('../models/DoctorQueueSession');
 
 const router = express.Router();
 
@@ -122,6 +123,18 @@ router.post(
         priority
       } = req.body;
 
+      // ── Session-closed guard ───────────────────────────────────────────
+      // Once a doctor closes their session, no further check-ins are accepted.
+      const queueDate = localDateStr();
+      const checkinSession = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate }).lean();
+      if (checkinSession?.status === 'ended') {
+        return res.status(409).json({
+          success: false,
+          message: 'Check-in is closed. The clinic session for this doctor has ended for today. Please inform the patient that no further appointments are being accepted.',
+          data: { sessionStatus: 'ended' }
+        });
+      }
+
       const result = await checkInAppointment({
         appointmentId,
         patientId,
@@ -137,7 +150,6 @@ router.post(
       });
 
       // Recalculate queue after check-in
-      const queueDate = localDateStr();
       const io = req.app.get('io');
       await QueueEngine.recalculate(doctorId, queueDate, io);
 
@@ -211,6 +223,17 @@ router.post(
         });
       }
 
+      // ── Session-closed guard ───────────────────────────────────────────
+      const queueDate = localDateStr();
+      const byTokenSession = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate }).lean();
+      if (byTokenSession?.status === 'ended') {
+        return res.status(409).json({
+          success: false,
+          message: 'Check-in is closed. The clinic session for this doctor has ended for today. Please inform the patient that no further appointments are being accepted.',
+          data: { sessionStatus: 'ended' }
+        });
+      }
+
       const result = await checkInAppointment({
         appointmentId:   appointment._id.toString(),
         patientId:       appointment.patient._id.toString(),
@@ -225,7 +248,6 @@ router.post(
         priority
       });
 
-      const queueDate = localDateStr();
       const io = req.app.get('io');
       await QueueEngine.recalculate(doctorId, queueDate, io);
 
@@ -277,6 +299,19 @@ router.post(
   async (req, res) => {
     try {
       const { patientId, doctorId, room, department, departmentId, notes, isEmergency, priority } = req.body;
+
+      // ── Session-closed guard ───────────────────────────────────────────
+      // Emergency walk-ins always bypass this check.
+      if (isEmergency !== true) {
+        const queueDate = localDateStr();
+        const existingSession = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate }).lean();
+        if (existingSession?.status === 'ended') {
+          return res.status(409).json({
+            success: false,
+            message: 'Walk-in registration is closed. The clinic session for this doctor has ended for today.'
+          });
+        }
+      }
 
       const result = await checkInWalkIn({
         patientId,

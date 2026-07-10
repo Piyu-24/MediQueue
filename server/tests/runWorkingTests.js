@@ -14,7 +14,7 @@ const workingTests = [
 
 async function runTest(testFile) {
   return new Promise((resolve, reject) => {
-    console.log(`\n🧪 Running: ${testFile}`);
+    console.log(`\n Running: ${testFile}`);
     console.log('='.repeat(50));
     
     const child = spawn('npm', ['test', testFile, '--silent'], {
@@ -25,10 +25,10 @@ async function runTest(testFile) {
 
     child.on('close', (code) => {
       if (code === 0) {
-        console.log(`✅ ${testFile} - PASSED`);
+        console.log(` ${testFile} - PASSED`);
         resolve({ test: testFile, status: 'PASSED' });
       } else {
-        console.log(`❌ ${testFile} - FAILED`);
+        console.log(` ${testFile} - FAILED`);
         resolve({ test: testFile, status: 'FAILED' });
       }
     });
@@ -41,7 +41,7 @@ async function runTest(testFile) {
 }
 
 async function runAllWorkingTests() {
-  console.log('🚀 Running MediQueue Working Test Suite');
+  console.log(' Running MediQueue Working Test Suite');
   console.log('=' .repeat(60));
   
   const results = [];
@@ -57,23 +57,23 @@ async function runAllWorkingTests() {
   }
   
   // Summary
-  console.log('\n📊 TEST SUMMARY');
+  console.log('\n TEST SUMMARY');
   console.log('='.repeat(30));
   
   const passed = results.filter(r => r.status === 'PASSED').length;
   const failed = results.filter(r => r.status === 'FAILED').length;
   const errors = results.filter(r => r.status === 'ERROR').length;
   
-  console.log(`✅ Passed: ${passed}`);
-  console.log(`❌ Failed: ${failed}`);
-  console.log(`💥 Errors: ${errors}`);
-  console.log(`📈 Success Rate: ${((passed / results.length) * 100).toFixed(1)}%`);
+  console.log(` Passed: ${passed}`);
+  console.log(` Failed: ${failed}`);
+  console.log(` Errors: ${errors}`);
+  console.log(` Success Rate: ${((passed / results.length) * 100).toFixed(1)}%`);
   
   if (passed === results.length) {
-    console.log('\n🎉 All working tests passed!');
+    console.log('\n All working tests passed!');
     process.exit(0);
   } else {
-    console.log('\n⚠️  Some tests failed or had errors');
+    console.log('\n  Some tests failed or had errors');
     process.exit(1);
   }
 }

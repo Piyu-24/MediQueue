@@ -55,9 +55,9 @@ const TokenChip = ({ entry, size = 'md', highlight = false }) => {
       <span className="text-xs text-gray-500 hidden sm:inline">{entry.initials}</span>
 
       {/* Badges */}
-      {isEmergency && <span className="text-red-400 text-xs">🚨</span>}
-      {isLate      && <span className="text-orange-400 text-xs" title="Late arrival">⏰</span>}
-      {entry.priority === 'urgent' && !isEmergency && <span className="text-red-400 text-xs">🔴</span>}
+      {isEmergency && <span className="text-red-400 text-xs"></span>}
+      {isLate      && <span className="text-orange-400 text-xs" title="Late arrival"></span>}
+      {entry.priority === 'urgent' && !isEmergency && <span className="text-red-400 text-xs"></span>}
     </div>
   );
 };
@@ -99,7 +99,7 @@ const RoomPanel = ({ room }) => {
       {/* ── Emergency banner ── */}
       {hasEmergency && (
         <div className="bg-red-600/20 border-b border-red-600/30 px-5 py-2 flex items-center gap-2">
-          <span className="text-red-400 text-base">🚨</span>
+          <span className="text-red-400 text-base"></span>
           <p className="text-red-300 text-xs font-semibold">
             Emergency patient in queue — priority override in effect.
           </p>
@@ -109,7 +109,7 @@ const RoomPanel = ({ room }) => {
       {/* ── Paused / Delay banner ── */}
       {isPaused && (
         <div className="bg-yellow-500/15 border-b border-yellow-500/25 px-5 py-2 flex items-center gap-2">
-          <span className="text-yellow-400 text-base">⏸</span>
+          <span className="text-yellow-400 text-base"></span>
           <p className="text-yellow-300 text-xs font-semibold">
             Queue temporarily paused.{room.delayMessage && ` ${room.delayMessage}`}
           </p>
@@ -119,7 +119,7 @@ const RoomPanel = ({ room }) => {
       {/* ── Late arrival notice ── */}
       {hasLate && !isPaused && (
         <div className="bg-orange-500/10 border-b border-orange-500/20 px-5 py-1.5 flex items-center gap-2">
-          <span className="text-orange-400 text-xs">⏰</span>
+          <span className="text-orange-400 text-xs"></span>
           <p className="text-orange-300 text-xs">
             Late arrival(s) in queue — order adjusted per hospital policy.
           </p>
@@ -157,11 +157,11 @@ const RoomPanel = ({ room }) => {
                   ? 'bg-purple-900 text-purple-300'
                   : 'bg-orange-900/80 text-orange-300'
               }`}>
-                {room.nowServing.status === 'in_consultation' ? '🩺 In Consultation' : '📢 Called'}
+                {room.nowServing.status === 'in_consultation' ? ' In Consultation' : ' Called'}
               </span>
               {room.nowServing.room && (
                 <p className="mt-2 text-xs font-mono font-semibold text-gray-500">
-                  🚪 {room.nowServing.room}
+                   {room.nowServing.room}
                 </p>
               )}
               {room.completedCount > 0 && (
@@ -229,7 +229,7 @@ const TokenLegend = () => (
       <span>E — Emergency</span>
     </span>
     <span className="flex items-center gap-1.5">
-      <span className="text-orange-400">⏰</span>
+      <span className="text-orange-400"></span>
       <span>Late arrival</span>
     </span>
   </div>
@@ -341,11 +341,11 @@ const QueueDisplay = () => {
       {/* ── Global emergency ticker ── */}
       {anyEmergency && (
         <div className="bg-red-700/80 px-8 py-2 flex items-center justify-center gap-3 border-b border-red-600/50">
-          <span className="text-xl animate-pulse">🚨</span>
+          <span className="text-xl animate-pulse"></span>
           <p className="text-sm font-bold text-red-100">
             Emergency patient present — emergency cases are prioritised above all queue positions.
           </p>
-          <span className="text-xl animate-pulse">🚨</span>
+          <span className="text-xl animate-pulse"></span>
         </div>
       )}
 

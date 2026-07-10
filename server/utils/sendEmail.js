@@ -26,7 +26,7 @@ const sendEmail = async (options) => {
       auth: { user: account.user, pass: account.pass },
     });
     console.warn(
-      '\n⚠️  No SMTP credentials in .env — using Ethereal test account.\n' +
+      '\n  No SMTP credentials in .env — using Ethereal test account.\n' +
       '   Emails are captured on Ethereal and will NOT arrive in real inboxes.\n' +
       '   Add EMAIL_USER and EMAIL_PASS to .env to enable real delivery.\n'
     );

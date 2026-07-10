@@ -659,7 +659,7 @@ const AdminDashboard = () => {
                             <div>
                               <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Temporary Password</p>
                               <p className="font-mono text-sm font-bold text-gray-900">{createdCredentials.tempPassword}</p>
-                              <p className="text-xs text-orange-600 mt-1">⚠ Show this once — it won't be displayed again</p>
+                              <p className="text-xs text-orange-600 mt-1"> Show this once — it won't be displayed again</p>
                             </div>
                             <button onClick={() => { navigator.clipboard.writeText(createdCredentials.tempPassword); toast.success('Password copied'); }}
                               className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
@@ -1742,7 +1742,7 @@ const CapacityTab = () => {
 
             {/* Capacity policy info box */}
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
-              <h4 className="font-bold text-amber-900 text-sm mb-3">📊 Default Capacity Allocation</h4>
+              <h4 className="font-bold text-amber-900 text-sm mb-3"> Default Capacity Allocation</h4>
               <p className="text-xs text-amber-800 mb-3">
                 When blocks are generated, total capacity is split automatically using these percentages:
               </p>

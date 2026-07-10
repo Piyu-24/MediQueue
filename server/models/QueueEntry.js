@@ -117,7 +117,8 @@ const queueEntrySchema = new mongoose.Schema({
       'temporarily_away',   // patient stepped out, will return
       'cancelled',          // removed from queue
       'emergency_waiting',  // emergency patient, top priority
-      'delayed'             // queue paused by doctor; patient notified
+      'delayed',            // queue paused by doctor; patient notified
+      'unserved_clinic_closed' // clinic session ended before patient was seen
     ],
     default: 'waiting'
   },
@@ -212,6 +213,8 @@ const queueEntrySchema = new mongoose.Schema({
   returnedAt: { type: Date },
   temporarilyAwayAt: { type: Date },
   noShowAt: { type: Date },
+  /** Set when bulk-marked unserved_clinic_closed by ClinicSessionService */
+  unservedAt: { type: Date, default: null },
 
   // ── ETA ──────────────────────────────────────────────────────────────────────
   estimatedWaitMinutes: { type: Number, default: 0 },

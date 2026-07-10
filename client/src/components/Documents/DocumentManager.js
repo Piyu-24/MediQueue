@@ -138,13 +138,13 @@ const DocumentManager = () => {
 
   const getFileIcon = (mimeType) => {
     if (mimeType.startsWith('image/')) {
-      return '🖼️';
+      return '';
     } else if (mimeType === 'application/pdf') {
-      return '📄';
+      return '';
     } else if (mimeType.includes('word')) {
-      return '📝';
+      return '';
     } else {
-      return '📎';
+      return '';
     }
   };
 

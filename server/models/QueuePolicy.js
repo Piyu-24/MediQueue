@@ -26,7 +26,7 @@ const queuePolicySchema = new mongoose.Schema({
   /** How many minutes before appointment time a patient may check in */
   earlyCheckInMinutes: {
     type: Number,
-    default: 30
+    default: 300
   },
   /** How many minutes after appointment time before patient is marked LATE */
   gracePeriodMinutes: {

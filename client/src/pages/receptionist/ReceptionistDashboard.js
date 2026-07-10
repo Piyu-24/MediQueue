@@ -1391,7 +1391,7 @@ const ReceptionistDashboard = () => {
                               className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                             >
                               <option value="normal">Normal</option>
-                              <option value="urgent">Urgent 🔴</option>
+                              <option value="urgent">Urgent </option>
                             </select>
                           </div>
 
@@ -1443,7 +1443,7 @@ const ReceptionistDashboard = () => {
                 {/* ── Quick check-in by appointment token ── */}
                 <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-5 text-white mb-4">
                   <p className="text-sm font-bold mb-3 flex items-center gap-2">
-                    <span className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-xs">⚡</span>
+                    <span className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-xs"></span>
                     Quick Token Check-in — type the appointment token from the patient's slip
                   </p>
                   <div className="flex gap-3">
@@ -1569,10 +1569,10 @@ const ReceptionistDashboard = () => {
                       <div>
                         <p className="font-bold text-gray-900">
                           {eligibility.appointment?.patient?.firstName || eligibility.appointment?.patient} — {' '}
-                          {eligibility.arrivalStatus === 'early' ? '⏰ Early' :
-                           eligibility.arrivalStatus === 'on_time' ? '✅ On Time' :
-                           eligibility.arrivalStatus === 'late' ? '⚠️ Late' :
-                           eligibility.arrivalStatus === 'too_early' ? '🕐 Too Early' : ''}
+                          {eligibility.arrivalStatus === 'early' ? ' Early' :
+                           eligibility.arrivalStatus === 'on_time' ? ' On Time' :
+                           eligibility.arrivalStatus === 'late' ? ' Late' :
+                           eligibility.arrivalStatus === 'too_early' ? ' Too Early' : ''}
                         </p>
                         {eligibility.reason && <p className="text-sm text-gray-600">{eligibility.reason}</p>}
                       </div>
@@ -1813,10 +1813,10 @@ const ReceptionistDashboard = () => {
                             <div>
                               <p className="font-semibold text-gray-900">
                                 {entry.patient?.firstName} {entry.patient?.lastName}
-                                {entry.isEmergency && <span className="ml-2 text-red-600 text-xs font-bold">🚨 EMERGENCY</span>}
-                                {entry.priority === 'urgent' && !entry.isEmergency && <span className="ml-2 text-red-500 text-xs font-bold">🔴 URGENT</span>}
+                                {entry.isEmergency && <span className="ml-2 text-red-600 text-xs font-bold"> EMERGENCY</span>}
+                                {entry.priority === 'urgent' && !entry.isEmergency && <span className="ml-2 text-red-500 text-xs font-bold"> URGENT</span>}
                                 {entry.isWalkIn && <span className="ml-2 text-amber-600 text-xs font-medium">Walk-in</span>}
-                                {entry.isLate && <span className="ml-2 text-orange-600 text-xs font-bold">⏰ Late</span>}
+                                {entry.isLate && <span className="ml-2 text-orange-600 text-xs font-bold"> Late</span>}
                               </p>
                               <p className="text-sm text-gray-500">
                                 Dr. {entry.doctor?.firstName} {entry.doctor?.lastName} · {entry.room} · Check-in: {entry.checkInTime ? new Date(entry.checkInTime).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit' }) : '—'}
@@ -1825,15 +1825,6 @@ const ReceptionistDashboard = () => {
                           </div>
                           <div className="flex items-center gap-2 flex-wrap justify-end">
                             {getStatusBadge(entry.status)}
-                            {/* Reception actions */}
-                            {isActive && (
-                              <button onClick={async () => {
-                                try { await queueAPI.callPatient(entry._id); toast.success('Patient called'); fetchTodaysQueue(); }
-                                catch { toast.error('Failed'); }
-                              }} className="text-xs px-2 py-1 bg-orange-500 text-white rounded-lg hover:bg-orange-600">
-                                📢 Call
-                              </button>
-                            )}
                             {['waiting', 'ready', 'called', 'emergency_waiting'].includes(entry.status) && (
                               <button onClick={async () => {
                                 try { await queueAPI.markTemporarilyAway(entry._id); toast.success('Marked away'); fetchTodaysQueue(); }
@@ -1847,7 +1838,7 @@ const ReceptionistDashboard = () => {
                                 try { await queueAPI.markReturned(entry._id); toast.success('Patient returned'); fetchTodaysQueue(); }
                                 catch { toast.error('Failed'); }
                               }} className="text-xs px-2 py-1 bg-blue-100 text-blue-700 border border-blue-300 rounded-lg hover:bg-blue-200">
-                                ↩ Returned
+                                 Returned
                               </button>
                             )}
                             {['waiting', 'ready', 'called'].includes(entry.status) && (
