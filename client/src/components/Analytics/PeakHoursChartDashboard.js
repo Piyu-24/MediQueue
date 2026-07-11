@@ -1,549 +1,471 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  ClockIcon, 
-  ArrowTrendingUpIcon, 
+/**
+ * PeakHoursChartDashboard
+ *
+ * Displays queue activity analytics derived exclusively from QueueEntry records
+ * stored in the database. No mock data, no fabricated statistics.
+ *
+ * Data source: GET /api/reports/peak-hours?days=N
+ * Fields used:  QueueEntry.checkInTime · QueueEntry.calledTime · QueueEntry.status
+ */
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  ClockIcon,
   UsersIcon,
   ChartBarIcon,
-  ExclamationTriangleIcon,
+  ArrowPathIcon,
+  CalendarDaysIcon,
   InformationCircleIcon,
-  ArrowPathIcon
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
-import { 
-  LineChart, 
-  Line, 
-  BarChart, 
-  Bar, 
-  ComposedChart,
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend, 
-  ResponsiveContainer
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
 } from 'recharts';
-import toast from 'react-hot-toast';
+import { analyticsAPI } from '../../services/api';
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const PERIOD_OPTIONS = [
+  { label: 'Last 7 Days',  value: 7  },
+  { label: 'Last 30 Days', value: 30 },
+  { label: 'Last 90 Days', value: 90 },
+];
+
+const LEVEL_STYLES = {
+  'Very High': 'text-red-700 bg-red-100 border-red-200',
+  'High':      'text-orange-700 bg-orange-100 border-orange-200',
+  'Medium':    'text-yellow-700 bg-yellow-100 border-yellow-200',
+  'Low':       'text-green-700 bg-green-100 border-green-200',
+};
+
+const LEVEL_BAR_COLORS = {
+  'Very High': '#EF4444',
+  'High':      '#F97316',
+  'Medium':    '#EAB308',
+  'Low':       '#22C55E',
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const fmt12h = (hour) => {
+  if (hour === 0)  return '12 AM';
+  if (hour < 12)  return `${hour} AM`;
+  if (hour === 12) return '12 PM';
+  return `${hour - 12} PM`;
+};
+
+const fmtDate = (iso) =>
+  new Date(iso + 'T00:00:00').toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric',
+  });
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+const KpiCard = ({ icon: Icon, label, value, sub, color = 'blue' }) => {
+  const colorMap = {
+    blue:   'bg-blue-50 text-blue-700',
+    green:  'bg-green-50 text-green-700',
+    orange: 'bg-orange-50 text-orange-700',
+    teal:   'bg-teal-50 text-teal-700',
+  };
+  return (
+    <div className={`rounded-xl p-5 ${colorMap[color]}`}>
+      <div className="flex items-start gap-3">
+        <Icon className="w-7 h-7 shrink-0 mt-0.5 opacity-80" />
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide opacity-70 mb-0.5">{label}</p>
+          <p className="text-2xl font-bold">{value}</p>
+          {sub && <p className="text-xs opacity-60 mt-0.5">{sub}</p>}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const InsufficientData = ({ note }) => (
+  <div className="flex flex-col items-center justify-center py-16 text-center">
+    <InformationCircleIcon className="w-12 h-12 text-gray-300 mb-4" />
+    <h3 className="text-gray-500 font-semibold mb-2">Insufficient data available.</h3>
+    <p className="text-sm text-gray-400 max-w-sm">{note || 'More queue activity is needed before analytics can be displayed.'}</p>
+  </div>
+);
+
+// Custom bar shape that colours each bar by its demand level
+const LevelBar = (props) => {
+  const { x, y, width, height, demandLevel } = props;
+  const fill = LEVEL_BAR_COLORS[demandLevel] || '#94A3B8';
+  return <rect x={x} y={y} width={width} height={height} fill={fill} rx={3} />;
+};
+
+// ── Main Component ────────────────────────────────────────────────────────────
 
 const PeakHoursChartDashboard = ({ embedded = false }) => {
-  const [loading, setLoading] = useState(true);
-  const [predictions, setPredictions] = useState([]);
-  const [chartData, setChartData] = useState([]);
-  const [selectedTimeframe, setSelectedTimeframe] = useState('24h');
-  const [refreshTime, setRefreshTime] = useState(null);
-  const [insights, setInsights] = useState([]);
-  const [todayStats, setTodayStats] = useState({});
+  const [days, setDays]           = useState(30);
+  const [data, setData]           = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
+  const [fetchedAt, setFetchedAt] = useState(null);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    // Debounce the fetch to prevent multiple rapid calls
-    const timeoutId = setTimeout(() => {
-      fetchPeakHoursData();
-    }, 100);
-    
-    return () => clearTimeout(timeoutId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTimeframe]);
-
-  const fetchPeakHoursData = async () => {
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      
-      // Use mock data for demonstration
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Loading peak hours prediction with mock data...');
-      }
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const mockData = generateMockData();
-      setPredictions(mockData.predictions);
-      
-      // Transform data for charts
-      const transformedChartData = transformDataForCharts(mockData.predictions);
-      setChartData(transformedChartData);
-      
-      // Generate insights
-      const generatedInsights = generateInsights(mockData.predictions);
-      setInsights(generatedInsights);
-      
-      // Generate today's stats
-      const stats = generateTodayStats(mockData.predictions);
-      setTodayStats(stats);
-      
-      setRefreshTime(new Date());
-      
-      if (!embedded) {
-        toast.success('Peak hours prediction loaded');
-      }
-      
-    } catch (error) {
-      console.error('Error loading peak hours data:', error);
-      if (!embedded) {
-        toast.error('Failed to load peak hours data');
-      }
+      const res = await analyticsAPI.getPeakHours(days);
+      setData(res.data.data);
+      setFetchedAt(new Date());
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load analytics. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [days]);
 
-  const generateMockData = () => {
-    const now = new Date();
-    // eslint-disable-next-line no-unused-vars
-    const _currentHour = now.getHours();
-    const currentDay = now.getDay();
-    
-    const weekdayPatterns = {
-      1: [ // Monday
-        { hour: 8, level: 'High', confidence: 92, patientCount: 45, waitTime: 25, staffNeeded: 8, reason: 'Monday morning appointments backlog' },
-        { hour: 9, level: 'Very High', confidence: 95, patientCount: 68, waitTime: 35, staffNeeded: 12, reason: 'Peak Monday rush hour' },
-        { hour: 10, level: 'Very High', confidence: 88, patientCount: 62, waitTime: 45, staffNeeded: 12, reason: 'Peak consultation hours' },
-        { hour: 11, level: 'High', confidence: 87, patientCount: 48, waitTime: 28, staffNeeded: 9, reason: 'Late morning appointments' },
-        { hour: 14, level: 'Medium', confidence: 85, patientCount: 28, waitTime: 15, staffNeeded: 6, reason: 'Afternoon appointments' },
-        { hour: 15, level: 'High', confidence: 89, patientCount: 38, waitTime: 22, staffNeeded: 7, reason: 'Afternoon peak' },
-        { hour: 16, level: 'High', confidence: 90, patientCount: 41, waitTime: 25, staffNeeded: 8, reason: 'End-of-day consultations' }
-      ],
-      2: [ // Tuesday
-        { hour: 8, level: 'Medium', confidence: 83, patientCount: 28, waitTime: 16, staffNeeded: 5, reason: 'Tuesday morning start' },
-        { hour: 9, level: 'Medium', confidence: 85, patientCount: 32, waitTime: 18, staffNeeded: 6, reason: 'Regular morning flow' },
-        { hour: 10, level: 'High', confidence: 89, patientCount: 42, waitTime: 25, staffNeeded: 8, reason: 'Mid-morning peak' },
-        { hour: 11, level: 'High', confidence: 87, patientCount: 38, waitTime: 22, staffNeeded: 7, reason: 'Late morning appointments' },
-        { hour: 14, level: 'Medium', confidence: 84, patientCount: 26, waitTime: 14, staffNeeded: 5, reason: 'Early afternoon' },
-        { hour: 15, level: 'Medium', confidence: 82, patientCount: 29, waitTime: 16, staffNeeded: 6, reason: 'Afternoon appointments' },
-        { hour: 16, level: 'Medium', confidence: 86, patientCount: 31, waitTime: 18, staffNeeded: 6, reason: 'Late afternoon' }
-      ],
-      3: [ // Wednesday - Peak day
-        { hour: 8, level: 'High', confidence: 89, patientCount: 43, waitTime: 28, staffNeeded: 8, reason: 'Mid-week appointment preference' },
-        { hour: 9, level: 'Very High', confidence: 96, patientCount: 72, waitTime: 42, staffNeeded: 13, reason: 'Wednesday peak hours' },
-        { hour: 10, level: 'Very High', confidence: 94, patientCount: 58, waitTime: 48, staffNeeded: 11, reason: 'Peak mid-week hours' },
-        { hour: 11, level: 'High', confidence: 91, patientCount: 51, waitTime: 32, staffNeeded: 9, reason: 'Sustained high demand' },
-        { hour: 13, level: 'High', confidence: 86, patientCount: 39, waitTime: 24, staffNeeded: 7, reason: 'Lunch-time appointments' },
-        { hour: 14, level: 'High', confidence: 88, patientCount: 44, waitTime: 27, staffNeeded: 8, reason: 'Afternoon continuation' },
-        { hour: 15, level: 'High', confidence: 88, patientCount: 42, waitTime: 26, staffNeeded: 8, reason: 'Afternoon rush' },
-        { hour: 16, level: 'Medium', confidence: 85, patientCount: 35, waitTime: 20, staffNeeded: 7, reason: 'Late afternoon' }
-      ],
-      4: [ // Thursday
-        { hour: 8, level: 'Medium', confidence: 82, patientCount: 27, waitTime: 15, staffNeeded: 5, reason: 'Thursday morning' },
-        { hour: 9, level: 'Medium', confidence: 84, patientCount: 31, waitTime: 17, staffNeeded: 6, reason: 'Regular flow' },
-        { hour: 10, level: 'High', confidence: 87, patientCount: 39, waitTime: 23, staffNeeded: 7, reason: 'Mid-morning appointments' },
-        { hour: 11, level: 'High', confidence: 86, patientCount: 37, waitTime: 21, staffNeeded: 7, reason: 'Late morning peak' },
-        { hour: 14, level: 'Medium', confidence: 83, patientCount: 25, waitTime: 13, staffNeeded: 5, reason: 'Afternoon lull' },
-        { hour: 15, level: 'Medium', confidence: 85, patientCount: 29, waitTime: 16, staffNeeded: 6, reason: 'Mid-afternoon' },
-        { hour: 16, level: 'Medium', confidence: 83, patientCount: 30, waitTime: 18, staffNeeded: 6, reason: 'Late afternoon' }
-      ],
-      5: [ // Friday
-        { hour: 8, level: 'Medium', confidence: 81, patientCount: 26, waitTime: 14, staffNeeded: 5, reason: 'Friday morning' },
-        { hour: 9, level: 'Medium', confidence: 83, patientCount: 30, waitTime: 17, staffNeeded: 6, reason: 'End-of-week start' },
-        { hour: 10, level: 'Medium', confidence: 79, patientCount: 28, waitTime: 16, staffNeeded: 6, reason: 'End-of-week appointments' },
-        { hour: 11, level: 'Medium', confidence: 80, patientCount: 24, waitTime: 13, staffNeeded: 5, reason: 'Late morning' },
-        { hour: 14, level: 'Low', confidence: 85, patientCount: 18, waitTime: 8, staffNeeded: 4, reason: 'Friday afternoon slowdown' },
-        { hour: 15, level: 'Low', confidence: 82, patientCount: 16, waitTime: 7, staffNeeded: 3, reason: 'Weekend preparation' },
-        { hour: 16, level: 'Low', confidence: 84, patientCount: 14, waitTime: 6, staffNeeded: 3, reason: 'End of week' }
-      ],
-      6: [ // Saturday
-        { hour: 9, level: 'Low', confidence: 88, patientCount: 15, waitTime: 8, staffNeeded: 3, reason: 'Weekend emergency visits' },
-        { hour: 10, level: 'Low', confidence: 86, patientCount: 18, waitTime: 10, staffNeeded: 4, reason: 'Saturday morning' },
-        { hour: 11, level: 'Medium', confidence: 84, patientCount: 22, waitTime: 12, staffNeeded: 4, reason: 'Weekend appointments' },
-        { hour: 14, level: 'Medium', confidence: 82, patientCount: 24, waitTime: 14, staffNeeded: 5, reason: 'Weekend peak hours' },
-        { hour: 15, level: 'Low', confidence: 85, patientCount: 19, waitTime: 10, staffNeeded: 4, reason: 'Saturday afternoon' }
-      ],
-      0: [ // Sunday
-        { hour: 10, level: 'Low', confidence: 90, patientCount: 12, waitTime: 6, staffNeeded: 3, reason: 'Sunday emergency only' },
-        { hour: 12, level: 'Low', confidence: 88, patientCount: 14, waitTime: 7, staffNeeded: 3, reason: 'Sunday midday' },
-        { hour: 14, level: 'Low', confidence: 86, patientCount: 16, waitTime: 8, staffNeeded: 3, reason: 'Sunday afternoon' },
-        { hour: 16, level: 'Low', confidence: 87, patientCount: 13, waitTime: 6, staffNeeded: 3, reason: 'Weekend emergency visits' }
-      ]
-    };
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-    // Get base predictions for current day
-    let basePredictions = weekdayPatterns[currentDay] || weekdayPatterns[3];
-    
-    // Adjust based on timeframe
-    if (selectedTimeframe === '48h') {
-      const nextDay = (currentDay + 1) % 7;
-      const nextDayPredictions = (weekdayPatterns[nextDay] || weekdayPatterns[3]).map(p => ({
-        ...p,
-        hour: p.hour + 24,
-        day: 'Tomorrow'
-      }));
-      basePredictions = [...basePredictions.map(p => ({ ...p, day: 'Today' })), ...nextDayPredictions];
-    } else if (selectedTimeframe === '7d') {
-      // Generate week view
-      basePredictions = [];
-      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-      
-      for (let i = 0; i < 7; i++) {
-        const day = (currentDay + i) % 7;
-        const dayPredictions = weekdayPatterns[day] || weekdayPatterns[3];
-        const peakPrediction = dayPredictions.reduce((max, curr) => 
-          curr.patientCount > max.patientCount ? curr : max
-        );
-        
-        basePredictions.push({
-          ...peakPrediction,
-          day: i === 0 ? 'Today' : dayNames[day],
-          dayOffset: i
-        });
-      }
-    } else {
-      // 24h view - show all hours for current day
-      basePredictions = basePredictions.map(p => ({ ...p, day: 'Today' }));
-    }
+  // ── Active hours (hours that have at least 1 day of data) ─────────────────
+  const activeHourlyData = (data?.hourlyActivity || [])
+    .filter(h => h.avgCheckIns !== null);
 
-    return {
-      predictions: basePredictions
-    };
-  };
+  // ── Chart datasets ────────────────────────────────────────────────────────
+  const volumeChartData = activeHourlyData.map(h => ({
+    label:       fmt12h(h.hour),
+    avgCheckIns: h.avgCheckIns,
+    demandLevel: h.demandLevel,
+  }));
 
-  const transformDataForCharts = (predictions) => {
-    return predictions.map(pred => ({
-      hour: `${pred.hour}:00`,
-      hourNum: pred.hour,
-      patients: pred.patientCount,
-      waitTime: pred.waitTime || Math.floor(pred.patientCount * 0.4) + 10,
-      staffNeeded: pred.staffNeeded || Math.ceil(pred.patientCount / 6),
-      confidence: pred.confidence,
-      level: pred.level,
-      levelNum: pred.level === 'Very High' ? 4 : pred.level === 'High' ? 3 : pred.level === 'Medium' ? 2 : 1
+  const waitChartData = activeHourlyData
+    .filter(h => h.avgWaitMinutes !== null)
+    .map(h => ({
+      label:          fmt12h(h.hour),
+      avgWaitMinutes: h.avgWaitMinutes,
     }));
-  };
 
-  const generateInsights = (predictions) => {
-    if (!predictions.length) return [];
-    
-    const peakPrediction = predictions.reduce((max, curr) => 
-      curr.patientCount > max.patientCount ? curr : max
-    );
-    
-    const totalPatients = predictions.reduce((sum, pred) => sum + pred.patientCount, 0);
-    const avgWaitTime = predictions.reduce((sum, pred) => sum + (pred.waitTime || 20), 0) / predictions.length;
-    
-    return [
-      {
-        type: 'peak',
-        title: 'Peak Hour Identified',
-        description: `Highest demand expected at ${peakPrediction.hour}:00 with ${peakPrediction.patientCount} patients`,
-        recommendation: 'Schedule additional staff during this period',
-        icon: ExclamationTriangleIcon,
-        color: 'text-red-600 bg-red-50'
-      },
-      {
-        type: 'capacity',
-        title: 'Total Daily Volume',
-        description: `Expected ${totalPatients} patients across all tracked hours`,
-        recommendation: 'Ensure adequate resources are allocated',
-        icon: UsersIcon,
-        color: 'text-blue-600 bg-blue-50'
-      },
-      {
-        type: 'efficiency',
-        title: 'Average Wait Time',
-        description: `Predicted average wait time: ${Math.round(avgWaitTime)} minutes`,
-        recommendation: avgWaitTime > 25 ? 'Consider optimizing patient flow' : 'Wait times within acceptable range',
-        icon: ClockIcon,
-        color: avgWaitTime > 25 ? 'text-orange-600 bg-orange-50' : 'text-green-600 bg-green-50'
-      }
-    ];
-  };
+  const dailyTrendData = (data?.dailyTrend || []).map(d => ({
+    label:         fmtDate(d.date),
+    totalCheckIns: d.totalCheckIns,
+  }));
 
-  const generateTodayStats = (predictions) => {
-    if (!predictions.length) return {};
-    
-    const totalPatients = predictions.reduce((sum, pred) => sum + pred.patientCount, 0);
-    const peakHour = predictions.reduce((max, curr) => 
-      curr.patientCount > max.patientCount ? curr : max
-    );
-    const avgConfidence = predictions.reduce((sum, pred) => sum + pred.confidence, 0) / predictions.length;
-    
-    return {
-      totalPredicted: totalPatients,
-      peakHour: `${peakHour.hour}:00`,
-      peakPatients: peakHour.patientCount,
-      avgConfidence: Math.round(avgConfidence),
-      staffRecommendation: Math.max(...predictions.map(p => p.staffNeeded || 6))
-    };
-  };
-
-  const getLevelColor = (level) => {
-    switch (level?.toLowerCase()) {
-      case 'very high': return 'text-red-600 bg-red-100';
-      case 'high': return 'text-orange-600 bg-orange-100';
-      case 'medium': return 'text-yellow-600 bg-yellow-100';
-      case 'low': return 'text-green-600 bg-green-100';
-      default: return 'text-gray-600 bg-gray-100';
-    }
-  };
-
-  const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
+  // ── Render states ─────────────────────────────────────────────────────────
 
   if (loading) {
     return (
-      <div className={`bg-white rounded-lg shadow ${embedded ? 'p-4' : 'p-6'}`}>
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
-          <span className="text-gray-600">Loading peak hours prediction...</span>
+      <div className="bg-white rounded-2xl shadow p-8 flex items-center justify-center min-h-64">
+        <ArrowPathIcon className="w-6 h-6 text-blue-500 animate-spin mr-3" />
+        <span className="text-gray-500">Loading analytics from database…</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white rounded-2xl shadow p-8">
+        <div className="flex items-start gap-3 text-red-600 bg-red-50 rounded-xl p-4">
+          <ExclamationTriangleIcon className="w-6 h-6 shrink-0" />
+          <div>
+            <p className="font-semibold">Unable to load analytics</p>
+            <p className="text-sm mt-1 text-red-500">{error}</p>
+            <button
+              onClick={fetchData}
+              className="mt-3 text-sm px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  // Debug output (development only)
-  if (process.env.NODE_ENV === 'development' && predictions.length > 0) {
-    console.log('Peak Hours Dashboard rendered with:', {
-      predictions: predictions.length,
-      chartData: chartData.length,
-      insights: insights.length
-    });
-  }
+  const { kpis, meta, insufficient } = data || {};
 
   return (
-    <div className={`bg-white rounded-lg shadow ${embedded ? 'p-4' : 'p-6'}`}>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center space-x-3">
-          <ChartBarIcon className="w-8 h-8 text-blue-600" />
+    <div className={`bg-white rounded-2xl shadow ${embedded ? 'p-5' : 'p-6'}`}>
+
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-3">
+          <ChartBarIcon className="w-7 h-7 text-blue-600" />
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Peak Hours Prediction</h2>
-            <p className="text-sm text-gray-600">AI-powered demand forecasting with visual analytics</p>
+            <h2 className="text-xl font-bold text-gray-900">Peak Hours Analytics</h2>
+            <p className="text-sm text-gray-500">
+              Historical queue activity — actual check-in records only
+            </p>
           </div>
         </div>
-        
-        <div className="flex items-center space-x-3">
-          <select
-            value={selectedTimeframe}
-            onChange={(e) => setSelectedTimeframe(e.target.value)}
-            className="border border-gray-300 rounded-md px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="24h">Next 24 Hours</option>
-            <option value="48h">Next 48 Hours</option>
-            <option value="7d">Next 7 Days</option>
-          </select>
-          
+
+        <div className="flex items-center gap-3">
+          {/* Period selector */}
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {PERIOD_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setDays(opt.value)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  days === opt.value
+                    ? 'bg-white text-blue-700 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
           <button
-            onClick={fetchPeakHoursData}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors flex items-center space-x-2"
+            onClick={fetchData}
+            title="Refresh data"
+            className="p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
           >
-            <ArrowPathIcon className="w-4 h-4" />
-            <span>Refresh</span>
+            <ArrowPathIcon className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* Stats Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <div className="bg-blue-50 p-4 rounded-lg">
-          <div className="flex items-center">
-            <UsersIcon className="w-8 h-8 text-blue-600 mr-3" />
-            <div>
-              <p className="text-sm text-gray-600">Total Predicted</p>
-              <p className="text-2xl font-bold text-gray-900">{todayStats.totalPredicted || 0}</p>
-            </div>
-          </div>
+      {/* ── Data quality note ────────────────────────────────────────────── */}
+      {meta && (
+        <div className="flex items-start gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-4 py-2 mb-6">
+          <InformationCircleIcon className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{meta.note}</span>
         </div>
-        
-        <div className="bg-red-50 p-4 rounded-lg">
-          <div className="flex items-center">
-            <ExclamationTriangleIcon className="w-8 h-8 text-red-600 mr-3" />
-            <div>
-              <p className="text-sm text-gray-600">Peak Hour</p>
-              <p className="text-2xl font-bold text-gray-900">{todayStats.peakHour || 'N/A'}</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-green-50 p-4 rounded-lg">
-          <div className="flex items-center">
-            <ChartBarIcon className="w-8 h-8 text-green-600 mr-3" />
-            <div>
-              <p className="text-sm text-gray-600">Confidence</p>
-              <p className="text-2xl font-bold text-gray-900">{todayStats.avgConfidence || 0}%</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-teal-50 p-4 rounded-lg">
-          <div className="flex items-center">
-            <UsersIcon className="w-8 h-8 text-teal-600 mr-3" />
-            <div>
-              <p className="text-sm text-gray-600">Max Staff Needed</p>
-              <p className="text-2xl font-bold text-gray-900">{todayStats.staffRecommendation || 0}</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
 
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-        {/* Patient Volume Chart */}
-        <div className="bg-gray-50 p-6 rounded-lg">
-          <h3 className="text-lg font-semibold mb-4 flex items-center">
-            <ChartBarIcon className="w-5 h-5 mr-2 text-blue-600" />
-            Patient Volume by Hour
-          </h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="hour" />
-              <YAxis />
-              <Tooltip 
-                formatter={(value, name) => [value, name === 'patients' ? 'Patients' : name]}
-                labelFormatter={(label) => `Time: ${label}`}
+      {/* ── Insufficient data state ──────────────────────────────────────── */}
+      {insufficient && <InsufficientData note={meta?.note} />}
+
+      {!insufficient && (
+        <>
+          {/* ── KPI row ─────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
+            <div className="col-span-2 lg:col-span-3 xl:col-span-2">
+              <KpiCard
+                icon={UsersIcon}
+                label={`Total check-ins (${meta?.periodDays}d)`}
+                value={kpis.totalCheckInsInPeriod?.toLocaleString() ?? '—'}
+                sub={`${meta?.periodStart} → ${meta?.periodEnd}`}
+                color="blue"
               />
-              <Legend />
-              <Bar dataKey="patients" fill={COLORS[0]} name="Expected Patients" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Wait Time vs Staff Chart */}
-        <div className="bg-gray-50 p-6 rounded-lg">
-          <h3 className="text-lg font-semibold mb-4 flex items-center">
-            <ClockIcon className="w-5 h-5 mr-2 text-orange-600" />
-            Wait Time vs Staff Requirements
-          </h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <ComposedChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="hour" />
-              <YAxis yAxisId="left" />
-              <YAxis yAxisId="right" orientation="right" />
-              <Tooltip />
-              <Legend />
-              <Bar yAxisId="left" dataKey="waitTime" fill={COLORS[2]} name="Wait Time (min)" />
-              <Line 
-                yAxisId="right" 
-                type="monotone" 
-                dataKey="staffNeeded" 
-                stroke={COLORS[1]} 
-                strokeWidth={3}
-                name="Staff Needed"
-                dot={{ fill: COLORS[1] }}
+            </div>
+            <div className="col-span-1 lg:col-span-1 xl:col-span-2">
+              <KpiCard
+                icon={ClockIcon}
+                label="Busiest hour (avg)"
+                value={kpis.busiestHour
+                  ? `${fmt12h(kpis.busiestHour.hour)}`
+                  : '—'}
+                sub={kpis.busiestHour
+                  ? `~${kpis.busiestHour.avgCheckIns} avg check-ins`
+                  : 'No data'}
+                color="orange"
               />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+            </div>
+            <div className="col-span-1 lg:col-span-1 xl:col-span-2">
+              <KpiCard
+                icon={ClockIcon}
+                label="Avg wait time (period)"
+                value={kpis.overallAvgWaitMinutes != null
+                  ? `${kpis.overallAvgWaitMinutes} min`
+                  : '—'}
+                sub="calledTime − checkInTime"
+                color="teal"
+              />
+            </div>
+          </div>
 
-      {/* Demand Level Distribution */}
-      <div className="bg-gray-50 p-6 rounded-lg mb-8">
-        <h3 className="text-lg font-semibold mb-4 flex items-center">
-          <ArrowTrendingUpIcon className="w-5 h-5 mr-2 text-green-600" />
-          Hourly Demand Forecast
-        </h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="hour" />
-            <YAxis />
-            <Tooltip 
-              formatter={(value, name) => [
-                name === 'patients' ? `${value} patients` : 
-                name === 'confidence' ? `${value}%` : value,
-                name === 'patients' ? 'Expected Patients' : 
-                name === 'confidence' ? 'Confidence' : name
-              ]}
-            />
-            <Legend />
-            <Line 
-              type="monotone" 
-              dataKey="patients" 
-              stroke={COLORS[0]} 
-              strokeWidth={3}
-              name="Expected Patients"
-              dot={{ fill: COLORS[0], strokeWidth: 2, r: 4 }}
-            />
-            <Line 
-              type="monotone" 
-              dataKey="confidence" 
-              stroke={COLORS[4]} 
-              strokeWidth={2}
-              strokeDasharray="5 5"
-              name="Confidence %"
-              dot={{ fill: COLORS[4], strokeWidth: 2, r: 3 }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Insights Section */}
-      <div className="mb-8">
-        <h3 className="text-lg font-semibold mb-4 flex items-center">
-          <InformationCircleIcon className="w-5 h-5 mr-2 text-blue-600" />
-          AI Insights & Recommendations
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {insights.map((insight, index) => {
-            const Icon = insight.icon;
-            return (
-              <div key={index} className={`p-4 rounded-lg border ${insight.color}`}>
-                <div className="flex items-start space-x-3">
-                  <Icon className="w-6 h-6 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="font-semibold mb-1">{insight.title}</h4>
-                    <p className="text-sm mb-2">{insight.description}</p>
-                    <p className="text-xs font-medium">{insight.recommendation}</p>
-                  </div>
-                </div>
+          {/* ── Today row ───────────────────────────────────────────────── */}
+          <div className="border-t border-gray-100 pt-5 mb-8">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+              <CalendarDaysIcon className="w-4 h-4 text-gray-400" />
+              Today's Live Totals
+            </h3>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="bg-blue-50 rounded-xl p-4 text-center">
+                <p className="text-xs text-blue-600 mb-1">Check-ins today</p>
+                <p className="text-2xl font-bold text-blue-800">{kpis.todayCheckIns ?? '—'}</p>
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Predictions List */}
-      <div>
-        <h3 className="text-lg font-semibold mb-4">Detailed Predictions</h3>
-        <div className="space-y-3">
-          {predictions.map((prediction, index) => (
-            <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-              <div className="flex items-center space-x-4">
-                <ClockIcon className="w-5 h-5 text-gray-400" />
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="font-semibold text-gray-900">{prediction.hour}:00</span>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getLevelColor(prediction.level)}`}>
-                      {prediction.level}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-600">{prediction.reason}</p>
-                </div>
+              <div className="bg-green-50 rounded-xl p-4 text-center">
+                <p className="text-xs text-green-600 mb-1">Completed today</p>
+                <p className="text-2xl font-bold text-green-800">{kpis.todayCompleted ?? '—'}</p>
               </div>
-              
-              <div className="text-right">
-                <div className="flex items-center space-x-4 text-sm text-gray-500">
-                  <div className="flex items-center">
-                    <UsersIcon className="w-4 h-4 mr-1" />
-                    {prediction.patientCount} patients
-                  </div>
-                  <div>
-                    Confidence: {prediction.confidence}%
-                  </div>
-                </div>
+              <div className="bg-teal-50 rounded-xl p-4 text-center">
+                <p className="text-xs text-teal-600 mb-1">Avg wait today</p>
+                <p className="text-2xl font-bold text-teal-800">
+                  {kpis.todayAvgWaitMinutes != null ? `${kpis.todayAvgWaitMinutes} min` : '—'}
+                </p>
               </div>
             </div>
-          ))}
-        </div>
-
-        {predictions.length === 0 && (
-          <div className="text-center py-8 text-gray-500">
-            <ClockIcon className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-            <p>No predictions available for the selected timeframe.</p>
-            <button 
-              onClick={fetchPeakHoursData}
-              className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
-            >
-              Reload Data
-            </button>
           </div>
-        )}
-      </div>
 
-      {/* Footer Info */}
-      {refreshTime && (
-        <div className="mt-6 pt-4 border-t border-gray-200 text-center">
-          <p className="text-sm text-gray-500">
-            Last updated: {refreshTime.toLocaleString()} • 
-            Data refreshes automatically every 15 minutes
-          </p>
+          {/* ── Charts ──────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+
+            {/* Patient Volume by Hour */}
+            <div className="bg-gray-50 rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">
+                Avg Patient Volume by Hour
+              </h3>
+              <p className="text-xs text-gray-400 mb-4">
+                Average check-ins per hour across the selected period.
+                Colour = demand level relative to daily average.
+              </p>
+              {volumeChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={volumeChartData} barCategoryGap="20%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip
+                      formatter={(v, _) => [`${v} avg check-ins`, 'Avg patients']}
+                      labelFormatter={(l) => `Hour: ${l}`}
+                    />
+                    <Bar dataKey="avgCheckIns" name="Avg check-ins" shape={<LevelBar />} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-40 text-gray-400 text-sm">
+                  Insufficient data available.
+                </div>
+              )}
+            </div>
+
+            {/* Average Wait Time by Hour */}
+            <div className="bg-gray-50 rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">
+                Avg Wait Time by Hour
+              </h3>
+              <p className="text-xs text-gray-400 mb-4">
+                Average minutes between check-in and being called, grouped by hour.
+                Only hours with recorded call-times are shown.
+              </p>
+              {waitChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={waitChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <YAxis unit=" min" tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v) => [`${v} min`, 'Avg wait']} />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="avgWaitMinutes"
+                      name="Avg wait (min)"
+                      stroke="#3B82F6"
+                      strokeWidth={2}
+                      dot={{ fill: '#3B82F6', r: 3 }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-40 text-gray-400 text-sm">
+                  Insufficient data available.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Daily Check-in Trend */}
+          {dailyTrendData.length > 1 && (
+            <div className="bg-gray-50 rounded-xl p-5 mb-8">
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">
+                Daily Check-in Trend
+              </h3>
+              <p className="text-xs text-gray-400 mb-4">
+                Total queue check-ins per calendar day over the selected period.
+              </p>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={dailyTrendData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                  <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={(v) => [`${v} check-ins`, 'Total']} />
+                  <Line
+                    type="monotone"
+                    dataKey="totalCheckIns"
+                    name="Daily check-ins"
+                    stroke="#10B981"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── Hourly breakdown table ───────────────────────────────────── */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">
+              Hourly Activity Breakdown
+            </h3>
+            <p className="text-xs text-gray-400 mb-4">
+              Demand level is classified by comparing each hour's average to the
+              global hourly average: Low (&lt;50%), Medium (50–100%),
+              High (100–150%), Very High (&gt;150%).
+            </p>
+
+            {activeHourlyData.length > 0 ? (
+              <div className="overflow-x-auto rounded-xl border border-gray-100">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-left">
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Hour</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Avg Check-ins</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Avg Wait</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Demand Level</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Days with Data</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {activeHourlyData.map(h => (
+                      <tr key={h.hour} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3 font-mono font-semibold text-gray-800">
+                          {h.label}
+                        </td>
+                        <td className="px-4 py-3 text-gray-700">
+                          {h.avgCheckIns ?? '—'}
+                        </td>
+                        <td className="px-4 py-3 text-gray-700">
+                          {h.avgWaitMinutes != null ? `${h.avgWaitMinutes} min` : '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          {h.demandLevel ? (
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${LEVEL_STYLES[h.demandLevel] || 'text-gray-600 bg-gray-100'}`}>
+                              {h.demandLevel}
+                            </span>
+                          ) : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-gray-500">
+                          {h.daysWithData}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-100 p-8 text-center text-gray-400 text-sm">
+                Insufficient data available.
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── Footer ──────────────────────────────────────────────────────── */}
+      {fetchedAt && (
+        <div className="mt-6 pt-4 border-t border-gray-100 text-xs text-gray-400 text-center">
+          Data queried from database at {fetchedAt.toLocaleTimeString()}.
+          {meta && ` Analysed ${meta.totalQueueRecordsAnalyzed?.toLocaleString()} queue records.`}
         </div>
       )}
     </div>

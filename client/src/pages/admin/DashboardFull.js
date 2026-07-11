@@ -28,7 +28,7 @@ import { userAPI, adminAPI, managerAPI, queueAPI, departmentAPI, timeBlockAPI, r
 import ReportsDashboard from '../../components/Reports/ReportsDashboard';
 import PeakHoursChartDashboard from '../../components/Analytics/PeakHoursChartDashboard';
 import PatientRecordViewer from '../../components/Manager/PatientRecordViewer';
-import PatientIdentityVerification from '../../components/Manager/PatientIdentityVerification';
+import AccountVerificationStatus from '../../components/Manager/AccountVerificationStatus';
 import toast from 'react-hot-toast';
 
 const TABS = [
@@ -38,7 +38,7 @@ const TABS = [
   { id: 'analytics',             name: 'Peak Hours Analytics',  icon: ChartBarIcon },
   { id: 'reports',               name: 'Reports & Analytics',   icon: DocumentChartBarIcon },
   { id: 'patient-records',       name: 'Patient Records',       icon: ClipboardDocumentListIcon },
-  { id: 'identity-verification', name: 'Identity Verification', icon: IdentificationIcon },
+  { id: 'identity-verification', name: 'Account Verification Status', icon: IdentificationIcon },
 ];
 
 const ROLE_COLORS = {
@@ -1014,7 +1014,7 @@ const AdminDashboard = () => {
 
           {/* ── IDENTITY VERIFICATION TAB ────────────────────────────────────── */}
           {activeTab === 'identity-verification' && (
-            <PatientIdentityVerification />
+            <AccountVerificationStatus />
           )}
 
         </div>

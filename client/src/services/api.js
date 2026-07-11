@@ -291,6 +291,31 @@ export const reportAPI = {
 // Alias for backward compatibility
 export const reportsAPI = reportAPI;
 
+// Analytics API endpoints (data-driven, no mock)
+export const analyticsAPI = {
+  /**
+   * Fetch real peak-hours analytics aggregated from QueueEntry records.
+   * @param {number} days - Number of past days to include (1-365, default 30)
+   */
+  getPeakHours: (days = 30) => api.get('/reports/peak-hours', { params: { days } }),
+
+  /**
+   * Fetch patient visit statistics aggregated from Appointment records.
+   * @param {string} startDate - YYYY-MM-DD
+   * @param {string} endDate   - YYYY-MM-DD
+   */
+  getPatientVisits: (startDate, endDate) =>
+    api.get('/reports/patient-visits', { params: { startDate, endDate } }),
+
+  /**
+   * Fetch per-doctor appointment counts from Appointment records.
+   * @param {string} startDate - YYYY-MM-DD
+   * @param {string} endDate   - YYYY-MM-DD
+   */
+  getDoctorActivity: (startDate, endDate) =>
+    api.get('/reports/doctor-activity', { params: { startDate, endDate } }),
+};
+
 // Dispensary API endpoints
 export const dispensaryAPI = {
   scan:          (data) => api.post('/dispensary/scan', data),

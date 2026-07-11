@@ -84,6 +84,7 @@ server/uploads/
 
 # Ignored local utility scripts (contains mock data/secrets)
 server/scripts/
+/server/seed-queue-demo.js
 
 # Ignore test files
 /server/tests/unit/services/AppointmentBookingConflict.test.js
