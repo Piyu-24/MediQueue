@@ -83,8 +83,8 @@ router.post('/register', authStrictLimiter, [
     .withMessage('Enter a valid phone number (e.g. 0712345678 or +94712345678)'),
   body('role')
     .optional()
-    .isIn(['patient', 'doctor', 'staff'])
-    .withMessage('Invalid role specified')
+    .custom((value) => !value || value === 'patient')
+    .withMessage('Self-registration is only available for patient accounts')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -103,6 +103,16 @@ router.post('/register', authStrictLimiter, [
       yearsOfExperience, qualification
     } = req.body;
 
+    // ── Self-registration is for patients only ─────────────────────────────
+    // Doctor, receptionist, pharmacist, and staff accounts must be created
+    // by an administrator via the admin dashboard.
+    if (role && role !== 'patient') {
+      return res.status(403).json({
+        success: false,
+        message: 'Self-registration is only available for patient accounts. Healthcare staff accounts are created by hospital administration.'
+      });
+    }
+
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({
@@ -113,31 +123,15 @@ router.post('/register', authStrictLimiter, [
 
     // Email is trusted at registration — no verification step required.
     // Verification is only triggered when a user later changes their email address.
-    const userData = { firstName, lastName, email, password, phone, role, address, isEmailVerified: true };
+    const userData = { firstName, lastName, email, password, phone, role: 'patient', address, isEmailVerified: true };
 
-    if (role === 'patient') {
-      if (dateOfBirth) userData.dateOfBirth = dateOfBirth;
-      if (gender) userData.gender = gender;
-      if (bloodType) userData.bloodType = bloodType;
-      if (nicNumber) userData.nicNumber = nicNumber;
-      if (emergencyContact) userData.emergencyContact = emergencyContact;
-      userData.registeredBy = 'Self';
-      userData.identityVerificationStatus = 'pending';
-    }
-
-    if (role === 'doctor') {
-      if (specialization) userData.specialization = specialization;
-      if (department) userData.department = department;
-      if (licenseNumber) userData.licenseNumber = licenseNumber;
-      if (yearsOfExperience) userData.yearsOfExperience = yearsOfExperience;
-      if (qualification) userData.qualification = qualification;
-      userData.profileComplete = !!(specialization && department && licenseNumber);
-    }
-
-    if (role === 'staff') {
-      if (department) userData.department = department;
-      if (licenseNumber) userData.licenseNumber = licenseNumber;
-    }
+    if (dateOfBirth) userData.dateOfBirth = dateOfBirth;
+    if (gender) userData.gender = gender;
+    if (bloodType) userData.bloodType = bloodType;
+    if (nicNumber) userData.nicNumber = nicNumber;
+    if (emergencyContact) userData.emergencyContact = emergencyContact;
+    userData.registeredBy = 'Self';
+    userData.identityVerificationStatus = 'pending';
 
     const user = await User.create(userData);
 

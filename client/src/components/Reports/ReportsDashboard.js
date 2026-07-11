@@ -1,478 +1,461 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * ReportsDashboard
+ *
+ * Displays appointment and doctor activity analytics derived exclusively from
+ * real Appointment records stored in the database.
+ *
+ * Data sources:
+ *   GET /api/reports/patient-visits?startDate&endDate
+ *     Fields: Appointment.appointmentDate, .status, .patient, .department, .appointmentType
+ *
+ *   GET /api/reports/doctor-activity?startDate&endDate
+ *     Fields: Appointment.doctor (populated), .status
+ *
+ * What was removed:
+ *   - generateMockReportData() — every value was fabricated
+ *   - Hardcoded "totalVisits: 1247", "growthRate: 12.5", "Dr. Sarah Johnson", etc.
+ *   - Math.random() daily visit trend
+ *   - Hardcoded department percentages
+ *   - Fake PDF / Excel export (setTimeout with toast)
+ *   - Fabricated "Insights & Recommendations" strings
+ *   - "Peak Hours Analysis" report card — covered by the dedicated Peak Hours Analytics tab
+ *   - "Staff Utilization" utilization% and efficiency — no staffing model in DB
+ */
+import React, { useState, useCallback } from 'react';
 import {
-  ChartBarIcon,
-  DocumentArrowDownIcon,
   CalendarIcon,
   UsersIcon,
-  ClockIcon,
-  BuildingOfficeIcon,
+  ChartBarIcon,
+  InformationCircleIcon,
+  ArrowPathIcon,
+  ExclamationTriangleIcon,
+  UserGroupIcon,
 } from '@heroicons/react/24/outline';
-import { reportAPI } from '../../services/api';
-import { useAuth } from '../../hooks/useAuth';
-import toast from 'react-hot-toast';
 import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer
+  LineChart, Line,
+  BarChart, Bar,
+  PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
+import { analyticsAPI } from '../../services/api';
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const PIE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#F97316'];
+
+const STATUS_LABELS = {
+  completed:  'Completed',
+  cancelled:  'Cancelled',
+  noShow:     'No-show',
+  booked:     'Booked / Pending',
+  inQueue:    'In Queue',
+};
+
+const STATUS_COLORS = {
+  completed: '#10B981',
+  cancelled: '#EF4444',
+  noShow:    '#F59E0B',
+  booked:    '#3B82F6',
+  inQueue:   '#8B5CF6',
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const fmtDate = (iso) =>
+  new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+const nDaysAgo = (n) =>
+  new Date(Date.now() - n * 86400000).toISOString().split('T')[0];
+
+const today = () => new Date().toISOString().split('T')[0];
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+const KpiCard = ({ label, value, sub, color = '#3B82F6' }) => (
+  <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{label}</p>
+    <p className="text-3xl font-bold" style={{ color }}>{value ?? '—'}</p>
+    {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
+  </div>
+);
+
+const InsufficientData = () => (
+  <div className="flex flex-col items-center justify-center py-14 text-center">
+    <InformationCircleIcon className="w-10 h-10 text-gray-300 mb-3" />
+    <p className="font-semibold text-gray-500">Insufficient data available.</p>
+    <p className="text-sm text-gray-400 mt-1 max-w-xs">
+      No appointment records were found in the selected date range.
+    </p>
+  </div>
+);
+
+const ErrorState = ({ message, onRetry }) => (
+  <div className="flex items-start gap-3 text-red-600 bg-red-50 rounded-xl p-4">
+    <ExclamationTriangleIcon className="w-6 h-6 shrink-0" />
+    <div>
+      <p className="font-semibold">Unable to load report</p>
+      <p className="text-sm mt-1 text-red-500">{message}</p>
+      <button
+        onClick={onRetry}
+        className="mt-3 text-sm px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+      >
+        Retry
+      </button>
+    </div>
+  </div>
+);
+
+// ── Report Panels ─────────────────────────────────────────────────────────────
+
+const PatientVisitsPanel = ({ data, meta }) => {
+  if (!data) return <InsufficientData />;
+
+  const { summary, dailyTrend, byDepartment, byType } = data;
+
+  // Build status pie data from real counts
+  const statusPieData = Object.entries(STATUS_LABELS)
+    .filter(([key]) => summary[key] > 0)
+    .map(([key, name]) => ({ name, value: summary[key], color: STATUS_COLORS[key] }));
+
+  return (
+    <div className="space-y-6">
+      {/* KPI row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard label="Total Appointments" value={summary.totalAppointments.toLocaleString()} sub={`${meta.periodStart} → ${meta.periodEnd}`} color="#3B82F6" />
+        <KpiCard label="Unique Patients" value={summary.uniquePatients.toLocaleString()} sub="distinct patient IDs" color="#10B981" />
+        <KpiCard label="Completed" value={summary.completed.toLocaleString()} sub={`${summary.totalAppointments ? Math.round(summary.completed / summary.totalAppointments * 100) : 0}% completion rate`} color="#10B981" />
+        <KpiCard label="Cancelled / No-show" value={(summary.cancelled + summary.noShow).toLocaleString()} sub={`${summary.totalAppointments ? Math.round((summary.cancelled + summary.noShow) / summary.totalAppointments * 100) : 0}% of total`} color="#EF4444" />
+      </div>
+
+      {/* Daily trend */}
+      {dailyTrend.length > 1 ? (
+        <div className="bg-gray-50 rounded-xl p-5">
+          <h4 className="text-sm font-semibold text-gray-700 mb-1">Daily Appointment Trend</h4>
+          <p className="text-xs text-gray-400 mb-4">
+            Total appointments per calendar day — source: <code className="bg-gray-200 px-1 rounded">Appointment.appointmentDate</code>
+          </p>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={dailyTrend.map(d => ({ ...d, label: fmtDate(d.date) }))}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+              <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip formatter={(v) => [`${v} appointments`, 'Total']} />
+              <Line type="monotone" dataKey="count" name="Appointments" stroke="#3B82F6" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <p className="text-xs text-gray-400 text-center py-4">Insufficient daily trend data for chart.</p>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Appointment status breakdown */}
+        {statusPieData.length > 0 && (
+          <div className="bg-gray-50 rounded-xl p-5">
+            <h4 className="text-sm font-semibold text-gray-700 mb-1">Appointment Status Breakdown</h4>
+            <p className="text-xs text-gray-400 mb-4">
+              Source: <code className="bg-gray-200 px-1 rounded">Appointment.status</code>
+            </p>
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={statusPieData} cx="50%" cy="50%" outerRadius={80}
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  labelLine={false} dataKey="value">
+                  {statusPieData.map((entry, i) => (
+                    <Cell key={i} fill={entry.color || PIE_COLORS[i % PIE_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(v, n) => [`${v}`, n]} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* By department */}
+        {byDepartment.length > 0 ? (
+          <div className="bg-gray-50 rounded-xl p-5">
+            <h4 className="text-sm font-semibold text-gray-700 mb-1">Appointments by Department</h4>
+            <p className="text-xs text-gray-400 mb-4">
+              Source: <code className="bg-gray-200 px-1 rounded">Appointment.department</code>
+            </p>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={byDepartment} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                <XAxis type="number" tick={{ fontSize: 10 }} />
+                <YAxis type="category" dataKey="department" tick={{ fontSize: 10 }} width={110} />
+                <Tooltip formatter={(v) => [`${v} appointments`, 'Total']} />
+                <Bar dataKey="count" fill="#3B82F6" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="bg-gray-50 rounded-xl p-5 flex items-center justify-center">
+            <p className="text-sm text-gray-400">No department data — <code>Appointment.department</code> field not populated in range.</p>
+          </div>
+        )}
+      </div>
+
+      {/* By type */}
+      {byType.length > 0 && (
+        <div className="bg-gray-50 rounded-xl p-5">
+          <h4 className="text-sm font-semibold text-gray-700 mb-1">Appointments by Type</h4>
+          <p className="text-xs text-gray-400 mb-4">
+            Source: <code className="bg-gray-200 px-1 rounded">Appointment.appointmentType</code>
+          </p>
+          <div className="flex flex-wrap gap-3">
+            {byType.map((item, i) => (
+              <div key={i} className="flex items-center gap-2 bg-white border border-gray-100 rounded-lg px-4 py-2 shadow-sm">
+                <span className="w-3 h-3 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
+                <span className="text-sm text-gray-700 capitalize">{item.type}</span>
+                <span className="text-sm font-bold text-gray-900">{item.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-gray-400 text-right">
+        Based on {meta.totalRecords.toLocaleString()} appointment records · Generated {new Date().toLocaleTimeString()}
+      </p>
+    </div>
+  );
+};
+
+const DoctorActivityPanel = ({ data, meta }) => {
+  if (!data || data.length === 0) return <InsufficientData />;
+
+  return (
+    <div className="space-y-6">
+      {/* Bar chart */}
+      <div className="bg-gray-50 rounded-xl p-5">
+        <h4 className="text-sm font-semibold text-gray-700 mb-1">Appointments per Doctor</h4>
+        <p className="text-xs text-gray-400 mb-4">
+          Total appointments assigned to each doctor in the period.
+          Source: <code className="bg-gray-200 px-1 rounded">Appointment.doctor</code>
+        </p>
+        <ResponsiveContainer width="100%" height={Math.max(200, data.length * 48)}>
+          <BarChart data={data} layout="vertical">
+            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+            <XAxis type="number" tick={{ fontSize: 10 }} />
+            <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={130} />
+            <Tooltip
+              formatter={(v, name) => [v, name]}
+            />
+            <Legend />
+            <Bar dataKey="total"     name="Total"     fill="#3B82F6" radius={[0, 3, 3, 0]} stackId="a" />
+            <Bar dataKey="completed" name="Completed" fill="#10B981" radius={[0, 3, 3, 0]} stackId="b" />
+            <Bar dataKey="cancelled" name="Cancelled" fill="#EF4444" radius={[0, 3, 3, 0]} stackId="c" />
+            <Bar dataKey="noShow"    name="No-show"   fill="#F59E0B" radius={[0, 3, 3, 0]} stackId="d" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto rounded-xl border border-gray-100">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Doctor</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Specialization</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Total</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Completed</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Cancelled</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">No-show</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Completion %</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {data.map((doc, i) => (
+              <tr key={i} className="hover:bg-gray-50 transition-colors">
+                <td className="px-4 py-3 font-semibold text-gray-800">{doc.name}</td>
+                <td className="px-4 py-3 text-gray-500 text-xs">{doc.specialization || '—'}</td>
+                <td className="px-4 py-3 text-right font-bold text-gray-900">{doc.total}</td>
+                <td className="px-4 py-3 text-right text-green-700">{doc.completed}</td>
+                <td className="px-4 py-3 text-right text-red-600">{doc.cancelled}</td>
+                <td className="px-4 py-3 text-right text-amber-600">{doc.noShow}</td>
+                <td className="px-4 py-3 text-right font-semibold text-gray-700">
+                  {doc.total > 0 ? `${Math.round(doc.completed / doc.total * 100)}%` : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-gray-400 text-right">
+        Based on {meta.totalRecords.toLocaleString()} appointment records · Generated {new Date().toLocaleTimeString()}
+      </p>
+    </div>
+  );
+};
+
+// ── Main Component ────────────────────────────────────────────────────────────
+
+const REPORT_TABS = [
+  { id: 'patient-visits',   label: 'Patient Visits',    icon: UsersIcon },
+  { id: 'doctor-activity',  label: 'Doctor Activity',   icon: UserGroupIcon },
+];
 
 const ReportsDashboard = () => {
-  // eslint-disable-next-line no-unused-vars
-  const { user } = useAuth();
-  // eslint-disable-next-line no-unused-vars
-  const [reports, setReports] = useState([]);
-  // eslint-disable-next-line no-unused-vars
-  const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
-  const [selectedReport, setSelectedReport] = useState(null);
-  const [reportData, setReportData] = useState(null);
+  const [activeReport, setActiveReport] = useState('patient-visits');
   const [dateRange, setDateRange] = useState({
-    startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0]
+    startDate: nDaysAgo(30),
+    endDate:   today(),
   });
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState(null);
+  const [data,      setData]      = useState(null);
+  const [meta,      setMeta]      = useState(null);
+  const [generated, setGenerated] = useState(false);
 
-  const reportTypes = [
-    {
-      id: 'patient-visits',
-      title: 'Patient Visits Report',
-      description: 'Analyze patient visit patterns and trends',
-      icon: UsersIcon,
-      color: 'blue'
-    },
-    {
-      id: 'staff-utilization',
-      title: 'Staff Utilization Report',
-      description: 'Track doctor and staff performance metrics',
-      icon: BuildingOfficeIcon,
-      color: 'green'
-    },
-    {
-      id: 'appointment-analytics',
-      title: 'Appointment Analytics',
-      description: 'Appointment booking and completion statistics',
-      icon: CalendarIcon,
-      color: 'orange'
-    },
-    {
-      id: 'peak-hours',
-      title: 'Peak Hours Analysis',
-      description: 'Identify busy periods and optimize scheduling',
-      icon: ClockIcon,
-      color: 'red'
-    }
-  ];
-
-  useEffect(() => {
-    fetchReports();
-  }, []);
-
-  const fetchReports = async () => {
+  const generate = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setData(null);
+    setMeta(null);
     try {
-      setLoading(true);
-      const response = await reportAPI.getAppointmentReports();
-      
-      if (response.data.success) {
-        setReports(response.data.data.reports || []);
+      let res;
+      if (activeReport === 'patient-visits') {
+        res = await analyticsAPI.getPatientVisits(dateRange.startDate, dateRange.endDate);
+        const d = res.data.data;
+        setData(d.insufficient ? null : { summary: d.summary, dailyTrend: d.dailyTrend, byDepartment: d.byDepartment, byType: d.byType });
+        setMeta(d.meta);
+      } else if (activeReport === 'doctor-activity') {
+        res = await analyticsAPI.getDoctorActivity(dateRange.startDate, dateRange.endDate);
+        const d = res.data.data;
+        setData(d.insufficient ? null : d.doctors);
+        setMeta(d.meta);
       }
-    } catch (error) {
-      console.error('Error fetching reports:', error);
-      toast.error('Failed to load reports');
+      setGenerated(true);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to generate report. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
-
-  const generateReport = async (reportType) => {
-    try {
-      setGenerating(true);
-      
-      // Mock report generation - replace with actual API call
-      const mockData = generateMockReportData(reportType);
-      setReportData(mockData);
-      setSelectedReport(reportType);
-      
-      toast.success('Report generated successfully');
-    } catch (error) {
-      console.error('Error generating report:', error);
-      toast.error('Failed to generate report');
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const generateMockReportData = (reportType) => {
-    // eslint-disable-next-line no-unused-vars
-    const { startDate, endDate } = dateRange;
-    
-    switch (reportType) {
-      case 'patient-visits':
-        return {
-          summary: {
-            totalVisits: 1247,
-            uniquePatients: 892,
-            averageVisitsPerDay: 41,
-            growthRate: 12.5
-          },
-          charts: [
-            {
-              type: 'line',
-              title: 'Daily Patient Visits',
-              data: Array.from({ length: 30 }, (_, i) => ({
-                date: new Date(Date.now() - (29 - i) * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                visits: Math.floor(Math.random() * 30) + 25
-              }))
-            },
-            {
-              type: 'pie',
-              title: 'Visits by Department',
-              data: [
-                { name: 'Cardiology', value: 25, color: '#3B82F6' },
-                { name: 'Neurology', value: 20, color: '#10B981' },
-                { name: 'Orthopedics', value: 18, color: '#F59E0B' },
-                { name: 'Pediatrics', value: 15, color: '#EF4444' },
-                { name: 'General', value: 22, color: '#8B5CF6' }
-              ]
-            }
-          ],
-          insights: [
-            {
-              type: 'positive',
-              title: 'Growing Patient Base',
-              description: '12.5% increase in patient visits compared to last month',
-              recommendation: 'Consider expanding staff during peak hours'
-            },
-            {
-              type: 'neutral',
-              title: 'Department Distribution',
-              description: 'Cardiology and General Medicine see the most patients',
-              recommendation: 'Ensure adequate resources for high-volume departments'
-            }
-          ]
-        };
-
-      case 'staff-utilization':
-        return {
-          summary: {
-            totalStaff: 45,
-            averageUtilization: 78,
-            topPerformer: 'Dr. Sarah Johnson',
-            efficiency: 85
-          },
-          charts: [
-            {
-              type: 'bar',
-              title: 'Doctor Utilization Rate',
-              data: [
-                { name: 'Dr. Smith', utilization: 85, appointments: 120 },
-                { name: 'Dr. Johnson', utilization: 92, appointments: 135 },
-                { name: 'Dr. Brown', utilization: 78, appointments: 98 },
-                { name: 'Dr. Wilson', utilization: 88, appointments: 115 },
-                { name: 'Dr. Davis', utilization: 75, appointments: 89 }
-              ]
-            }
-          ],
-          insights: [
-            {
-              type: 'positive',
-              title: 'High Staff Efficiency',
-              description: 'Average utilization rate of 78% indicates good resource management',
-              recommendation: 'Maintain current staffing levels'
-            }
-          ]
-        };
-
-      case 'peak-hours':
-        return {
-          summary: {
-            peakHour: '10:00 AM',
-            peakDay: 'Tuesday',
-            averageWaitTime: 15,
-            busyPeriods: 3
-          },
-          charts: [
-            {
-              type: 'bar',
-              title: 'Appointments by Hour',
-              data: Array.from({ length: 12 }, (_, i) => ({
-                hour: `${i + 8}:00`,
-                appointments: Math.floor(Math.random() * 25) + 5
-              }))
-            },
-            {
-              type: 'bar',
-              title: 'Appointments by Day of Week',
-              data: [
-                { day: 'Mon', appointments: 45 },
-                { day: 'Tue', appointments: 52 },
-                { day: 'Wed', appointments: 48 },
-                { day: 'Thu', appointments: 50 },
-                { day: 'Fri', appointments: 47 },
-                { day: 'Sat', appointments: 35 },
-                { day: 'Sun', appointments: 28 }
-              ]
-            }
-          ],
-          insights: [
-            {
-              type: 'warning',
-              title: 'Peak Hour Congestion',
-              description: '10:00 AM shows highest appointment volume',
-              recommendation: 'Consider scheduling additional staff during peak hours'
-            }
-          ]
-        };
-
-      default:
-        return null;
-    }
-  };
-
-  const exportReport = async (format) => {
-    try {
-      toast.success(`Exporting report as ${format.toUpperCase()}...`);
-      // Mock export - replace with actual API call
-      setTimeout(() => {
-        toast.success(`Report exported successfully as ${format.toUpperCase()}`);
-      }, 2000);
-    } catch (error) {
-      console.error('Error exporting report:', error);
-      toast.error('Failed to export report');
-    }
-  };
-
-  const renderChart = (chart) => {
-    const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
-    
-    switch (chart.type) {
-      case 'line':
-        return (
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={chart.data}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Line type="monotone" dataKey="visits" stroke="#3B82F6" strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        );
-
-      case 'bar':
-        return (
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chart.data}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={chart.data[0].name ? "name" : chart.data[0].hour ? "hour" : "day"} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar 
-                dataKey={chart.data[0].utilization ? "utilization" : "appointments"} 
-                fill="#3B82F6" 
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        );
-
-      case 'pie':
-        return (
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={chart.data}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {chart.data.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color || colors[index % colors.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        );
-
-      default:
-        return null;
-    }
-  };
+  }, [activeReport, dateRange]);
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Reports & Analytics</h2>
-          <p className="text-gray-600">Generate insights and track performance metrics</p>
-        </div>
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900">Reports &amp; Analytics</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          All metrics are computed from actual records in the database. No mock data.
+        </p>
       </div>
 
-      {/* Date Range Selector */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Report Parameters</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Report selector + date range */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        {/* Tabs */}
+        <div className="flex gap-2 mb-5">
+          {REPORT_TABS.map(tab => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => { setActiveReport(tab.id); setData(null); setGenerated(false); setError(null); }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  activeReport === tab.id
+                    ? 'bg-blue-600 text-white shadow'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Date range */}
+        <div className="flex flex-wrap items-end gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Start Date</label>
             <input
               type="date"
               value={dateRange.startDate}
-              onChange={(e) => setDateRange({...dateRange, startDate: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              max={dateRange.endDate}
+              onChange={e => setDateRange(r => ({ ...r, startDate: e.target.value }))}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">End Date</label>
             <input
               type="date"
               value={dateRange.endDate}
-              onChange={(e) => setDateRange({...dateRange, endDate: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              min={dateRange.startDate}
+              max={today()}
+              onChange={e => setDateRange(r => ({ ...r, endDate: e.target.value }))}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
+          <button
+            onClick={generate}
+            disabled={loading}
+            className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 text-sm font-medium"
+          >
+            <ArrowPathIcon className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Generating…' : 'Generate Report'}
+          </button>
+        </div>
+
+        {/* Data source note */}
+        <div className="flex items-start gap-2 mt-4 text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+          <InformationCircleIcon className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>
+            {activeReport === 'patient-visits'
+              ? 'Queries Appointment records filtered by appointmentDate. Fields used: status, patient, department, appointmentType.'
+              : 'Queries Appointment records with a doctor assigned. Fields used: doctor (populated), status.'}
+          </span>
         </div>
       </div>
 
-      {/* Report Types */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {reportTypes.map((report) => {
-          const IconComponent = report.icon;
-          return (
-            <div key={report.id} className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow p-6">
-              <div className="flex items-center space-x-3 mb-4">
-                <div className={`w-12 h-12 bg-${report.color}-100 rounded-lg flex items-center justify-center`}>
-                  <IconComponent className={`w-6 h-6 text-${report.color}-600`} />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-gray-900">{report.title}</h3>
-                  <p className="text-sm text-gray-500">{report.description}</p>
-                </div>
-              </div>
-              
-              <button
-                onClick={() => generateReport(report.id)}
-                disabled={generating}
-                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
-              >
-                {generating ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    <span>Generating...</span>
-                  </>
-                ) : (
-                  <>
-                    <ChartBarIcon className="w-4 h-4" />
-                    <span>Generate Report</span>
-                  </>
-                )}
-              </button>
-            </div>
-          );
-        })}
-      </div>
+      {/* Report output */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        {!generated && !loading && (
+          <div className="flex flex-col items-center justify-center py-14 text-center">
+            <ChartBarIcon className="w-10 h-10 text-gray-300 mb-3" />
+            <p className="text-gray-500 font-medium">Select a report type and click Generate Report.</p>
+            <p className="text-sm text-gray-400 mt-1">All data is pulled live from the database.</p>
+          </div>
+        )}
 
-      {/* Report Display */}
-      {reportData && selectedReport && (
-        <div className="bg-white rounded-lg shadow">
-          {/* Report Header */}
-          <div className="p-6 border-b border-gray-200">
-            <div className="flex items-center justify-between">
+        {loading && (
+          <div className="flex items-center justify-center py-14">
+            <ArrowPathIcon className="w-6 h-6 text-blue-500 animate-spin mr-3" />
+            <span className="text-gray-500">Querying database…</span>
+          </div>
+        )}
+
+        {error && <ErrorState message={error} onRetry={generate} />}
+
+        {generated && !loading && !error && (
+          <>
+            {/* Report header */}
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
               <div>
-                <h3 className="text-xl font-bold text-gray-900">
-                  {reportTypes.find(r => r.id === selectedReport)?.title}
+                <h3 className="font-bold text-gray-900">
+                  {REPORT_TABS.find(t => t.id === activeReport)?.label}
                 </h3>
-                <p className="text-gray-500">
-                  Generated on {new Date().toLocaleDateString()} for period {dateRange.startDate} to {dateRange.endDate}
-                </p>
-              </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => exportReport('pdf')}
-                  className="flex items-center space-x-1 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
-                >
-                  <DocumentArrowDownIcon className="w-4 h-4" />
-                  <span>PDF</span>
-                </button>
-                <button
-                  onClick={() => exportReport('excel')}
-                  className="flex items-center space-x-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                >
-                  <DocumentArrowDownIcon className="w-4 h-4" />
-                  <span>Excel</span>
-                </button>
+                {meta && (
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {meta.periodStart} → {meta.periodEnd} · {meta.totalRecords?.toLocaleString()} records analysed
+                  </p>
+                )}
               </div>
             </div>
-          </div>
 
-          {/* Summary Cards */}
-          <div className="p-6 border-b border-gray-200">
-            <h4 className="text-lg font-semibold text-gray-900 mb-4">Summary</h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {Object.entries(reportData.summary).map(([key, value]) => (
-                <div key={key} className="bg-gray-50 rounded-lg p-4">
-                  <div className="text-sm text-gray-500 capitalize">
-                    {key.replace(/([A-Z])/g, ' $1').trim()}
-                  </div>
-                  <div className="text-2xl font-bold text-gray-900">
-                    {typeof value === 'number' && key.includes('Rate') ? `${value}%` : value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Charts */}
-          <div className="p-6 border-b border-gray-200">
-            <h4 className="text-lg font-semibold text-gray-900 mb-4">Analytics</h4>
-            <div className="space-y-8">
-              {reportData.charts.map((chart, index) => (
-                <div key={index} className="bg-gray-50 rounded-lg p-6">
-                  <h5 className="text-md font-medium text-gray-900 mb-4">{chart.title}</h5>
-                  {renderChart(chart)}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Insights */}
-          {reportData.insights && reportData.insights.length > 0 && (
-            <div className="p-6">
-              <h4 className="text-lg font-semibold text-gray-900 mb-4">Insights & Recommendations</h4>
-              <div className="space-y-4">
-                {reportData.insights.map((insight, index) => (
-                  <div key={index} className={`border-l-4 p-4 rounded-r-lg ${
-                    insight.type === 'positive' ? 'border-green-500 bg-green-50' :
-                    insight.type === 'warning' ? 'border-yellow-500 bg-yellow-50' :
-                    insight.type === 'negative' ? 'border-red-500 bg-red-50' :
-                    'border-blue-500 bg-blue-50'
-                  }`}>
-                    <h5 className="font-medium text-gray-900 mb-2">{insight.title}</h5>
-                    <p className="text-gray-700 mb-2">{insight.description}</p>
-                    <p className="text-sm font-medium text-gray-600">
-                      Recommendation: {insight.recommendation}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+            {/* Panel */}
+            {activeReport === 'patient-visits' && (
+              <PatientVisitsPanel data={data} meta={meta} />
+            )}
+            {activeReport === 'doctor-activity' && (
+              <DoctorActivityPanel data={data} meta={meta} />
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 };

@@ -35,12 +35,6 @@ const Register = () => {
     dateOfBirth: '',
     gender: '',
     bloodType: '',
-    // Doctor-specific fields
-    specialization: '',
-    department: '',
-    qualification: '',
-    yearsOfExperience: '',
-    licenseNumber: '',
     agreeToTerms: false
   });
 
@@ -126,28 +120,8 @@ const Register = () => {
         newErrors.gender = 'Gender is required';
       }
       // Role-specific validation
-      if (formData.role === 'patient') {
-        if (!formData.bloodType) {
-          newErrors.bloodType = 'Blood type is required';
-        }
-      }
-      if (formData.role === 'doctor') {
-        if (!formData.specialization) {
-          newErrors.specialization = 'Specialization is required';
-        }
-        if (!formData.department) {
-          newErrors.department = 'Department is required';
-        }
-        if (!formData.qualification) {
-          newErrors.qualification = 'Qualification is required';
-        }
-        if (!formData.yearsOfExperience) {
-          newErrors.yearsOfExperience = 'Years of experience is required';
-        }
-        if (!formData.licenseNumber) {
-          newErrors.licenseNumber = 'License number is required';
-        }
-    
+      if (!formData.bloodType) {
+        newErrors.bloodType = 'Blood type is required';
       }
     }
     
@@ -184,36 +158,18 @@ const Register = () => {
         email: formData.email.trim().toLowerCase(),
         phone: formData.phone,
         password: formData.password,
-        role: formData.role,
+        role: 'patient',
         dateOfBirth: formData.dateOfBirth,
         gender: formData.gender,
       };
 
-      // Add role-specific fields
-      if (formData.role === 'patient') {
-        cleanFormData.bloodType = formData.bloodType;
-        cleanFormData.nicNumber = formData.nicNumber.trim();
-      } else if (formData.role === 'doctor') {
-        cleanFormData.specialization = formData.specialization;
-        cleanFormData.department = formData.department;
-        cleanFormData.qualification = formData.qualification;
-        cleanFormData.yearsOfExperience = parseInt(formData.yearsOfExperience);
-        cleanFormData.licenseNumber = formData.licenseNumber;
-    
-      }
+      cleanFormData.bloodType = formData.bloodType;
+      cleanFormData.nicNumber = formData.nicNumber.trim();
 
       const result = await register(cleanFormData);
       if (result.success) {
         toast.success('Account created successfully!');
-
-        const roleRoutes = {
-          patient: '/dashboard',
-          doctor:  '/doctor/dashboard',
-        };
-        const redirectPath = result.user
-          ? (roleRoutes[result.user.role] || '/dashboard')
-          : '/dashboard';
-        navigate(redirectPath);
+        navigate('/dashboard');
       }
     } catch (error) {
       toast.error(error.message || 'Registration failed');
@@ -374,38 +330,13 @@ const Register = () => {
 
             <div className="space-y-2">
               <label htmlFor="role" className="text-sm font-semibold text-gray-700">
-                I am registering as a...
+                Account type
               </label>
-              <div className="space-y-3">
-                <label className="flex items-start space-x-3 p-4 border-2 border-gray-200 rounded-xl cursor-pointer hover:border-blue-300 transition-colors">
-                  <input
-                    type="radio"
-                    name="role"
-                    value="patient"
-                    checked={formData.role === 'patient'}
-                    onChange={handleChange}
-                    className="w-5 h-5 text-blue-600 border-gray-300 focus:ring-blue-500 mt-0.5"
-                  />
-                  <div className="flex-1">
-                    <div className="font-semibold text-gray-900">Patient</div>
-                    <div className="text-sm text-gray-600">Book appointments, manage medical records, and access digital health card</div>
-                  </div>
-                </label>
-                
-                <label className="flex items-start space-x-3 p-4 border-2 border-gray-200 rounded-xl cursor-pointer hover:border-blue-300 transition-colors">
-                  <input
-                    type="radio"
-                    name="role"
-                    value="doctor"
-                    checked={formData.role === 'doctor'}
-                    onChange={handleChange}
-                    className="w-5 h-5 text-blue-600 border-gray-300 focus:ring-blue-500 mt-0.5"
-                  />
-                  <div className="flex-1">
-                    <div className="font-semibold text-gray-900">Doctor</div>
-                    <div className="text-sm text-gray-600">Manage patient appointments, update medical records, and provide healthcare services</div>
-                  </div>
-                </label>
+              <div className="rounded-xl border-2 border-blue-200 bg-blue-50/70 p-4">
+                <div className="font-semibold text-gray-900">Patient</div>
+                <p className="mt-1 text-sm text-gray-600">
+                  Healthcare staff accounts are created by hospital administration.
+                </p>
               </div>
             </div>
 
@@ -594,149 +525,6 @@ const Register = () => {
               </div>
             )}
 
-            {/* Doctor-specific fields */}
-            {formData.role === 'doctor' && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-gray-800 border-b pb-2">Professional Information</h3>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label htmlFor="specialization" className="text-sm font-semibold text-gray-700">
-                      Specialization
-                    </label>
-                    <select
-                      id="specialization"
-                      name="specialization"
-                      value={formData.specialization}
-                      onChange={handleChange}
-                      className={`w-full px-4 py-3 bg-gray-50/50 border-2 rounded-xl focus:outline-none focus:bg-white transition-all duration-200 ${
-                        errors.specialization 
-                          ? 'border-red-300 focus:border-red-500' 
-                          : 'border-gray-200 focus:border-blue-500'
-                      }`}
-                    >
-                      <option value="">Select Specialization</option>
-                      <option value="Cardiology">Cardiology</option>
-                      <option value="Dermatology">Dermatology</option>
-                      <option value="Emergency Medicine">Emergency Medicine</option>
-                      <option value="Family Medicine">Family Medicine</option>
-                      <option value="Internal Medicine">Internal Medicine</option>
-                      <option value="Neurology">Neurology</option>
-                      <option value="Oncology">Oncology</option>
-                      <option value="Orthopedics">Orthopedics</option>
-                      <option value="Pediatrics">Pediatrics</option>
-                      <option value="Psychiatry">Psychiatry</option>
-                      <option value="Radiology">Radiology</option>
-                      <option value="Surgery">Surgery</option>
-                    </select>
-                    {errors.specialization && (
-                      <p className="text-sm text-red-600">{errors.specialization}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <label htmlFor="department" className="text-sm font-semibold text-gray-700">
-                      Department
-                    </label>
-                    <select
-                      id="department"
-                      name="department"
-                      value={formData.department}
-                      onChange={handleChange}
-                      className={`w-full px-4 py-3 bg-gray-50/50 border-2 rounded-xl focus:outline-none focus:bg-white transition-all duration-200 ${
-                        errors.department 
-                          ? 'border-red-300 focus:border-red-500' 
-                          : 'border-gray-200 focus:border-blue-500'
-                      }`}
-                    >
-                      <option value="">Select Department</option>
-                      <option value="Cardiology">Cardiology</option>
-                      <option value="Emergency">Emergency</option>
-                      <option value="General Medicine">General Medicine</option>
-                      <option value="ICU">ICU</option>
-                      <option value="Neurology">Neurology</option>
-                      <option value="Oncology">Oncology</option>
-                      <option value="Orthopedics">Orthopedics</option>
-                      <option value="Pediatrics">Pediatrics</option>
-                      <option value="Surgery">Surgery</option>
-                    </select>
-                    {errors.department && (
-                      <p className="text-sm text-red-600">{errors.department}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="qualification" className="text-sm font-semibold text-gray-700">
-                    Qualification
-                  </label>
-                  <input
-                    id="qualification"
-                    name="qualification"
-                    type="text"
-                    value={formData.qualification}
-                    onChange={handleChange}
-                    className={`w-full px-4 py-3 bg-gray-50/50 border-2 rounded-xl focus:outline-none focus:bg-white transition-all duration-200 ${
-                      errors.qualification 
-                        ? 'border-red-300 focus:border-red-500' 
-                        : 'border-gray-200 focus:border-blue-500'
-                    }`}
-                    placeholder="e.g., MBBS, MD, MS"
-                  />
-                  {errors.qualification && (
-                    <p className="text-sm text-red-600">{errors.qualification}</p>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label htmlFor="yearsOfExperience" className="text-sm font-semibold text-gray-700">
-                      Years of Experience
-                    </label>
-                    <input
-                      id="yearsOfExperience"
-                      name="yearsOfExperience"
-                      type="number"
-                      min="0"
-                      max="50"
-                      value={formData.yearsOfExperience}
-                      onChange={handleChange}
-                      className={`w-full px-4 py-3 bg-gray-50/50 border-2 rounded-xl focus:outline-none focus:bg-white transition-all duration-200 ${
-                        errors.yearsOfExperience 
-                          ? 'border-red-300 focus:border-red-500' 
-                          : 'border-gray-200 focus:border-blue-500'
-                      }`}
-                      placeholder="5"
-                    />
-                    {errors.yearsOfExperience && (
-                      <p className="text-sm text-red-600">{errors.yearsOfExperience}</p>
-                    )}
-                  </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="licenseNumber" className="text-sm font-semibold text-gray-700">
-                    Medical License Number
-                  </label>
-                  <input
-                    id="licenseNumber"
-                    name="licenseNumber"
-                    type="text"
-                    value={formData.licenseNumber}
-                    onChange={handleChange}
-                    className={`w-full px-4 py-3 bg-gray-50/50 border-2 rounded-xl focus:outline-none focus:bg-white transition-all duration-200 ${
-                      errors.licenseNumber 
-                        ? 'border-red-300 focus:border-red-500' 
-                        : 'border-gray-200 focus:border-blue-500'
-                    }`}
-                    placeholder="MD-12345-2024"
-                  />
-                  {errors.licenseNumber && (
-                    <p className="text-sm text-red-600">{errors.licenseNumber}</p>
-                  )}
-                </div>
-              </div>
-              </div>
-            )}
           </div>
         );
         
@@ -749,26 +537,12 @@ const Register = () => {
                 <p><span className="font-medium">Name:</span> {formData.firstName} {formData.lastName}</p>
                 <p><span className="font-medium">Email:</span> {formData.email}</p>
                 <p><span className="font-medium">Phone:</span> {formData.phone}</p>
-                <p><span className="font-medium">Account Type:</span> {formData.role.charAt(0).toUpperCase() + formData.role.slice(1)}</p>
-                {formData.role === 'patient' && (
-                  <p><span className="font-medium">NIC Number:</span> {formData.nicNumber}</p>
-                )}
-                {formData.role === 'patient' && formData.bloodType && (
+                <p><span className="font-medium">Account Type:</span> Patient</p>
+                <p><span className="font-medium">NIC Number:</span> {formData.nicNumber}</p>
+                {formData.bloodType && (
                   <p><span className="font-medium">Blood Type:</span> {formData.bloodType}</p>
                 )}
-                {formData.role === 'doctor' && (
-                  <>
-                    <p><span className="font-medium">Specialization:</span> {formData.specialization}</p>
-                    <p><span className="font-medium">Department:</span> {formData.department}</p>
-                    <p><span className="font-medium">Experience:</span> {formData.yearsOfExperience} years</p>
-                  </>
-                )}
-                <p className="text-xs text-blue-600 mt-2">
-                  {formData.role === 'patient' 
-                    ? '• Access to appointment booking, medical records, and health card'
-                    : '• Access to patient management, appointments, and medical records'
-                  }
-                </p>
+                <p className="text-xs text-blue-600 mt-2">• Access to appointment booking, medical records, and health card</p>
               </div>
             </div>
 
