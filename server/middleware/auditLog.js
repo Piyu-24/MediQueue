@@ -1,22 +1,15 @@
 const AuditLog = require('../models/AuditLog');
 
-/**
- * Audit log middleware factory.
- *
- * Usage (after auth middleware so req.user is populated):
- *   router.post('/checkin', auth, authorize(...), auditLog('QUEUE_CHECKIN', 'QueueEntry'), handler)
- *
- * The middleware extracts the resource ID from res.locals.auditResourceId
- * (set by the route handler before calling next) — OR falls back to req.params.id.
- * It fails silently so it never blocks a request.
- */
+// Builds middleware that writes an audit log entry after a successful response.
+// Use it after auth so req.user is set, e.g. auditLog('QUEUE_CHECKIN', 'QueueEntry').
+// It never blocks the request - logging failures are just swallowed.
 const auditLog = (action, resourceType) => {
   return async (req, res, next) => {
-    // Capture the original res.json to intercept the response
+    // Wrap res.json so we can log after the response is sent
     const originalJson = res.json.bind(res);
 
     res.json = function (body) {
-      // Only log on successful responses (2xx)
+      // Only log successful (2xx) responses
       if (res.statusCode >= 200 && res.statusCode < 300 && req.user) {
         const resourceId =
           res.locals.auditResourceId ||
@@ -26,7 +19,7 @@ const auditLog = (action, resourceType) => {
           req.params.id ||
           req.user.id; // fallback
 
-        // Fire-and-forget — do not await
+        // Don't await - just write it in the background
         AuditLog.createLog({
           userId: req.user.id,
           userRole: req.user.role,

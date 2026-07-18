@@ -1,9 +1,6 @@
 const mongoose = require('mongoose');
 
-/**
- * Doctor Slot Management Model
- * Allows doctors to manage their availability, block specific slots, and set temporary unavailability
- */
+// Doctor time slots - availability, blocked times, and bookings
 const doctorSlotSchema = new mongoose.Schema({
   // Doctor Information
   doctor: {

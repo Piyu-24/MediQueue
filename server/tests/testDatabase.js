@@ -1,11 +1,4 @@
-/**
- * @fileoverview Test Database Setup and Management using MongoDB Memory Server
- * @author MediQueue Development Team
- * @version 2.0.0
- *
- * Uses an in-memory MongoDB instance so tests never require a real running DB.
- * The MongoMemoryServer package is already listed in devDependencies.
- */
+// In-memory MongoDB for tests, so we don't need a real database running
 
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
@@ -14,10 +7,7 @@ class TestDatabase {
   static mongod = null;
   static isConnected = false;
 
-  /**
-   * Start the in-memory MongoDB server and connect Mongoose to it.
-   * Safe to call multiple times — subsequent calls are no-ops.
-   */
+  // Start the in-memory DB and connect. Safe to call more than once.
   static async connect() {
     if (this.isConnected) {
       return;
@@ -40,9 +30,7 @@ class TestDatabase {
     }
   }
 
-  /**
-   * Disconnect Mongoose and stop the in-memory server.
-   */
+  // Disconnect and stop the in-memory server
   static async disconnect() {
     if (!this.isConnected) {
       return;
@@ -61,10 +49,7 @@ class TestDatabase {
     }
   }
 
-  /**
-   * Delete all documents from every collection without dropping the DB.
-   * Useful in afterEach hooks to reset state between tests.
-   */
+  // Clear every collection to reset state between tests
   static async cleanup() {
     if (!this.isConnected) {
       return;
@@ -80,9 +65,7 @@ class TestDatabase {
     }
   }
 
-  /**
-   * Returns true if the connection is currently open and ready.
-   */
+  // True if the DB connection is open
   static isAvailable() {
     return this.isConnected && mongoose.connection.readyState === 1;
   }

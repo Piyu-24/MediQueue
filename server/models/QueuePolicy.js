@@ -1,13 +1,7 @@
 const mongoose = require('mongoose');
 
-/**
- * QueuePolicy — configurable rules per doctor and/or department.
- *
- * Resolution order when a policy is needed:
- *   1. Doctor-specific policy (doctorId set, departmentId may also be set)
- *   2. Department-level policy (departmentId set, doctorId null)
- *   3. Global default policy (both null)
- */
+// QueuePolicy holds the queue rules, set per doctor, per department, or globally.
+// When a policy is needed we look for a doctor one first, then department, then the global default.
 const queuePolicySchema = new mongoose.Schema({
   // Scope: doctor-specific, department-level, or global default (both null)
   doctorId: {
@@ -22,20 +16,19 @@ const queuePolicySchema = new mongoose.Schema({
     index: true
   },
 
-  // ── Check-in Window ───────────────────────────────────────────────────────────
-  /** How many minutes before appointment time a patient may check in */
+  // Check-in window
+  // How many minutes before the appointment a patient can check in
   earlyCheckInMinutes: {
     type: Number,
     default: 300
   },
-  /** How many minutes after appointment time before patient is marked LATE */
+  // How many minutes late before the patient is marked late
   gracePeriodMinutes: {
     type: Number,
     default: 15
   },
 
-  // ── Ready Zone ────────────────────────────────────────────────────────────────
-  /** Number of patients to lock into the READY zone ahead of current consultation */
+  // How many patients to lock into the ready zone
   readyZoneSize: {
     type: Number,
     default: 3,
@@ -43,138 +36,118 @@ const queuePolicySchema = new mongoose.Schema({
     max: 10
   },
 
-  // ── ETA Calculation ───────────────────────────────────────────────────────────
-  /** Default average consultation duration (minutes) when no history is available */
+  // Default consultation length used for ETAs when there's no history
   averageConsultationMinutes: {
     type: Number,
     default: 10,
     min: 1
   },
 
-  // ── Walk-in Rules ─────────────────────────────────────────────────────────────
-  /**
-   * 'after_appointments'  — walk-ins always go behind booked patients
-   * 'by_checkin_time'     — walk-ins mixed with booked patients by arrival time
-   */
+  // Walk-in rule:
+  // 'after_appointments' - walk-ins go behind booked patients
+  // 'by_checkin_time'    - mix walk-ins and booked patients by arrival time
   walkInPriorityRule: {
     type: String,
     enum: ['after_appointments', 'by_checkin_time'],
     default: 'after_appointments'
   },
 
-  // ── Late Arrival ──────────────────────────────────────────────────────────────
-  /**
-   * 'end_of_pool'    — late patient goes to bottom of waiting pool
-   * 'penalty_offset' — late patient loses N positions from their slot
-   * 'normal'         — no penalty (treat as on-time)
-   */
+  // Late arrival rule:
+  // 'end_of_pool'    - send to the bottom of the waiting pool
+  // 'penalty_offset' - lose N positions
+  // 'normal'         - no penalty
   lateArrivalRule: {
     type: String,
     enum: ['end_of_pool', 'penalty_offset', 'normal'],
     default: 'end_of_pool'
   },
-  /** Only relevant when lateArrivalRule = 'penalty_offset' */
+  // Only used when lateArrivalRule is 'penalty_offset'
   latePenaltyPositions: {
     type: Number,
     default: 5
   },
 
-  // ── Emergency Override ────────────────────────────────────────────────────────
-  /** Whether an emergency insertion can push a READY-zone patient back */
+  // Whether an emergency can push a ready-zone patient back
   emergencyOverrideAllowed: {
     type: Boolean,
     default: true
   },
 
-  // ── Dynamic Queue Policy (v2) ─────────────────────────────────────────────
-  /** Master toggle — when false the engine falls back to legacy priorityScore sort */
+  // Dynamic queue settings
+  // Master switch - if off, fall back to the old priorityScore sort
   queueRecalculationEnabled: {
     type: Boolean,
     default: true
   },
-  /** Protects the in_consultation entry from being moved by recalculation */
+  // Keep the in-consultation patient from being moved
   currentConsultationLocked: {
     type: Boolean,
     default: true
   },
-  /** Enable the emergency priority zone (next-to-call after current consultation) */
+  // Turn on the emergency priority zone
   emergencyPriorityEnabled: {
     type: Boolean,
     default: true
   },
-  /**
-   * Where emergency patients are placed:
-   *   'after_current_before_ready' — between current consultation and ready zone (default)
-   */
+  // Where emergency patients go (between current and ready zone)
   emergencyPlacement: {
     type: String,
     enum: ['after_current_before_ready'],
     default: 'after_current_before_ready'
   },
-  /** Emergency patients do NOT automatically interrupt the current consultation */
+  // Emergencies don't interrupt the current consultation
   emergencyInterruptsCurrentConsultation: {
     type: Boolean,
     default: false
   },
-  /** Ready-zone patients are not reordered during normal appointment/walk-in recalculation */
+  // Don't reorder ready-zone patients during normal recalculation
   readyZoneLockedForNormalPatients: {
     type: Boolean,
     default: true
   },
-  /** Emergency patients are allowed to shift the ready zone down */
+  // But an emergency can shift the ready zone down
   readyZoneCanBeShiftedByEmergency: {
     type: Boolean,
     default: true
   },
-  /** Enable ratio-based fairness mixing between appointment and walk-in patients */
+  // Mix appointment and walk-in patients by a ratio
   appointmentWalkInFairnessEnabled: {
     type: Boolean,
     default: true
   },
-  /**
-   * How many appointment patients to serve per cycle.
-   * Default ratio is 2 appointment : 1 walk-in.
-   */
+  // Appointments per cycle (default ratio 2 appointments : 1 walk-in)
   appointmentRatio: {
     type: Number,
     default: 2,
     min: 1
   },
-  /** How many walk-in patients to serve per cycle */
+  // Walk-ins per cycle
   walkInRatio: {
     type: Number,
     default: 1,
     min: 1
   },
-  /**
-   * How to treat appointment patients who arrive after lateGraceMinutes:
-   *   'walk_in' — demote to walk-in pool for ordering purposes (default)
-   */
+  // Very late appointments are treated as walk-ins for ordering
   lateOutsideGraceTreatedAs: {
     type: String,
     enum: ['walk_in'],
     default: 'walk_in'
   },
-  /**
-   * Queue sort mode:
-   *   'policy_based' — use the dynamic zone-aware engine (default)
-   *   'legacy'       — fall back to legacy priorityScore sort
-   */
+  // Sort mode: 'policy_based' (dynamic engine) or 'legacy' (old sort)
   defaultSortMode: {
     type: String,
     enum: ['policy_based', 'legacy'],
     default: 'policy_based'
   },
 
-  // ── Session Auto-close ────────────────────────────────────────────────────────
-  /** Minutes of inactivity before the doctor session auto-closes (0 = disabled) */
+  // Minutes of inactivity before the session auto-closes (0 = never)
   sessionAutoCloseMinutes: {
     type: Number,
     default: 0
   },
 
-  // ── Capacity Allocation ───────────────────────────────────────────────────────
-  // What percentage of totalCapacity to expose for online appointment booking
+  // Capacity split
+  // Percentage of total capacity offered for online booking
   appointmentCapacityPercentage: {
     type: Number,
     default: 65,
@@ -206,34 +179,23 @@ const queuePolicySchema = new mongoose.Schema({
     default: null
   },
 
-  // ── Late Arrival Insertion ────────────────────────────────────────────────────
-  /**
-   * Where a late appointment patient is inserted once they check in:
-   *   'next_after_current' — becomes the next patient after the current consultation
-   *   'end_of_pool'        — sent to the end of the waiting pool
-   *   'after_ready_zone'   — inserted after the READY zone, before WAITING_POOL
-   */
+  // Where a late patient goes when they check in:
+  // 'next_after_current', 'end_of_pool', or 'after_ready_zone'
   lateArrivalInsertionRule: {
     type: String,
     enum: ['next_after_current', 'end_of_pool', 'after_ready_zone'],
     default: 'next_after_current'
   },
 
-  // ── Token Scope ───────────────────────────────────────────────────────────────
-  /**
-   * Determines how the A/W token counter is scoped:
-   *   'dept_date_session' — one counter per (department + date + time block)
-   *   'dept_date'         — one counter per (department + date), shared across blocks
-   *   'doctor_date'       — one counter per (doctor + date), for specialist queues
-   */
+  // How the A/W token counter is grouped:
+  // 'dept_date_session' (per block), 'dept_date' (per day), 'doctor_date' (per doctor)
   tokenScope: {
     type: String,
     enum: ['dept_date_session', 'dept_date', 'doctor_date'],
     default: 'dept_date_session'
   },
 
-  // ── No-Show Cutoff ────────────────────────────────────────────────────────────
-  /** Minutes after appointment time before patient is auto-marked no-show (0 = never auto) */
+  // Minutes after the appointment before auto no-show (0 = never)
   noShowCutoffMinutes: {
     type: Number,
     default: 0
@@ -249,10 +211,7 @@ queuePolicySchema.index(
   { unique: true, sparse: true }
 );
 
-/**
- * Resolve the effective policy for a given doctor + department.
- * Falls back through: doctor → department → global default → hard-coded defaults.
- */
+// Find the policy to use: doctor, then department, then global, then built-in defaults
 queuePolicySchema.statics.resolveFor = async function (doctorId, departmentId) {
   // Try doctor-specific first
   if (doctorId) {
@@ -268,9 +227,8 @@ queuePolicySchema.statics.resolveFor = async function (doctorId, departmentId) {
   const global = await this.findOne({ doctorId: null, departmentId: null });
   if (global) return global;
 
-  // Hard-coded fallback — no DB entry needed
+  // Fallback defaults if nothing is in the DB
   return {
-    // ── Existing fields ──────────────────────────────────────────────────────
     earlyCheckInMinutes: 30,
     gracePeriodMinutes: 15,
     readyZoneSize: 3,
@@ -280,7 +238,7 @@ queuePolicySchema.statics.resolveFor = async function (doctorId, departmentId) {
     latePenaltyPositions: 5,
     emergencyOverrideAllowed: true,
     sessionAutoCloseMinutes: 0,
-    // ── Dynamic queue policy (v2) fields ─────────────────────────────────────
+    // dynamic queue settings
     queueRecalculationEnabled: true,
     currentConsultationLocked: true,
     emergencyPriorityEnabled: true,

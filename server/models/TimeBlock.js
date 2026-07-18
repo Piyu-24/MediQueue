@@ -1,27 +1,11 @@
 const mongoose = require('mongoose');
 
-/**
- * TimeBlock — a discrete booking session within a department/doctor's day.
- *
- * Replaces the exact appointmentTime (HH:MM) slot model for General OPD.
- * Patients select a time block (e.g. 9:00–10:00) rather than an exact minute.
- *
- * Capacity model:
- *   totalCapacity = numberOfDoctors × estimatedConsultationsPerDoctor
- *   appointmentCapacity  = floor(totalCapacity × appointmentCapacityPct / 100)
- *   walkInCapacity       = floor(totalCapacity × walkInCapacityPct / 100)
- *   emergencyBuffer      = explicit count
- *   operationalBuffer    = remainder
- *
- * Only appointmentCapacity slots are exposed to online booking.
- * walkInCapacity is reserved for reception-managed walk-ins.
- * emergencyBuffer is hidden from normal booking.
- *
- * Token scope: A and W tokens share a single numeric sequence per
- * (departmentId, date, timeBlockId). E tokens use a separate sequence.
- */
+// TimeBlock is a booking session in a department/doctor's day (e.g. 9:00-10:00).
+// It replaces exact-time slots for General OPD - patients pick a block, not a minute.
+// The total capacity is split into appointment, walk-in, emergency and buffer slots;
+// only the appointment slots are shown for online booking.
 const timeBlockSchema = new mongoose.Schema({
-  // ── Scope ─────────────────────────────────────────────────────────────────────
+  // Scope
   departmentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Department',
@@ -37,7 +21,7 @@ const timeBlockSchema = new mongoose.Schema({
     index: true
   },
 
-  // ── Timing ────────────────────────────────────────────────────────────────────
+  // Timing
   date: {
     type: String,
     required: [true, 'Date is required'],
@@ -61,8 +45,8 @@ const timeBlockSchema = new mongoose.Schema({
     maxlength: [60, 'Session name cannot exceed 60 characters']
   },
 
-  // ── Capacity ──────────────────────────────────────────────────────────────────
-  // Estimated total consultations (doctors × per-doctor estimate)
+  // Capacity
+  // Estimated total consultations (doctors x per-doctor estimate)
   totalCapacity: {
     type: Number,
     required: [true, 'Total capacity is required'],
@@ -93,7 +77,7 @@ const timeBlockSchema = new mongoose.Schema({
     min: [0, 'Operational buffer cannot be negative']
   },
 
-  // ── Live Counters (atomic increments) ────────────────────────────────────────
+  // Live counters
   bookedAppointmentCount: {
     type: Number,
     default: 0,
@@ -110,15 +94,15 @@ const timeBlockSchema = new mongoose.Schema({
     min: [0, 'Emergency count cannot be negative']
   },
 
-  // ── Status ────────────────────────────────────────────────────────────────────
+  // Status
   status: {
     type: String,
     enum: ['active', 'closed', 'full', 'cancelled'],
     default: 'active'
   },
 
-  // ── Metadata ──────────────────────────────────────────────────────────────────
-  // Reporting time offset: how many minutes before startTime patients should arrive
+  // Metadata
+  // How many minutes before startTime patients should arrive
   reportingOffsetMinutes: {
     type: Number,
     default: 300,
@@ -139,7 +123,7 @@ const timeBlockSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// ── Virtuals ──────────────────────────────────────────────────────────────────
+// Virtuals
 
 // Remaining appointment slots available for booking
 timeBlockSchema.virtual('availableAppointmentSlots').get(function () {
@@ -156,7 +140,7 @@ timeBlockSchema.virtual('reportingTime').get(function () {
   return `${String(rh).padStart(2, '0')}:${String(rm).padStart(2, '0')}`;
 });
 
-// ── Indexes ───────────────────────────────────────────────────────────────────
+// Indexes
 
 // Main lookup for booking: given dept + date, get blocks
 timeBlockSchema.index({ departmentId: 1, date: 1, startTime: 1 });
@@ -171,12 +155,9 @@ timeBlockSchema.index(
   { unique: true, name: 'unique_block_slot' }
 );
 
-// ── Static helpers ────────────────────────────────────────────────────────────
+// Static helpers
 
-/**
- * Atomically deduct one appointment slot.
- * Returns null if the block is full; returns the updated block otherwise.
- */
+// Take one appointment slot. Returns null if the block is full, else the updated block.
 timeBlockSchema.statics.deductAppointmentSlot = async function (blockId) {
   return this.findOneAndUpdate(
     {
@@ -189,9 +170,7 @@ timeBlockSchema.statics.deductAppointmentSlot = async function (blockId) {
   );
 };
 
-/**
- * Atomically release one appointment slot (on cancellation/reschedule).
- */
+// Give back one appointment slot (on cancel/reschedule)
 timeBlockSchema.statics.releaseAppointmentSlot = async function (blockId) {
   return this.findOneAndUpdate(
     { _id: blockId, bookedAppointmentCount: { $gt: 0 } },
@@ -200,9 +179,7 @@ timeBlockSchema.statics.releaseAppointmentSlot = async function (blockId) {
   );
 };
 
-/**
- * Atomically deduct one walk-in slot.
- */
+// Take one walk-in slot
 timeBlockSchema.statics.deductWalkInSlot = async function (blockId) {
   return this.findOneAndUpdate(
     {
@@ -214,9 +191,7 @@ timeBlockSchema.statics.deductWalkInSlot = async function (blockId) {
   );
 };
 
-/**
- * Get blocks available for appointment booking (not full, active, future).
- */
+// Get active blocks that can still be booked
 timeBlockSchema.statics.getAvailableForBooking = async function (departmentId, date, doctorId = null) {
   const query = {
     departmentId,

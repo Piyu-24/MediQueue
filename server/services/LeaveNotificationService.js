@@ -64,8 +64,7 @@ class LeaveNotificationService {
 
     const now = new Date();
     const appointments = rawAppointments.filter((appointment) => {
-      // Block-based OPD appointments have no appointmentTime — include them for full-day leave,
-      // skip exact-time overlap check for partial-day leave
+      // OPD block appointments have no exact time - include them for full-day leave only
       const appointmentDateTime = new Date(appointment.appointmentDate);
       if (appointment.appointmentTime) {
         const [hours, minutes] = appointment.appointmentTime.split(':').map(Number);

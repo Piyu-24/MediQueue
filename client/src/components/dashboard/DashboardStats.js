@@ -1,8 +1,4 @@
-/**
- * @fileoverview Dashboard Statistics Component
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Shows the patient's dashboard stat cards
 
 import React from 'react';
 import {
@@ -12,14 +8,6 @@ import {
   BellIcon
 } from '@heroicons/react/24/outline';
 
-/**
- * DashboardStats component for displaying patient statistics
- * Follows Single Responsibility Principle - only renders statistics
- * @param {Object} props - Component props
- * @param {Object} props.stats - Statistics data
- * @param {boolean} props.loading - Loading state
- * @returns {JSX.Element} Dashboard statistics component
- */
 const DashboardStats = ({ stats = {}, loading = false }) => {
   const {
     upcomingAppointments = 0,

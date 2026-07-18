@@ -1,22 +1,7 @@
-/**
- * ClinicSessionService.js
- *
- * Handles clinic session lifecycle at end-of-day:
- *
- *   closeClinicSession(doctorId, queueDate, performedById)
- *     1. Validates the session exists and is not already ended.
- *     2. Bulk-marks all remaining (non-terminal) queue entries as
- *        `unserved_clinic_closed` and logs each one.
- *     3. Marks linked Appointment records as `no-show`.
- *     4. Computes and stores the day-end summary on the session document.
- *     5. Sets the session status to `ended`.
- *     6. Fires a session-level `SESSION_CLOSED` event log.
- *
- *   getDayEndReport(doctorId, queueDate)
- *     Returns the session's stored dayEndReport plus a patient-level
- *     breakdown of unserved entries (name, token, check-in time) for
- *     staff review.
- */
+// ClinicSessionService handles closing a doctor's queue session at end of day.
+// closeClinicSession marks anyone still waiting as unserved, updates their
+// appointments, saves a day-end summary, and ends the session.
+// getDayEndReport returns that summary plus the list of unserved patients.
 
 'use strict';
 
@@ -25,12 +10,7 @@ const QueueEventLog     = require('../models/QueueEventLog');
 const DoctorQueueSession = require('../models/DoctorQueueSession');
 const Appointment       = require('../models/Appointment');
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-/**
- * Statuses that are "still in queue" when the session closes.
- * Patients in these states have not been seen and will be marked unserved.
- */
+// Patients still in one of these states when the session closes count as unserved
 const UNSERVED_STATUSES = [
   'waiting',
   'ready',
@@ -41,31 +21,18 @@ const UNSERVED_STATUSES = [
   'delayed'
 ];
 
-/**
- * Terminal statuses — entries already in these states are not touched.
- */
+// Entries already in these states are left alone
 const TERMINAL_STATUSES = [
   'completed',
   'no_show',
   'cancelled',
-  'in_consultation',     // currently being seen — excluded from unserved
+  'in_consultation',     // currently being seen
   'unserved_clinic_closed'
 ];
 
-// ─── closeClinicSession ───────────────────────────────────────────────────────
-
-/**
- * Close a doctor's queue session for today and generate the day-end report.
- *
- * @param {string} doctorId        — MongoDB ObjectId string
- * @param {string} queueDate       — YYYY-MM-DD
- * @param {string} performedById   — userId of the staff/doctor who triggered close
- * @param {string} performedByRole — role of the actor
- * @returns {Promise<{ session: object, report: object, unservedCount: number }>}
- * @throws  {Error} if session not found, already ended, or has active consultation
- */
+// Close a doctor's session for the day and build the day-end report
 const closeClinicSession = async (doctorId, queueDate, performedById, performedByRole) => {
-  // ── 1. Validate session ──────────────────────────────────────────────────────
+  // 1. Check the session exists and isn't already closed
   const session = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate });
 
   if (!session) {
@@ -80,8 +47,7 @@ const closeClinicSession = async (doctorId, queueDate, performedById, performedB
     throw err;
   }
 
-  // Guard: block close if a consultation is currently in progress.
-  // The doctor must complete or skip the active patient first.
+  // Can't close while a consultation is going on - finish or skip that patient first
   const activeConsultation = await QueueEntry.findOne({
     doctor:    doctorId,
     queueDate,
@@ -97,14 +63,14 @@ const closeClinicSession = async (doctorId, queueDate, performedById, performedB
     throw err;
   }
 
-  // ── 2. Fetch all entries for this doctor today ───────────────────────────────
+  // 2. Get all of today's entries for this doctor
   const allEntries = await QueueEntry.find({ doctor: doctorId, queueDate }).lean();
 
-  // ── 3. Identify unserved entries ─────────────────────────────────────────────
+  // 3. Find the unserved ones
   const unservedEntries = allEntries.filter(e => UNSERVED_STATUSES.includes(e.status));
   const unservedIds     = unservedEntries.map(e => e._id);
 
-  // ── 4. Bulk-update unserved queue entries ────────────────────────────────────
+  // 4. Mark the unserved entries
   const now = new Date();
 
   if (unservedIds.length > 0) {
@@ -120,7 +86,7 @@ const closeClinicSession = async (doctorId, queueDate, performedById, performedB
       }
     );
 
-    // ── 5. Bulk-update linked Appointment records ────────────────────────────
+    // 5. Mark their appointments as no-show
     const appointmentIds = unservedEntries
       .filter(e => e.appointment)
       .map(e => e.appointment);
@@ -132,7 +98,7 @@ const closeClinicSession = async (doctorId, queueDate, performedById, performedB
       );
     }
 
-    // ── 6. Log an UNSERVED_CLINIC_CLOSED event per patient ──────────────────
+    // 6. Log an event for each unserved patient
     const eventDocs = unservedEntries.map(e => ({
       queueEntryId:    e._id,
       appointmentId:   e.appointment || null,
@@ -152,7 +118,7 @@ const closeClinicSession = async (doctorId, queueDate, performedById, performedB
     await QueueEventLog.insertMany(eventDocs, { ordered: false });
   }
 
-  // ── 7. Compute day-end summary ───────────────────────────────────────────────
+  // 7. Build the day-end summary
   const totalServed    = allEntries.filter(e => e.status === 'completed').length;
   const totalUnserved  = unservedIds.length;
   const totalWaiting   = allEntries.filter(e => UNSERVED_STATUSES.includes(e.status)).length;
@@ -161,21 +127,21 @@ const closeClinicSession = async (doctorId, queueDate, performedById, performedB
   const report = {
     generatedAt:            now,
     totalServed,
-    totalWaiting,            // patients still in queue at close (= unserved candidates)
+    totalWaiting,            // patients still in the queue at close
     totalUnserved,
     totalEmergency,
     avgConsultationMinutes:  session.avgConsultationMinutes ?? 0,
     closedBy:                performedById
   };
 
-  // ── 8. Update the session document ──────────────────────────────────────────
+  // 8. Save the session
   session.status       = 'ended';
   session.endedAt      = now;
   session.closedAt     = now;
   session.dayEndReport = report;
   await session.save();
 
-  // ── 9. Log a SESSION_CLOSED event ───────────────────────────────────────────
+  // 9. Log the session close
   await QueueEventLog.create({
     queueEntryId:    null,
     doctorId,
@@ -189,18 +155,7 @@ const closeClinicSession = async (doctorId, queueDate, performedById, performedB
   return { session, report, unservedCount: totalUnserved };
 };
 
-// ─── getDayEndReport ─────────────────────────────────────────────────────────
-
-/**
- * Retrieve the stored day-end report for a doctor's session.
- * Also returns a patient-level breakdown of all unserved entries so
- * staff can see who was not seen.
- *
- * @param {string} doctorId
- * @param {string} queueDate  YYYY-MM-DD
- * @returns {Promise<{ session, report, unservedPatients }>}
- * @throws  {Error} if session not found or report not yet generated
- */
+// Get the saved day-end report plus the list of patients who weren't seen
 const getDayEndReport = async (doctorId, queueDate) => {
   const session = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate })
     .populate('doctor', 'firstName lastName specialization department')
@@ -220,7 +175,7 @@ const getDayEndReport = async (doctorId, queueDate) => {
     throw err;
   }
 
-  // Fetch unserved patient breakdown for staff follow-up display
+  // Get the list of unserved patients for staff to follow up
   const unservedEntries = await QueueEntry.find({
     doctor:    doctorId,
     queueDate,
@@ -254,7 +209,5 @@ const getDayEndReport = async (doctorId, queueDate) => {
     unservedPatients
   };
 };
-
-// ─── Exports ─────────────────────────────────────────────────────────────────
 
 module.exports = { closeClinicSession, getDayEndReport, UNSERVED_STATUSES };

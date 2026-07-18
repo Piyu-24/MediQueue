@@ -1,20 +1,9 @@
-/**
- * @fileoverview Patient Service handling patient-specific business logic
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Patient API calls (dashboard, appointments, records, profile...)
 
 import BaseService from './BaseService';
 import ApiService from './ApiService';
 
-/**
- * PatientService class handling patient-specific operations
- * Extends BaseService following SOLID principles
- */
 class PatientService extends BaseService {
-  /**
-   * Creates an instance of PatientService
-   */
   constructor() {
     super(ApiService.getInstance());
     this.endpoints = {
@@ -27,10 +16,7 @@ class PatientService extends BaseService {
     };
   }
 
-  /**
-   * Gets comprehensive dashboard data for patient
-   * @returns {Promise<Object>} Dashboard data
-   */
+  // Get everything the dashboard needs in one call
   async getDashboardData() {
     const cacheKey = 'patient_dashboard';
     
@@ -57,10 +43,7 @@ class PatientService extends BaseService {
     );
   }
 
-  /**
-   * Gets patient statistics
-   * @returns {Promise<Object>} Patient statistics
-   */
+  // Get the dashboard stats
   async getPatientStats() {
     return this.handleApiCall(
       () => this.api.get(this.endpoints.dashboard),
@@ -69,11 +52,7 @@ class PatientService extends BaseService {
     );
   }
 
-  /**
-   * Gets patient appointments with filtering options
-   * @param {Object} options - Query options
-   * @returns {Promise<Array>} Appointments array
-   */
+  // Get appointments, with optional filters
   async getAppointments(options = {}) {
     const {
       limit = 10,
@@ -96,20 +75,12 @@ class PatientService extends BaseService {
     );
   }
 
-  /**
-   * Gets recent appointments
-   * @param {number} limit - Number of appointments to fetch
-   * @returns {Promise<Array>} Recent appointments
-   */
+  // Get the most recent appointments
   async getRecentAppointments(limit = 5) {
     return this.getAppointments({ limit, status: null });
   }
 
-  /**
-   * Gets upcoming appointments
-   * @param {number} limit - Number of appointments to fetch
-   * @returns {Promise<Array>} Upcoming appointments
-   */
+  // Get upcoming appointments (today onwards)
   async getUpcomingAppointments(limit = 5) {
     const today = new Date().toISOString().split('T')[0];
     return this.getAppointments({ 
@@ -119,13 +90,8 @@ class PatientService extends BaseService {
     });
   }
 
-  /**
-   * Books a new appointment
-   * @param {Object} appointmentData - Appointment data
-   * @returns {Promise<Object>} Created appointment
-   */
+  // Book an appointment
   async bookAppointment(appointmentData) {
-    // Validate appointment data
     this.validateData(appointmentData, {
       doctorId: { required: true, type: 'string' },
       appointmentDate: { required: true, type: 'string' },
@@ -146,12 +112,7 @@ class PatientService extends BaseService {
     return result;
   }
 
-  /**
-   * Cancels an appointment
-   * @param {string} appointmentId - Appointment ID
-   * @param {string} reason - Cancellation reason
-   * @returns {Promise<Object>} Updated appointment
-   */
+  // Cancel an appointment
   async cancelAppointment(appointmentId, reason) {
     const result = await this.handleApiCall(
       () => this.api.put(`${this.endpoints.appointments}/${appointmentId}/cancel`, { reason })
@@ -164,11 +125,7 @@ class PatientService extends BaseService {
     return result;
   }
 
-  /**
-   * Gets medical records
-   * @param {Object} options - Query options
-   * @returns {Promise<Array>} Medical records
-   */
+  // Get medical records, with optional filters
   async getMedicalRecords(options = {}) {
     const { limit = 10, recordType = null } = options;
     const params = { limit };
@@ -181,19 +138,12 @@ class PatientService extends BaseService {
     );
   }
 
-  /**
-   * Gets recent medical records
-   * @param {number} limit - Number of records to fetch
-   * @returns {Promise<Array>} Recent medical records
-   */
+  // Get the most recent medical records
   async getRecentMedicalRecords(limit = 5) {
     return this.getMedicalRecords({ limit });
   }
 
-  /**
-   * Gets patient profile
-   * @returns {Promise<Object>} Patient profile
-   */
+  // Get the patient's profile
   async getProfile() {
     return this.handleApiCall(
       () => this.api.get(this.endpoints.profile),
@@ -202,13 +152,8 @@ class PatientService extends BaseService {
     );
   }
 
-  /**
-   * Updates patient profile
-   * @param {Object} profileData - Profile data to update
-   * @returns {Promise<Object>} Updated profile
-   */
+  // Update the patient's profile
   async updateProfile(profileData) {
-    // Validate profile data
     this.validateData(profileData, {
       firstName: { type: 'string', minLength: 2, maxLength: 50 },
       lastName: { type: 'string', minLength: 2, maxLength: 50 },
@@ -226,10 +171,7 @@ class PatientService extends BaseService {
     return result;
   }
 
-  /**
-   * Gets health card information
-   * @returns {Promise<Object>} Health card data
-   */
+  // Get the health card
   async getHealthCard() {
     return this.handleApiCall(
       () => this.api.get(this.endpoints.healthCard),
@@ -238,11 +180,7 @@ class PatientService extends BaseService {
     );
   }
 
-  /**
-   * Gets patient documents
-   * @param {Object} options - Query options
-   * @returns {Promise<Array>} Documents array
-   */
+  // Get documents, with optional filters
   async getDocuments(options = {}) {
     const { limit = 20, documentType = null } = options;
     const params = { limit };
@@ -255,13 +193,7 @@ class PatientService extends BaseService {
     );
   }
 
-  /**
-   * Uploads a document
-   * @param {File} file - File to upload
-   * @param {Object} metadata - Document metadata
-   * @param {Function} onProgress - Upload progress callback
-   * @returns {Promise<Object>} Upload result
-   */
+  // Upload a document
   async uploadDocument(file, metadata = {}, onProgress = null) {
     const formData = new FormData();
     formData.append('document', file);
@@ -280,14 +212,8 @@ class PatientService extends BaseService {
     return result;
   }
 
-  /**
-   * Gets recent activity for the patient
-   * @param {number} limit - Number of activities to fetch
-   * @returns {Promise<Array>} Recent activities
-   */
+  // Build a recent-activity feed from appointments and medical records
   async getRecentActivity(limit = 10) {
-    // This would typically come from a dedicated activity endpoint
-    // For now, we'll aggregate from appointments and medical records
     const [appointments, records] = await Promise.all([
       this.getRecentAppointments(limit / 2),
       this.getRecentMedicalRecords(limit / 2)
@@ -318,13 +244,8 @@ class PatientService extends BaseService {
       .slice(0, limit);
   }
 
-  /**
-   * Transforms data for API consumption
-   * @param {Object} data - Data to transform
-   * @returns {Object} Transformed data
-   */
+  // Convert dates to ISO strings before sending to the API
   transformForApi(data) {
-    // Convert date strings to proper format
     if (data.appointmentDate && typeof data.appointmentDate === 'string') {
       data.appointmentDate = new Date(data.appointmentDate).toISOString();
     }
@@ -332,13 +253,8 @@ class PatientService extends BaseService {
     return data;
   }
 
-  /**
-   * Transforms data from API response
-   * @param {Object} data - API response data
-   * @returns {Object} Transformed data
-   */
+  // Convert date strings from the API into Date objects
   transformFromApi(data) {
-    // Convert ISO date strings to Date objects for easier handling
     if (data.appointmentDate) {
       data.appointmentDate = new Date(data.appointmentDate);
     }
@@ -350,17 +266,11 @@ class PatientService extends BaseService {
     return data;
   }
 
-  /**
-   * Gets service name
-   * @returns {string} Service name
-   */
   getServiceName() {
     return 'PatientService';
   }
 
-  /**
-   * Clears all patient-related caches
-   */
+  // Clear all patient caches
   clearAllCaches() {
     this.clearCache();
   }

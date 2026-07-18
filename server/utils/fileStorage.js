@@ -2,20 +2,9 @@ const path = require('path');
 const fs = require('fs');
 const { cloudinary, isCloudinaryConfigured } = require('../config/cloudinary');
 
-/**
- * Provider-agnostic upload storage.
- *
- * Returns a canonical *reference string* that is stored in MongoDB. The rest of
- * the app never needs to know where a file physically lives — `signFileUrl()`
- * turns the reference into a signed, short-lived URL on read.
- *
- *   Cloudinary : cloudinary://<type>/<resource_type>/<format>/<public_id>
- *   Local disk : /uploads/<folder>/<filename>
- *
- * Cloudinary is used whenever it is configured (required on ephemeral hosts like
- * Vercel where local disk does not persist); otherwise it falls back to local
- * disk so development works without Cloudinary credentials.
- */
+// Saves uploads and returns a reference string to store in the DB.
+// Uses Cloudinary if it's configured (needed on hosts like Vercel where local
+// disk isn't kept), otherwise saves to local disk for development.
 
 const UPLOADS_ROOT = path.resolve(__dirname, '..', 'uploads');
 
@@ -23,7 +12,7 @@ function buildCloudinaryRef({ type, resource_type, format, public_id }) {
   return `cloudinary://${type}/${resource_type}/${format || ''}/${public_id}`;
 }
 
-/** Parse a cloudinary:// reference back into its parts. Returns null if not one. */
+// Split a cloudinary:// reference into its parts (null if it isn't one)
 function parseCloudinaryRef(ref) {
   if (typeof ref !== 'string' || !ref.startsWith('cloudinary://')) return null;
   const rest = ref.slice('cloudinary://'.length);
@@ -65,11 +54,7 @@ function saveToDisk(buffer, { folder, prefix, originalname }) {
   return `/uploads/${folder}/${filename}`;
 }
 
-/**
- * Persist an in-memory multer file and return a canonical reference + metadata.
- * @param {{buffer:Buffer, originalname:string, mimetype:string, size:number}} file
- * @param {{folder:string, prefix?:string}} opts
- */
+// Save an uploaded file and return its reference plus some metadata
 async function saveUpload(file, { folder, prefix = 'file' }) {
   if (isCloudinaryConfigured) {
     const result = await uploadBufferToCloudinary(file.buffer, { folder });
@@ -94,7 +79,7 @@ async function saveUpload(file, { folder, prefix = 'file' }) {
   };
 }
 
-/** Best-effort delete of a stored file (used on error rollback / replacement). */
+// Delete a stored file (used to roll back on error or when replacing one)
 async function deleteUpload(ref) {
   try {
     const cl = parseCloudinaryRef(ref);

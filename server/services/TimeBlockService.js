@@ -2,26 +2,11 @@ const TimeBlock = require('../models/TimeBlock');
 const Appointment = require('../models/Appointment');
 const QueuePolicy = require('../models/QueuePolicy');
 
-/**
- * TimeBlockService — CRUD and capacity helpers for time blocks.
- *
- * Blocks are the booking unit for General OPD: patients select a block
- * (e.g. 9:00–10:00) rather than an exact minute.
- *
- * Capacity allocation follows the hospital's configured percentages:
- *   appointmentCapacity = floor(total × appointmentPct / 100)
- *   walkInCapacity      = floor(total × walkInPct / 100)
- *   emergencyBuffer     = floor(total × emergencyPct / 100)
- *   operationalBuffer   = remainder
- */
+// TimeBlockService handles time blocks - the booking unit for General OPD.
+// Patients pick a block (e.g. 9:00-10:00) instead of an exact time.
 
-/**
- * Derive capacity splits from a total capacity and policy percentages.
- *
- * @param {number} totalCapacity
- * @param {object} policy  QueuePolicy document (or plain object with capacity fields)
- * @returns {{ appointmentCapacity, walkInCapacity, emergencyBuffer, operationalBuffer }}
- */
+// Split a block's total capacity into appointment/walk-in/emergency/buffer
+// using the percentages from the queue policy.
 const splitCapacity = (totalCapacity, policy) => {
   const apptPct    = policy.appointmentCapacityPercentage  ?? 65;
   const walkInPct  = policy.walkInCapacityPercentage       ?? 25;
@@ -38,19 +23,7 @@ const splitCapacity = (totalCapacity, policy) => {
   return { appointmentCapacity, walkInCapacity, emergencyBuffer, operationalBuffer };
 };
 
-/**
- * Generate time blocks for a department for a range of dates using a template.
- *
- * @param {object} opts
- * @param {string}   opts.departmentId
- * @param {string}   opts.startDate         YYYY-MM-DD
- * @param {string}   opts.endDate           YYYY-MM-DD
- * @param {object[]} opts.blockTemplates    Array of { startTime, endTime, sessionName, totalCapacity }
- * @param {string|null} opts.doctorId       null for General OPD blocks
- * @param {string}   opts.createdBy         User ObjectId
- * @param {object}   opts.policy            QueuePolicy (for capacity percentages)
- * @returns {Promise<{ created: number, skipped: number, blocks: TimeBlock[] }>}
- */
+// Create time blocks for a department across a date range, from a set of templates
 const generateBlocksForRange = async ({
   departmentId,
   startDate,
@@ -102,7 +75,7 @@ const generateBlocksForRange = async ({
         created.push(block);
       } catch (err) {
         if (err.code === 11000) {
-          // Block already exists for this dept+doctor+date+startTime — skip
+          // Block already exists for this dept/doctor/date/time - skip it
           skipped++;
         } else {
           throw err;
@@ -116,17 +89,7 @@ const generateBlocksForRange = async ({
   return { created: created.length, skipped, blocks: created };
 };
 
-/**
- * Return true if a time block's booking window has already closed.
- *
- * A block is closed only after its end time has passed — patients can still
- * book into a session that has started but not yet ended.
- *
- * @param {string} blockDate   YYYY-MM-DD  (the block's own date field)
- * @param {string} endTime     HH:MM       (the block's end time)
- * @param {Date}   [now]       Override for unit testing; defaults to new Date()
- * @returns {boolean}
- */
+// True once a block's end time has passed (only matters for today's blocks)
 const isSessionClosed = (blockDate, endTime, now = new Date()) => {
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   if (blockDate !== todayStr) return false; // only today's blocks can be "closed"
@@ -137,28 +100,9 @@ const isSessionClosed = (blockDate, endTime, now = new Date()) => {
   return currentMinutes >= sessionEndMinutes;
 };
 
-/**
- * Return true if the booking window for a time block has closed.
- *
- * Booking remains open while the session is running, up until
- * `minimumArrivalBufferMinutes` before the session end time. This gives
- * patients enough time to travel and check in after booking.
- *
- * bookingCutoffTime = slotEndTime - minimumArrivalBufferMinutes
- *
- * Examples (buffer = 30 min, slot 16:00-18:00):
- *   currentTime 16:33 → allowed  (cutoff is 17:30)
- *   currentTime 17:20 → allowed
- *   currentTime 17:30 → blocked  (at or after cutoff)
- *   currentTime 17:45 → blocked
- *   currentTime 18:01 → blocked
- *
- * @param {string} blockDate                   YYYY-MM-DD
- * @param {string} endTime                     HH:MM  (block end time)
- * @param {number} [minimumArrivalBufferMinutes=30]  Minutes before end time at which booking closes
- * @param {Date}   [now]                        Override for unit testing; defaults to new Date()
- * @returns {boolean}  true = booking should be rejected
- */
+// True if booking should be rejected. Booking closes a few minutes
+// (minimumArrivalBufferMinutes) before the session ends so the patient
+// still has time to arrive. e.g. slot ending 18:00 with a 30 min buffer closes at 17:30.
 const isBookingCutoffReached = (blockDate, endTime, minimumArrivalBufferMinutes = 30, now = new Date()) => {
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   if (blockDate !== todayStr) return false; // future-date blocks are always bookable
@@ -170,17 +114,8 @@ const isBookingCutoffReached = (blockDate, endTime, minimumArrivalBufferMinutes 
   return currentMinutes >= cutoffMinutes;
 };
 
-/**
- * Get available blocks for appointment booking.
- * Only returns blocks where bookedAppointmentCount < appointmentCapacity.
- * For today's date, blocks whose start time has already passed are marked CLOSED.
- *
- * @param {string} departmentId
- * @param {string} date           YYYY-MM-DD
- * @param {string|null} doctorId  null = General OPD, set = specialist
- * @returns {Promise<object[]>}   lean blocks with virtuals, each annotated with
- *                                 availabilityStatus and remainingSlots
- */
+// Get the blocks a patient can book for a department/date.
+// Each block is tagged with an availability status and remaining slot count.
 const getAvailableBlocks = async (departmentId, date, doctorId = null, patientId = null) => {
   const query = {
     departmentId,
@@ -199,10 +134,10 @@ const getAvailableBlocks = async (departmentId, date, doctorId = null, patientId
     sameDeptConflict = await Appointment.hasActiveSameDeptDayConflict(patientId, departmentId, date);
   }
 
-  // Annotate each block with availability status (mirrors frontend colour coding)
+  // Tag each block with an availability status
   const annotated = [];
   for (const b of blocks) {
-    // Today's sessions: closed once the booking cutoff has passed (endTime - 30 min buffer)
+    // Today's sessions close once the booking cutoff has passed
     if (isBookingCutoffReached(b.date, b.endTime, 30, now)) {
       annotated.push({
         ...b,
@@ -245,12 +180,7 @@ const getAvailableBlocks = async (departmentId, date, doctorId = null, patientId
   return annotated;
 };
 
-/**
- * Create a single time block with computed capacity splits.
- *
- * @param {object} data  Matches TimeBlock schema fields + optional policy
- * @returns {Promise<TimeBlock>}
- */
+// Create a single time block, working out the capacity splits
 const createBlock = async (data) => {
   const policy = data.policy || await QueuePolicy.resolveFor(null, data.departmentId);
   const { appointmentCapacity, walkInCapacity, emergencyBuffer, operationalBuffer } =
@@ -265,10 +195,8 @@ const createBlock = async (data) => {
   });
 };
 
-/**
- * Update a block's capacity or status (admin only).
- * Does not allow reducing capacity below current booked count.
- */
+// Update a block's capacity or status.
+// Won't let capacity drop below the number already booked.
 const updateBlock = async (blockId, updates) => {
   const block = await TimeBlock.findById(blockId);
   if (!block) throw Object.assign(new Error('Time block not found'), { statusCode: 404 });

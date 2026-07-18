@@ -1,8 +1,4 @@
-/**
- * @fileoverview Recent Activity Component
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Shows a feed of the patient's recent activity
 
 import React from 'react';
 import {
@@ -14,26 +10,12 @@ import {
   ExclamationCircleIcon
 } from '@heroicons/react/24/outline';
 
-/**
- * RecentActivity component for displaying patient recent activities
- * Follows Single Responsibility Principle - only renders activity feed
- * @param {Object} props - Component props
- * @param {Array} props.activities - Activities array
- * @param {boolean} props.loading - Loading state
- * @param {Function} props.onActivityClick - Callback for activity click
- * @returns {JSX.Element} Recent activity component
- */
-const RecentActivity = ({ 
+const RecentActivity = ({
   activities = [], 
   loading = false,
   onActivityClick = () => {}
 }) => {
-  /**
-   * Gets activity icon based on type and status
-   * @param {string} type - Activity type
-   * @param {string} status - Activity status
-   * @returns {JSX.Element} Activity icon
-   */
+  // Pick the icon for an activity based on its type/status
   const getActivityIcon = (type, status) => {
     const iconProps = { className: "w-5 h-5" };
     
@@ -52,12 +34,7 @@ const RecentActivity = ({
     }
   };
 
-  /**
-   * Gets activity color based on type and status
-   * @param {string} type - Activity type
-   * @param {string} status - Activity status
-   * @returns {string} CSS color classes
-   */
+  // Pick the colour for an activity based on its type/status
   const getActivityColor = (type, status) => {
     if (type === 'appointment') {
       if (status === 'completed') return 'bg-green-100 border-green-200';
@@ -69,11 +46,7 @@ const RecentActivity = ({
     return 'bg-gray-100 border-gray-200';
   };
 
-  /**
-   * Formats activity date
-   * @param {string|Date} date - Activity date
-   * @returns {string} Formatted date
-   */
+  // Format a date as "x hours ago" etc.
   const formatDate = (date) => {
     const activityDate = new Date(date);
     const now = new Date();

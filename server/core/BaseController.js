@@ -1,22 +1,9 @@
-/**
- * @fileoverview Base Controller class for MediQueue Application
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Base class with shared controller helpers
 
 const ResponseFormatter = require('../utils/ResponseFormatter');
 const Logger = require('../utils/Logger');
 
-/**
- * Base Controller class providing common controller functionality
- * Implements SOLID principles for controller architecture
- */
 class BaseController {
-  /**
-   * Creates an instance of BaseController
-   * @param {Object} service - Service instance for business logic
-   * @param {Object} logger - Logger instance
-   */
   constructor(service = null, logger = null) {
     if (this.constructor === BaseController) {
       throw new Error('BaseController is abstract and cannot be instantiated directly');
@@ -27,12 +14,7 @@ class BaseController {
     this.responseFormatter = new ResponseFormatter();
   }
 
-  /**
-   * Handles async operations with error catching
-   * @param {Function} operation - Async operation to execute
-   * @param {Object} req - Express request object
-   * @param {Object} res - Express response object
-   */
+  // Run an async handler and catch any error
   async handleAsync(operation, req, res) {
     try {
       await operation(req, res);
@@ -41,12 +23,7 @@ class BaseController {
     }
   }
 
-  /**
-   * Handles controller errors
-   * @param {Error} error - Error object
-   * @param {Object} req - Express request object
-   * @param {Object} res - Express response object
-   */
+  // Log the error and send an error response
   handleError(error, req, res) {
     this.logger.error('Controller error:', {
       error: error.message,
@@ -64,43 +41,22 @@ class BaseController {
     );
   }
 
-  /**
-   * Sends success response
-   * @param {Object} res - Express response object
-   * @param {*} data - Response data
-   * @param {string} message - Success message
-   * @param {Object} meta - Additional metadata
-   */
+  // Send a 200 success response
   sendSuccess(res, data = null, message = 'Success', meta = {}) {
     res.json(this.responseFormatter.success(data, message, meta));
   }
 
-  /**
-   * Sends created response
-   * @param {Object} res - Express response object
-   * @param {*} data - Created resource data
-   * @param {string} message - Success message
-   * @param {string} location - Resource location URL
-   */
+  // Send a 201 created response
   sendCreated(res, data, message = 'Resource created successfully', location = null) {
     res.status(201).json(this.responseFormatter.created(data, message, location));
   }
 
-  /**
-   * Sends no content response
-   * @param {Object} res - Express response object
-   * @param {string} message - Success message
-   */
+  // Send a 204 no-content response
   sendNoContent(res, message = 'No content') {
     res.status(204).json(this.responseFormatter.noContent(message));
   }
 
-  /**
-   * Builds filters from request query parameters
-   * @param {Object} req - Express request object
-   * @param {Array} allowedFilters - Array of allowed filter keys
-   * @returns {Object} Filtered query parameters
-   */
+  // Pick out the allowed filters from the query string
   buildFilters(req, allowedFilters = []) {
     const filters = {};
     
@@ -113,11 +69,7 @@ class BaseController {
     return filters;
   }
 
-  /**
-   * Builds pagination options from request query
-   * @param {Object} req - Express request object
-   * @returns {Object} Pagination options
-   */
+  // Build pagination/sort options from the query string
   buildPaginationOptions(req) {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -132,12 +84,7 @@ class BaseController {
     };
   }
 
-  /**
-   * Validates required fields in request body
-   * @param {Object} req - Express request object
-   * @param {Array} requiredFields - Array of required field names
-   * @throws {Error} If required fields are missing
-   */
+  // Throw if any required body field is missing
   validateRequiredFields(req, requiredFields) {
     const missingFields = requiredFields.filter(field => 
       req.body[field] === undefined || req.body[field] === null || req.body[field] === ''
@@ -148,12 +95,7 @@ class BaseController {
     }
   }
 
-  /**
-   * Logs controller action
-   * @param {string} action - Action name
-   * @param {Object} req - Express request object
-   * @param {Object} metadata - Additional metadata
-   */
+  // Log a controller action
   logAction(action, req, metadata = {}) {
     this.logger.info(`Controller action: ${action}`, {
       action,
@@ -165,10 +107,7 @@ class BaseController {
     });
   }
 
-  /**
-   * Gets resource name (to be implemented by child classes)
-   * @returns {string} Resource name
-   */
+  // Child classes must implement this
   getResourceName() {
     throw new Error('getResourceName() must be implemented by child class');
   }

@@ -8,55 +8,33 @@ const User           = require('../models/User');
 const { localDateStr }                              = require('./TokenGenerator');
 const { nextWalkInToken, nextEmergencyToken, buildScope } = require('./TokenSequenceService');
 
-/**
- * CheckInService — authoritative entry point for all patient check-ins.
- *
- * Handles two appointment flows:
- *
- *   NEW FLOW (block-based booking, appointmentToken already set at booking):
- *     - Appointment was created via General OPD or block-based specialist booking
- *     - appointment.appointmentToken = 'A014' (issued at booking)
- *     - Check-in ACTIVATES the token — creates QueueEntry with the existing token
- *     - Doctor is assigned at check-in by reception
- *     - Does NOT generate a new token
- *
- *   LEGACY FLOW (exact-time booking, no appointmentToken):
- *     - Appointment was created with appointmentTime and a specific doctor
- *     - Check-in GENERATES the A token at this point (existing behaviour)
- *
- * Walk-in flow: W token issued from shared A/W sequence via TokenSequenceService
- * Emergency flow: E token from separate emergency sequence via TokenSequenceService
- */
-
-// ── Statuses ──────────────────────────────────────────────────────────────────
+// CheckInService handles all patient check-ins.
+//
+// For appointments there are two cases:
+//   - General OPD / block-based: the token was already made at booking, so
+//     check-in just activates it and reception assigns the doctor.
+//   - Old exact-time appointments: the A token is generated here at check-in.
+//
+// Walk-ins get a W token and emergencies get an E token (see TokenSequenceService).
 
 const TERMINAL_STATUSES       = ['cancelled', 'completed', 'no-show', 'rescheduled', 'doctor-unavailable'];
 const ALREADY_ACTIVE_STATUSES = ['checked_in', 'in_queue', 'in_consultation', 'in-progress', 'skipped', 'late', 'delayed'];
 const CHECKABLE_STATUSES      = ['booked', 'scheduled', 'confirmed'];
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/**
- * Parse HH:MM into total minutes from midnight.
- */
+// Turn 'HH:MM' into minutes since midnight
 const toMinutes = (hhmm) => {
   if (!hhmm) return null;
   const [h, m] = hhmm.split(':').map(Number);
   return h * 60 + m;
 };
 
-/**
- * Resolve the reference appointment datetime for check-in window checking.
- * For block-based appointments, use the time block's startTime.
- * For exact-time appointments, use appointmentTime.
- *
- * @returns {Date|null} the reference datetime, or null if indeterminate
- */
+// Work out the appointment's start datetime, used to check the check-in window.
+// Uses the time block's start for block bookings, or appointmentTime otherwise.
 const resolveAppointmentDateTime = async (appointment) => {
   const baseDate = new Date(appointment.appointmentDate);
   baseDate.setHours(0, 0, 0, 0);
 
-  // New flow: time block
+  // Block booking: use the block's start time
   if (appointment.timeBlockId) {
     const block = await TimeBlock.findById(appointment.timeBlockId).lean();
     if (block) {
@@ -69,7 +47,7 @@ const resolveAppointmentDateTime = async (appointment) => {
     }
   }
 
-  // Legacy flow: exact appointmentTime
+  // Otherwise use the exact appointment time
   if (appointment.appointmentTime) {
     const mins = toMinutes(appointment.appointmentTime);
     if (mins !== null) {
@@ -82,14 +60,7 @@ const resolveAppointmentDateTime = async (appointment) => {
   return null;
 };
 
-// ── Eligibility ───────────────────────────────────────────────────────────────
-
-/**
- * Check whether a patient is eligible to check in for their appointment.
- *
- * Returns: { eligible, reason, arrivalStatus, minutesUntilAppointment, appointment, policy }
- * arrivalStatus: 'early' | 'on_time' | 'late' | 'too_early'
- */
+// Check whether a patient can check in now, and whether they're early/on-time/late
 const getAppointmentEligibility = async (appointmentId, patientId) => {
   const appointment = await Appointment.findById(appointmentId)
     .populate('doctor', 'firstName lastName specialization department')
@@ -114,7 +85,7 @@ const getAppointmentEligibility = async (appointmentId, patientId) => {
     return { eligible: false, reason: `Appointment status '${appointment.status}' does not allow check-in.` };
   }
 
-  // Check if a QueueEntry already exists for this appointment
+  // Already in the queue?
   const existingEntry = await QueueEntry.findOne({
     appointment: appointmentId,
     status: { $in: ['waiting', 'ready', 'called', 'in_consultation', 'emergency_waiting'] }
@@ -123,17 +94,16 @@ const getAppointmentEligibility = async (appointmentId, patientId) => {
     return { eligible: false, reason: 'Patient is already in the queue', alreadyCheckedIn: true, existingEntry };
   }
 
-  // Resolve policy — for General OPD use departmentId, for specialist use doctorId
+  // Get the queue policy (by department for General OPD, by doctor for specialist)
   const policyDoctorId = appointment.doctor?._id || null;
   const policyDeptId   = appointment.departmentId?._id?.toString()
                        || appointment.departmentId?.toString()
                        || null;
   const policy = await QueuePolicy.resolveFor(policyDoctorId, policyDeptId);
 
-  // Resolve the reference datetime for the check-in window
   const apptDateTime = await resolveAppointmentDateTime(appointment);
 
-  // If we can't determine datetime (very old legacy record), allow check-in
+  // If we can't work out the time (very old record), just allow check-in
   if (!apptDateTime) {
     return { eligible: true, reason: '', arrivalStatus: 'on_time', minutesUntilAppointment: 0, appointment, policy };
   }
@@ -160,55 +130,23 @@ const getAppointmentEligibility = async (appointmentId, patientId) => {
   return { eligible, reason, arrivalStatus, minutesUntilAppointment, appointment, policy };
 };
 
-/**
- * Map the arrivalStatus from getAppointmentEligibility() to the refined
- * classification stored on the QueueEntry.arrivalStatus field.
- *
- * This classification is read by QueueEngine during recalculation to
- * determine which bucket (on-time appointment / grace appointment /
- * walk-in / late-outside-grace) the entry belongs to.
- *
- * @param {string} arrivalStatus  — raw status from getAppointmentEligibility
- * @param {number} minutesLate    — positive = late, negative = early
- * @param {object} policy         — resolved QueuePolicy
- * @returns {string} refined arrivalStatus for QueueEntry
- */
+// Turn the arrival status into the value stored on QueueEntry.arrivalStatus,
+// which the QueueEngine uses to decide the patient's bucket.
+// minutesLate is positive when the patient is late.
 const computeRefinedArrivalStatus = (arrivalStatus, minutesLate, policy) => {
-  // minutesLate: positive means patient is late, negative means patient is early
-  if (arrivalStatus === 'too_early') return 'on_time'; // check-in blocked upstream; fallback
+  if (arrivalStatus === 'too_early') return 'on_time'; // blocked earlier anyway
   if (arrivalStatus === 'early')     return 'early_allowed';
   if (arrivalStatus === 'on_time')   return 'on_time';
   if (arrivalStatus === 'late') {
-    // minutesUntilAppointment is negative when late; convert to positive minutes late
     const gracePeriod = policy.gracePeriodMinutes ?? 15;
     if (minutesLate <= gracePeriod) return 'late_within_grace';
     return 'late_outside_grace';
   }
-  return 'on_time'; // safety fallback
+  return 'on_time'; // fallback
 };
 
-// ── Appointment Check-in ──────────────────────────────────────────────────────
-
-/**
- * Check in a booked appointment patient.
- *
- * Dual-mode:
- *   NEW FLOW  — appointment.appointmentToken is set → activate existing token
- *   LEGACY    — no appointmentToken → generate A token (old behaviour)
- *
- * @param {object} opts
- * @param {string} opts.appointmentId
- * @param {string} opts.patientId
- * @param {string} opts.performedById
- * @param {string} opts.performedByRole
- * @param {string} opts.room
- * @param {string} opts.department        string name (for QueueEntry)
- * @param {string} opts.doctorId          required — reception assigns doctor at check-in
- * @param {string} [opts.departmentId]    ObjectId string (for new-flow QueueEntry scope)
- * @param {string} [opts.timeBlockId]     ObjectId string (for new-flow QueueEntry scope)
- * @param {string} [opts.notes]
- * @param {'normal'|'urgent'} [opts.priority]
- */
+// Check in a booked appointment patient.
+// If the token already exists (booking-time) we activate it; otherwise we make one.
 const checkInAppointment = async ({
   appointmentId,
   patientId,
@@ -235,45 +173,40 @@ const checkInAppointment = async ({
   const queueDate = localDateStr();
   const isLate    = arrivalStatus === 'late';
 
-  // Compute refined arrival status to store on the QueueEntry.
-  // minutesUntilAppointment is negative when the patient is late.
-  const minutesLate        = -(eligibility.minutesUntilAppointment ?? 0); // positive = late
+  // minutesUntilAppointment is negative when late, so flip the sign
+  const minutesLate        = -(eligibility.minutesUntilAppointment ?? 0);
   const refinedArrivalStatus = computeRefinedArrivalStatus(arrivalStatus, minutesLate, policy);
 
-  // ETA from session or policy
+  // Estimated wait from the session average, or the policy default
   const session   = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate });
   const avgMins   = session?.avgConsultationMinutes || policy.averageConsultationMinutes;
   const estimatedWaitMinutes = await QueueEntry.calculateETA(doctorId, queueDate, avgMins);
 
-  // ── Priority score ────────────────────────────────────────────────────────────
-  // Base score: urgent patients jump ahead; late patients go after normal
+  // Priority score: urgent patients jump ahead, late patients drop back
   let priorityScore = priority === 'urgent' ? 20 : 100;
   if (isLate) {
-    // Score used for legacy 'end_of_pool'/'penalty_offset' rules
-    // For 'next_after_current' the QueueEngine handles insertion position
     if (policy.lateArrivalRule === 'end_of_pool') {
       priorityScore = 200;
     } else if (policy.lateArrivalRule === 'penalty_offset') {
       priorityScore = 100 + policy.latePenaltyPositions * 10;
     }
   }
-  // Sub-sort within same score: tiebreak by scheduled appointment time
+  // Tiebreak by scheduled appointment time
   const apptTimeMins = toMinutes(appointment.appointmentTime);
   if (apptTimeMins !== null) priorityScore += apptTimeMins / 10000;
 
-  // ── Resolve token ─────────────────────────────────────────────────────────────
+  // Get the token
   let queueNumber, sequenceNumber, tokenType;
 
   const isNewFlow = !!appointment.appointmentToken;
 
   if (isNewFlow) {
-    // NEW FLOW: token was issued at booking — just activate it
+    // Token was made at booking - just reuse it
     queueNumber    = appointment.appointmentToken;
     sequenceNumber = appointment.tokenNumber;
     tokenType      = appointment.tokenPrefix || 'A';
   } else {
-    // LEGACY FLOW: generate A token now
-    // (kept for backward compatibility with old scheduled/confirmed appointments)
+    // Old appointments with no token: generate an A token now
     const { generateToken } = require('./TokenGenerator');
     tokenType = 'A';
     const MAX_TOKEN_RETRIES = 5;
@@ -281,7 +214,6 @@ const checkInAppointment = async ({
     for (let attempt = 0; attempt < MAX_TOKEN_RETRIES; attempt++) {
       tokenResult = await generateToken(doctorId, queueDate, tokenType);
       try {
-        // Test if this token is available (create will fail with 11000 if duplicate)
         queueNumber    = tokenResult.queueNumber;
         sequenceNumber = tokenResult.sequenceNumber;
         break;
@@ -291,13 +223,12 @@ const checkInAppointment = async ({
     }
   }
 
-  // ── Create QueueEntry ─────────────────────────────────────────────────────────
-  const MAX_RETRIES = isNewFlow ? 1 : 5; // new flow: token is fixed, no retry needed
+  // Create the queue entry (retry with a new token if there's a clash, old flow only)
+  const MAX_RETRIES = isNewFlow ? 1 : 5;
   let queueEntry;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     if (!isNewFlow && attempt > 0) {
-      // Retry with next token for legacy flow
       const { generateToken } = require('./TokenGenerator');
       const t = await generateToken(doctorId, queueDate, tokenType);
       queueNumber    = t.queueNumber;
@@ -312,7 +243,6 @@ const checkInAppointment = async ({
         checkedInBy:          performedById,
         room,
         department,
-        // New-flow scope fields
         departmentId:         departmentId || appointment.departmentId || null,
         timeBlockId:          timeBlockId  || appointment.timeBlockId  || null,
         // Token
@@ -328,9 +258,8 @@ const checkInAppointment = async ({
         isWalkIn:     false,
         isEmergency:  false,
         isLate,
-        // Arrival classification (read by QueueEngine during recalculation)
+        // used by QueueEngine to order the queue
         arrivalStatus: refinedArrivalStatus,
-        // Context
         appointmentTime: appointment.appointmentTime || null,
         notes,
         estimatedWaitMinutes,
@@ -357,16 +286,16 @@ const checkInAppointment = async ({
     }
   }
 
-  // ── Update Appointment ────────────────────────────────────────────────────────
+  // Update the appointment
   appointment.status = 'in_queue';
   appointment.checkIn = { time: new Date(), method: 'manual', verifiedBy: performedById };
-  // If doctor was assigned at check-in (General OPD), persist it back
+  // Save the doctor if reception just assigned one (General OPD)
   if (!appointment.doctor && doctorId) {
     appointment.doctor = doctorId;
   }
   await appointment.save();
 
-  // ── Session + Event log ───────────────────────────────────────────────────────
+  // Make sure the session exists and log the event
   await DoctorQueueSession.getOrCreate(doctorId, department, queueDate, room);
 
   await QueueEventLog.create({
@@ -393,26 +322,8 @@ const checkInAppointment = async ({
   return { queueEntry, appointment, token: queueEntry.queueNumber, arrivalStatus, estimatedWaitMinutes, policy };
 };
 
-// ── Walk-in Check-in ──────────────────────────────────────────────────────────
-
-/**
- * Check in a walk-in patient (no prior appointment).
- *
- * W tokens use the shared A/W numeric sequence via TokenSequenceService.
- * E tokens use the separate emergency sequence.
- *
- * @param {object} opts
- * @param {string} opts.patientId
- * @param {string} opts.performedById
- * @param {string} opts.performedByRole
- * @param {string} opts.room
- * @param {string} opts.department          string name
- * @param {string} [opts.departmentId]      ObjectId — preferred for token scope
- * @param {string} opts.doctorId
- * @param {string} [opts.notes]
- * @param {boolean} [opts.isEmergency]
- * @param {'normal'|'urgent'} [opts.priority]
- */
+// Check in a walk-in patient (no appointment).
+// Walk-ins get a W token; emergencies get an E token.
 const checkInWalkIn = async ({
   patientId,
   performedById,
@@ -462,8 +373,7 @@ const checkInWalkIn = async ({
   const avgMins = session?.avgConsultationMinutes || policy.averageConsultationMinutes;
   const estimatedWaitMinutes = await QueueEntry.calculateETA(doctorId, queueDate, avgMins);
 
-  // ── Build token scope ─────────────────────────────────────────────────────────
-  // Walk-ins and appointments share the same NORMAL sequence per dept/date
+  // Walk-ins and appointments share the same number sequence per department/date
   const tokenScopeStr = policy.tokenScope || 'dept_date_session';
   const scope = buildScope({
     departmentId: departmentId || null,
@@ -473,7 +383,7 @@ const checkInWalkIn = async ({
     tokenScope:   departmentId ? tokenScopeStr : 'doctor_date'
   });
 
-  // ── Generate token ────────────────────────────────────────────────────────────
+  // Generate the token
   let tokenResult;
   let tokenType;
 
@@ -490,11 +400,10 @@ const checkInWalkIn = async ({
 
   const { queueNumber, sequenceNumber } = tokenResult;
 
-  // ── Priority score ────────────────────────────────────────────────────────────
+  // Priority score (lower = called sooner)
   let priorityScore = isEmergency ? 10 : (priority === 'urgent' ? 50 : 300);
   priorityScore += Date.now() / 1e13; // tiny tiebreak by check-in time
 
-  // ── Create QueueEntry ─────────────────────────────────────────────────────────
   const queueEntry = await QueueEntry.create({
     patient:      patientId,
     doctor:       doctorId,
@@ -516,7 +425,7 @@ const checkInWalkIn = async ({
     isWalkIn:    !isEmergency,
     isEmergency,
     isLate:      false,
-    // Arrival classification (read by QueueEngine during recalculation)
+    // used by QueueEngine to order the queue
     arrivalStatus: isEmergency ? 'emergency' : 'walk_in',
     notes,
     estimatedWaitMinutes,
@@ -527,7 +436,7 @@ const checkInWalkIn = async ({
     sortOrder:   priorityScore
   });
 
-  // ── Session + Event log ───────────────────────────────────────────────────────
+  // Make sure the session exists and log the event
   await DoctorQueueSession.getOrCreate(doctorId, department, queueDate, room);
 
   await QueueEventLog.create({

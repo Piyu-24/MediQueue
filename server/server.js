@@ -13,10 +13,8 @@ const { createServer } = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
 
-// ── Secret validation ────────────────────────────────────────────────────────
-// Refuse to start with missing or placeholder secrets. A known placeholder JWT
-// secret lets anyone forge tokens (full auth bypass), so this must never reach
-// production. In production a bad secret is fatal; in dev it's a loud warning.
+// Don't start with missing or placeholder secrets - a known JWT secret would let
+// anyone forge tokens. In production this is fatal; in dev it's just a warning.
 function validateRequiredSecrets() {
   const PLACEHOLDER_MARKERS = [
     'your_', 'change_in_production', 'super_secret_jwt_key_here',

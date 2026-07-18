@@ -4,7 +4,7 @@ import { io } from 'socket.io-client';
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:5000';
 const POLLING_INTERVAL_MS = 5000;
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
+// Utilities
 
 const formatTime = () =>
   new Date().toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -12,7 +12,7 @@ const formatTime = () =>
 const formatDate = () =>
   new Date().toLocaleDateString('en-LK', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-// ── Token visual maps (token type → display style) ────────────────────────────
+// Token visual maps (token type → display style)
 
 // Now-Serving card gradient
 const NOW_SERVING_BG = {
@@ -30,7 +30,7 @@ const CHIP_STYLE = {
 
 const chipStyle = (tokenType) => CHIP_STYLE[tokenType] || CHIP_STYLE.A;
 
-// ── Token Chip ─────────────────────────────────────────────────────────────────
+// Token Chip
 
 const TokenChip = ({ entry, size = 'md', highlight = false }) => {
   const cs = chipStyle(entry.tokenType);
@@ -62,7 +62,7 @@ const TokenChip = ({ entry, size = 'md', highlight = false }) => {
   );
 };
 
-// ── Room Panel ─────────────────────────────────────────────────────────────────
+// Room Panel
 
 const RoomPanel = ({ room }) => {
   const hasNowServing  = !!room.nowServing;
@@ -82,7 +82,7 @@ const RoomPanel = ({ room }) => {
   return (
     <div className="bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 flex flex-col">
 
-      {/* ── Room Header ── */}
+      {/* Room Header */}
       <div className="bg-gradient-to-r from-blue-900 to-blue-800 px-5 py-3">
         <div className="flex items-center justify-between">
           <div>
@@ -96,7 +96,7 @@ const RoomPanel = ({ room }) => {
         </div>
       </div>
 
-      {/* ── Emergency banner ── */}
+      {/* Emergency banner */}
       {hasEmergency && (
         <div className="bg-red-600/20 border-b border-red-600/30 px-5 py-2 flex items-center gap-2">
           <span className="text-red-400 text-base"></span>
@@ -106,7 +106,7 @@ const RoomPanel = ({ room }) => {
         </div>
       )}
 
-      {/* ── Paused / Delay banner ── */}
+      {/* Paused / Delay banner */}
       {isPaused && (
         <div className="bg-yellow-500/15 border-b border-yellow-500/25 px-5 py-2 flex items-center gap-2">
           <span className="text-yellow-400 text-base"></span>
@@ -116,7 +116,7 @@ const RoomPanel = ({ room }) => {
         </div>
       )}
 
-      {/* ── Late arrival notice ── */}
+      {/* Late arrival notice */}
       {hasLate && !isPaused && (
         <div className="bg-orange-500/10 border-b border-orange-500/20 px-5 py-1.5 flex items-center gap-2">
           <span className="text-orange-400 text-xs"></span>
@@ -126,7 +126,7 @@ const RoomPanel = ({ room }) => {
         </div>
       )}
 
-      {/* ── Now Serving ── */}
+      {/* Now Serving */}
       <div className="px-5 py-5 bg-gray-900">
         <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3">Now Serving</p>
         {hasNowServing ? (
@@ -176,7 +176,7 @@ const RoomPanel = ({ room }) => {
         )}
       </div>
 
-      {/* ── Please Be Ready ── */}
+      {/* Please Be Ready */}
       {readyCount > 0 && (
         <div className="px-5 py-3 border-t border-amber-800/40 bg-amber-900/10">
           <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-2">
@@ -190,7 +190,7 @@ const RoomPanel = ({ room }) => {
         </div>
       )}
 
-      {/* ── Waiting ── */}
+      {/* Waiting */}
       {upNextCount > 0 && (
         <div className="px-5 py-3 border-t border-gray-800 bg-gray-900">
           <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Waiting</p>
@@ -202,7 +202,7 @@ const RoomPanel = ({ room }) => {
         </div>
       )}
 
-      {/* ── Footer note ── */}
+      {/* Footer note */}
       <div className="mt-auto px-5 py-2 bg-gray-950 border-t border-gray-800">
         <p className="text-[10px] text-gray-700 text-center leading-tight">
           Queue order may change due to appointment priority, emergency cases, and doctor availability.
@@ -212,7 +212,7 @@ const RoomPanel = ({ room }) => {
   );
 };
 
-// ── Token Legend ───────────────────────────────────────────────────────────────
+// Token Legend
 
 const TokenLegend = () => (
   <div className="flex items-center gap-5 text-xs text-gray-500">
@@ -235,7 +235,7 @@ const TokenLegend = () => (
   </div>
 );
 
-// ── Main Component ─────────────────────────────────────────────────────────────
+// Main Component
 
 const QueueDisplay = () => {
   const [rooms, setRooms]             = useState([]);
@@ -311,7 +311,7 @@ const QueueDisplay = () => {
       style={{ fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif" }}
       className="min-h-screen bg-gray-950 text-white flex flex-col select-none"
     >
-      {/* ── Top Bar ── */}
+      {/* Top Bar */}
       <div className="bg-gradient-to-r from-blue-900 to-blue-800 px-8 py-4 flex items-center justify-between shadow-xl">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 bg-blue-500/30 rounded-xl flex items-center justify-center">
@@ -338,7 +338,7 @@ const QueueDisplay = () => {
         </div>
       </div>
 
-      {/* ── Global emergency ticker ── */}
+      {/* Global emergency ticker */}
       {anyEmergency && (
         <div className="bg-red-700/80 px-8 py-2 flex items-center justify-center gap-3 border-b border-red-600/50">
           <span className="text-xl animate-pulse"></span>
@@ -349,7 +349,7 @@ const QueueDisplay = () => {
         </div>
       )}
 
-      {/* ── Main Content ── */}
+      {/* Main Content */}
       <div className="flex-1 p-6">
         {loading ? (
           <div className="flex items-center justify-center h-full">
@@ -383,7 +383,7 @@ const QueueDisplay = () => {
         )}
       </div>
 
-      {/* ── Footer ── */}
+      {/* Footer */}
       <div className="bg-gray-900 px-8 py-3 border-t border-gray-800 flex items-center justify-between">
         <TokenLegend />
         <p className="text-xs text-gray-600">

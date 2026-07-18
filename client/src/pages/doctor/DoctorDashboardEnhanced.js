@@ -100,7 +100,7 @@ const DoctorDashboardEnhanced = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showNotifPanel]);
 
-  // ── Socket.io: real-time queue updates for this doctor ───────────────────────
+  // Socket.io: real-time queue updates for this doctor
   useEffect(() => {
     if (!user?._id) return;
 
@@ -1051,7 +1051,7 @@ const DoctorDashboardEnhanced = () => {
   );
 };
 
-// ── Zone-Aware Live Queue Tab ─────────────────────────────────────────────────
+// Zone-Aware Live Queue Tab
 const TOKEN_COLORS = {
   A: 'bg-blue-600 text-white',
   W: 'bg-amber-500 text-white',

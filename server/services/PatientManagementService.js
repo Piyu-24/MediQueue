@@ -7,17 +7,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 
-/**
- * Patient Management Service - Comprehensive patient management for doctors 
- * Instead of the controller calling all those models separately facade
- * Integrates patient search, medical records, and patient details
- */
+// Handles patient stuff for doctors (search, medical records, patient details)
+// so the controller doesn't have to talk to all the models directly.
 class PatientManagementService {
 
-  /**
-   * Get comprehensive patient dashboard for doctor 
-   * Includes recent patients, search functionality, and quick stats
-   */
+  // Dashboard for a doctor: recent patients, today's patients, and quick stats
   async getPatientDashboard(doctorId, requestInfo) {
     try {
       if (!doctorId) {
@@ -72,10 +66,7 @@ class PatientManagementService {
     }
   }
 
-  /**
-   * Get comprehensive patient profile with medical records long
-   * This replaces the separate "Medical Records" tab
-   */
+  // Full patient profile with medical records (replaces the old Medical Records tab)
   async getPatientProfile(patientId, doctorId, requestInfo) {
     try {
       console.log(`Looking for patient ID: ${patientId}`);
@@ -95,7 +86,7 @@ class PatientManagementService {
         throw new Error(`User found but role is '${patient.role}', not 'patient'`);
       }
 
-      // Get medical records (all records for this patient, not long just from current doctor for testing)
+      // Get all active medical records for this patient
       const medicalRecords = await MedicalRecord.find({
         patient: patientId,
         status: 'active'
@@ -126,13 +117,8 @@ class PatientManagementService {
       .sort({ appointmentDate: 1 })
       .lean();
 
-      // Get formal prescription documents.
-      // Include every stage a prescription passes through after it's written
-      // (draft → awaiting_dispensing → dispensed → completed/expired). The old
-      // filter only kept ['active','completed','expired'], which hid brand-new
-      // consultation prescriptions (created as 'draft') and any sent to the
-      // dispensary ('awaiting_dispensing'/'dispensed') — so the tab looked empty.
-      // Only 'cancelled' prescriptions are excluded from the history.
+      // Get prescriptions at any stage except cancelled.
+      // (An earlier filter missed drafts and ones sent to the dispensary, so the tab looked empty.)
       const prescriptions = await Prescription.find({
         patient: patientId,
         status: { $ne: 'cancelled' }
@@ -142,8 +128,7 @@ class PatientManagementService {
       .limit(20)
       .lean();
 
-      // Extract embedded medication history from medical records (treatment plans / consultation notes)
-      // MedicalRecord stores prescribed drugs in `prescriptions[]` with field `medication` (not `medications`)
+      // Pull the medication history out of the medical records
       const medicationHistory = medicalRecords
         .filter(r => r.prescriptions && r.prescriptions.length > 0)
         .map(r => ({
@@ -250,10 +235,8 @@ class PatientManagementService {
     }
   }
 
-  /**
-   * Get patient list with enhanced filtering for the Patients tab open ocp
-   * Only shows patients who have had appointments or medical records with this doctor
-   */
+  // Patient list for the Patients tab.
+  // Only shows patients who have seen this doctor (appointments or records).
   async getPatientList(filters = {}, doctorId, requestInfo) {
     try {
       // First get all patient IDs who have interacted with this doctor
@@ -263,7 +246,7 @@ class PatientManagementService {
       
       if (doctorPatientIds.length === 0) {
         console.log('No patients found for this doctor - showing all patients for testing');
-        // For testing purposes, show all patients if doctor has none
+        // Fallback: if the doctor has no patients yet, show a few for testing
         const allPatients = await User.find({ role: 'patient', isActive: true })
           .select('firstName lastName email digitalHealthCardId dateOfBirth gender phone bloodType allergies chronicConditions')
           .limit(10)
@@ -467,10 +450,7 @@ class PatientManagementService {
     }
   }
 
-  /**
-   * Get all patient IDs who have interacted with this doctor (private method)
-   * @private
-   */
+  // Get all patient IDs who have seen this doctor
   async _getDoctorPatientIds(doctorId) {
     try {
       // Get patients from appointments
@@ -503,10 +483,7 @@ class PatientManagementService {
     }
   }
 
-  /**
-   * Get recent patients for doctor (private method)
-   * @private
-   */
+  // Recent patients for the doctor (last 30 days)
   async _getRecentPatients(doctorId, limit = 10) {
     return await MedicalRecord.aggregate([
       {
@@ -546,10 +523,7 @@ class PatientManagementService {
     ]);
   }
 
-  /**
-   * Get today's patients from appointments (private method)
-   * @private
-   */
+  // Today's patients from appointments
   async _getTodayPatients(doctorId) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -566,10 +540,7 @@ class PatientManagementService {
     .lean();
   }
 
-  /**
-   * Get patient statistics for doctor (private method) srp
-   * @private
-   */
+  // Patient stats for the doctor
   async _getPatientStatistics(doctorId) {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     
@@ -597,10 +568,7 @@ class PatientManagementService {
     };
   }
 
-  /**
-   * Calculate age from date of birth (private method)
-   * @private
-   */
+  // Work out age from date of birth
   _calculateAge(dateOfBirth) {
     if (!dateOfBirth) return null;
     const today = new Date();
@@ -613,10 +581,7 @@ class PatientManagementService {
     return age;
   }
 
-  /**
-   * Organize medical records by type (private method)
-   * @private
-   */
+  // Group medical records by their type
   _organizeRecordsByType(records) {
     const organized = {};
     records.forEach(record => {
@@ -628,10 +593,7 @@ class PatientManagementService {
     return organized;
   }
 
-  /**
-   * Get recent vital signs from medical records (private method)
-   * @private
-   */
+  // Get the latest vital signs from the records
   _getRecentVitalSigns(records) {
     const recordsWithVitals = records
       .filter(record => record.vitalSigns)
@@ -640,10 +602,7 @@ class PatientManagementService {
     return recordsWithVitals.length > 0 ? recordsWithVitals[0].vitalSigns : null;
   }
 
-  /**
-   * Generate patient alerts (private method)
-   * @private
-   */
+  // Build alerts for allergies and chronic conditions
   _generatePatientAlerts(patient) {
     const alerts = [];
 
@@ -673,9 +632,7 @@ class PatientManagementService {
     return alerts;
   }
 
-  /**
-   * Register a new patient
-   */
+  // Register a new patient
   async registerPatient(registrationData) {
     try {
       // Validate required fields
@@ -769,9 +726,7 @@ class PatientManagementService {
     }
   }
 
-  /**
-   * Authenticate patient login
-   */
+  // Log a patient in
   async authenticatePatient(loginData) {
     try {
       const { email, password, rememberMe } = loginData;
@@ -838,9 +793,7 @@ class PatientManagementService {
     }
   }
 
-  /**
-   * Get dashboard data for patient
-   */
+  // Dashboard data for a patient
   async getDashboardData(patientId) {
     try {
       const user = await User.findById(patientId);
@@ -881,9 +834,7 @@ class PatientManagementService {
     }
   }
 
-  /**
-   * Validate JWT token
-   */
+  // Check a JWT token
   async validateToken(token) {
     try {
       if (!token) {
@@ -930,9 +881,7 @@ class PatientManagementService {
     }
   }
 
-  /**
-   * Search patients
-   */
+  // Search patients
   async searchPatients(searchParams, doctorId) {
     try {
       const { query, type, limit = 10 } = searchParams;
@@ -993,9 +942,7 @@ class PatientManagementService {
     }
   }
 
-  /**
-   * Get patient details with medical records
-   */
+  // Get patient details plus medical records
   async getPatientDetails(patientId, doctorId) {
     try {
       const patient = await User.findById(patientId);
@@ -1042,9 +989,7 @@ class PatientManagementService {
     }
   }
 
-  /**
-   * Private helper methods
-   */
+  // Private helpers
   async _getPatientMedicalRecords(patientId) {
     try {
       return await MedicalRecord.find({ patient: patientId })

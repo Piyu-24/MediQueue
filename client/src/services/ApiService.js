@@ -1,21 +1,10 @@
-/**
- * @fileoverview Centralized API Service for HTTP communications
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// One place for all the HTTP calls (single axios instance)
 
 import axios from 'axios';
 
-/**
- * ApiService class handling all HTTP communications
- * Implements Singleton pattern and provides centralized API management
- */
 class ApiService {
   static instance = null;
 
-  /**
-   * Creates an instance of ApiService
-   */
   constructor() {
     if (ApiService.instance) {
       return ApiService.instance;
@@ -36,10 +25,7 @@ class ApiService {
     ApiService.instance = this;
   }
 
-  /**
-   * Gets singleton instance
-   * @returns {ApiService} ApiService instance
-   */
+  // Get the single shared instance
   static getInstance() {
     if (!ApiService.instance) {
       ApiService.instance = new ApiService();
@@ -47,20 +33,16 @@ class ApiService {
     return ApiService.instance;
   }
 
-  /**
-   * Sets up request and response interceptors
-   */
+  // Add auth token to requests and handle common errors on responses
   setupInterceptors() {
-    // Request interceptor
+    // Request: attach the token and note the start time
     this.axiosInstance.interceptors.request.use(
       (config) => {
-        // Add auth token if available
         const token = sessionStorage.getItem('token');
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
 
-        // Add request timestamp for performance monitoring
         config.metadata = { startTime: new Date() };
 
         return config;
@@ -70,13 +52,11 @@ class ApiService {
       }
     );
 
-    // Response interceptor
+    // Response: log timing in dev, handle common errors
     this.axiosInstance.interceptors.response.use(
       (response) => {
-        // Calculate request duration
         const duration = new Date() - response.config.metadata.startTime;
-        
-        // Log performance in development
+
         if (process.env.NODE_ENV === 'development') {
           console.log(`API Call: ${response.config.method?.toUpperCase()} ${response.config.url} - ${duration}ms`);
         }
@@ -84,16 +64,13 @@ class ApiService {
         return response;
       },
       (error) => {
-        // Handle common error scenarios
         if (error.response?.status === 401) {
-          // Unauthorized - redirect to login
+          // Not logged in - send them to login
           sessionStorage.removeItem('token');
           window.location.href = '/login';
         } else if (error.response?.status === 403) {
-          // Forbidden - show access denied message
           console.error('Access denied');
         } else if (error.response?.status >= 500) {
-          // Server error - show generic error message
           console.error('Server error occurred');
         }
 
@@ -102,13 +79,7 @@ class ApiService {
     );
   }
 
-  /**
-   * Generic GET request
-   * @param {string} endpoint - API endpoint
-   * @param {Object} params - Query parameters
-   * @param {Object} config - Axios config
-   * @returns {Promise<*>} Response data
-   */
+  // GET request
   async get(endpoint, params = {}, config = {}) {
     try {
       const response = await this.axiosInstance.get(endpoint, {
@@ -121,13 +92,7 @@ class ApiService {
     }
   }
 
-  /**
-   * Generic POST request
-   * @param {string} endpoint - API endpoint
-   * @param {*} data - Request body data
-   * @param {Object} config - Axios config
-   * @returns {Promise<*>} Response data
-   */
+  // POST request
   async post(endpoint, data = {}, config = {}) {
     try {
       const response = await this.axiosInstance.post(endpoint, data, config);
@@ -137,13 +102,7 @@ class ApiService {
     }
   }
 
-  /**
-   * Generic PUT request
-   * @param {string} endpoint - API endpoint
-   * @param {*} data - Request body data
-   * @param {Object} config - Axios config
-   * @returns {Promise<*>} Response data
-   */
+  // PUT request
   async put(endpoint, data = {}, config = {}) {
     try {
       const response = await this.axiosInstance.put(endpoint, data, config);
@@ -153,12 +112,7 @@ class ApiService {
     }
   }
 
-  /**
-   * Generic DELETE request
-   * @param {string} endpoint - API endpoint
-   * @param {Object} config - Axios config
-   * @returns {Promise<*>} Response data
-   */
+  // DELETE request
   async delete(endpoint, config = {}) {
     try {
       const response = await this.axiosInstance.delete(endpoint, config);
@@ -168,13 +122,7 @@ class ApiService {
     }
   }
 
-  /**
-   * File upload request
-   * @param {string} endpoint - API endpoint
-   * @param {FormData} formData - Form data with file
-   * @param {Function} onUploadProgress - Upload progress callback
-   * @returns {Promise<*>} Response data
-   */
+  // Upload a file
   async uploadFile(endpoint, formData, onUploadProgress = null) {
     try {
       const response = await this.axiosInstance.post(endpoint, formData, {
@@ -189,19 +137,14 @@ class ApiService {
     }
   }
 
-  /**
-   * Download file request
-   * @param {string} endpoint - API endpoint
-   * @param {string} filename - Filename for download
-   * @returns {Promise<void>}
-   */
+  // Download a file and save it
   async downloadFile(endpoint, filename) {
     try {
       const response = await this.axiosInstance.get(endpoint, {
         responseType: 'blob'
       });
 
-      // Create download link
+      // Make a temporary link and click it to trigger the download
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -215,40 +158,32 @@ class ApiService {
     }
   }
 
-  /**
-   * Handles API errors and transforms them
-   * @param {Error} error - Axios error
-   * @returns {Error} Transformed error
-   */
+  // Turn an axios error into a simpler Error object
   handleError(error) {
     if (error.response) {
-      // Server responded with error status
+      // Server replied with an error status
       const { status, data } = error.response;
       const message = data?.message || data?.error || `HTTP ${status} Error`;
-      
+
       const apiError = new Error(message);
       apiError.status = status;
       apiError.data = data;
       apiError.type = 'API_ERROR';
-      
+
       return apiError;
     } else if (error.request) {
-      // Request was made but no response received
+      // No response came back
       const networkError = new Error('Network error - please check your connection');
       networkError.type = 'NETWORK_ERROR';
       return networkError;
     } else {
-      // Something else happened
       const genericError = new Error(error.message || 'Unknown error occurred');
       genericError.type = 'GENERIC_ERROR';
       return genericError;
     }
   }
 
-  /**
-   * Sets authentication token
-   * @param {string} token - JWT token
-   */
+  // Save or clear the auth token
   setAuthToken(token) {
     if (token) {
       sessionStorage.setItem('token', token);
@@ -259,33 +194,22 @@ class ApiService {
     }
   }
 
-  /**
-   * Gets current authentication token
-   * @returns {string|null} Current token
-   */
+  // Get the current token
   getAuthToken() {
     return sessionStorage.getItem('token');
   }
 
-  /**
-   * Clears authentication token
-   */
+  // Clear the token
   clearAuthToken() {
     this.setAuthToken(null);
   }
 
-  /**
-   * Checks if user is authenticated
-   * @returns {boolean} True if authenticated
-   */
+  // True if we have a token
   isAuthenticated() {
     return !!this.getAuthToken();
   }
 
-  /**
-   * Gets API health status
-   * @returns {Promise<Object>} Health status
-   */
+  // Check if the API is reachable
   async getHealthStatus() {
     try {
       const response = await this.get('/health');

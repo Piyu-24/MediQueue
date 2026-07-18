@@ -1,16 +1,11 @@
-/**
- * Appointment Booking Service - Focused for >80% Unit Test Coverage
- * Team Member 2: Make an Appointment functionality
- */
+// Handles the "make an appointment" flow (booking, cancel, reschedule)
 
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
 
 class AppointmentBookingService {
 
-  /**
-   * Get available time slots for a doctor on a specific date
-   */
+  // Get free time slots for a doctor on a date
   async getAvailableSlots(doctorId, date, duration = 30) {
     try {
       // Validate inputs
@@ -68,9 +63,7 @@ class AppointmentBookingService {
     }
   }
 
-  /**
-   * Book an appointment
-   */
+  // Book an appointment
   async bookAppointment(appointmentData) {
     try {
       // Validate appointment data
@@ -138,9 +131,7 @@ class AppointmentBookingService {
     }
   }
 
-  /**
-   * Cancel an appointment
-   */
+  // Cancel an appointment
   async cancelAppointment(appointmentId, userId, reason = '') {
     try {
       if (!appointmentId || !userId) {
@@ -204,9 +195,7 @@ class AppointmentBookingService {
     }
   }
 
-  /**
-   * Reschedule an appointment
-   */
+  // Reschedule an appointment
   async rescheduleAppointment(appointmentId, newDate, newTime, userId) {
     try {
       // Validate inputs
@@ -258,8 +247,7 @@ class AppointmentBookingService {
         };
       }
 
-      // Keep status as 'scheduled' — 'rescheduled' is a terminal status meaning
-      // "moved elsewhere" and would prevent check-in on the new slot.
+      // Keep it 'scheduled' - 'rescheduled' would block check-in on the new slot
       appointment.appointmentDate = newDateTime;
       appointment.appointmentTime = newTime;
       appointment.status = 'scheduled';
@@ -286,9 +274,7 @@ class AppointmentBookingService {
     }
   }
 
-  /**
-   * Get patient appointments
-   */
+  // Get a patient's appointments
   async getPatientAppointments(patientId, status = 'all') {
     try {
       if (!patientId) {
@@ -341,13 +327,9 @@ class AppointmentBookingService {
     }
   }
 
-  // ============================================================================
-  // VALIDATION HELPER METHODS (Easy to test for high coverage)
-  // ============================================================================
+  // Validation helpers
 
-  /**
-   * Validate appointment booking data
-   */
+  // Validate the booking data
   validateAppointmentData(data) {
     if (!data) {
       return { isValid: false, message: 'Appointment data is required' };
@@ -378,9 +360,7 @@ class AppointmentBookingService {
     return { isValid: true };
   }
 
-  /**
-   * Validate time format (HH:MM)
-   */
+  // Check the time is in HH:MM format
   isValidTimeFormat(time) {
     if (!time || typeof time !== 'string') return false;
     
@@ -388,22 +368,15 @@ class AppointmentBookingService {
     return timeRegex.test(time);
   }
 
-  /**
-   * Validate appointment status
-   */
+  // Check the status is one we allow
   isValidStatus(status) {
     const validStatuses = ['scheduled', 'completed', 'cancelled', 'rescheduled', 'no-show'];
     return validStatuses.includes(status);
   }
 
-  // ============================================================================
-  // PRIVATE HELPER METHODS
-  // ============================================================================
+  // Private helpers
 
-  /**
-   * Generate time slots for a doctor on a given date.
-   * Marks each slot as available or unavailable based on real booked appointments.
-   */
+  // Build the day's time slots and mark each as free or taken
   async _generateTimeSlots(doctorId, date, duration) {
     const startHour = 9;
     const endHour   = 17;
@@ -447,10 +420,7 @@ class AppointmentBookingService {
     return slots;
   }
 
-  /**
-   * Check if a specific time slot is available for a doctor.
-   * Checks all active appointment statuses, not just scheduled/rescheduled.
-   */
+  // Check whether a specific time slot is still free
   async _checkSlotAvailability(doctorId, date, time, duration) {
     try {
       const startOfDay = new Date(date);
@@ -487,9 +457,7 @@ class AppointmentBookingService {
     }
   }
 
-  /**
-   * Generate appointment reference number
-   */
+  // Build a reference number like APT-123456-7890
   _generateAppointmentReference(appointmentId) {
     const prefix = 'APT';
     const timestamp = Date.now().toString().slice(-6);

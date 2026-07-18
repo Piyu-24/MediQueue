@@ -1,17 +1,12 @@
-/**
- * Patient Authentication Service - Focused for >80% Unit Test Coverage
- * This service is specifically designed to be easily testable with comprehensive coverage
- */
+// Handles patient signup, login, and password changes
 
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 class PatientAuthService {
-  
-  /**
-   * Register a new patient with comprehensive validation
-   */
+
+  // Register a new patient
   async registerPatient(userData) {
     try {
       // Validate required fields
@@ -65,9 +60,7 @@ class PatientAuthService {
     }
   }
 
-  /**
-   * Authenticate patient login
-   */
+  // Log a patient in
   async authenticatePatient(email, password, rememberMe = false) {
     try {
       // Validate input
@@ -124,9 +117,7 @@ class PatientAuthService {
     }
   }
 
-  /**
-   * Validate JWT token
-   */
+  // Check a JWT token
   async validateToken(token) {
     try {
       if (!token) {
@@ -179,9 +170,7 @@ class PatientAuthService {
     }
   }
 
-  /**
-   * Change patient password
-   */
+  // Change a patient's password
   async changePassword(userId, currentPassword, newPassword) {
     try {
       // Validate inputs
@@ -239,9 +228,7 @@ class PatientAuthService {
     }
   }
 
-  /**
-   * Reset password request
-   */
+  // Handle a password reset request
   async requestPasswordReset(email) {
     try {
       if (!email) {
@@ -291,13 +278,9 @@ class PatientAuthService {
     }
   }
 
-  // ============================================================================
-  // VALIDATION HELPER METHODS (Easy to test for high coverage)
-  // ============================================================================
+  // Validation helpers
 
-  /**
-   * Validate registration data
-   */
+  // Validate the registration data
   validateRegistrationData(userData) {
     if (!userData) {
       return { isValid: false, message: 'User data is required' };
@@ -334,9 +317,7 @@ class PatientAuthService {
     return { isValid: true };
   }
 
-  /**
-   * Validate password strength
-   */
+  // Check the password is strong enough
   validatePassword(password) {
     if (!password) {
       return { isValid: false, message: 'Password is required' };
@@ -363,9 +344,7 @@ class PatientAuthService {
     return { isValid: true };
   }
 
-  /**
-   * Validate email format
-   */
+  // Check the email looks valid
   isValidEmail(email) {
     if (!email || typeof email !== 'string') {
       return false;
@@ -375,9 +354,7 @@ class PatientAuthService {
     return emailRegex.test(email) && email.length <= 254;
   }
 
-  /**
-   * Validate phone format
-   */
+  // Check the phone number looks valid
   isValidPhone(phone) {
     if (!phone || typeof phone !== 'string') {
       return false;
@@ -388,9 +365,7 @@ class PatientAuthService {
     return phoneRegex.test(cleanPhone);
   }
 
-  /**
-   * Check if token has valid format
-   */
+  // A JWT should have 3 dot-separated parts
   isValidTokenFormat(token) {
     if (!token || typeof token !== 'string') {
       return false;
@@ -399,9 +374,7 @@ class PatientAuthService {
     return token.split('.').length === 3;
   }
 
-  /**
-   * Generate JWT token
-   */
+  // Make a JWT for the user
   generateToken(user, rememberMe = false) {
     const payload = {
       userId: user._id,
@@ -416,17 +389,13 @@ class PatientAuthService {
     return jwt.sign(payload, process.env.JWT_SECRET, options);
   }
 
-  /**
-   * Generate password reset token
-   */
+  // Make a random password reset token
   generateResetToken() {
     return Math.random().toString(36).substring(2, 15) + 
            Math.random().toString(36).substring(2, 15);
   }
 
-  /**
-   * Calculate password strength score
-   */
+  // Give the password a strength score out of 100
   calculatePasswordStrength(password) {
     if (!password) return 0;
 

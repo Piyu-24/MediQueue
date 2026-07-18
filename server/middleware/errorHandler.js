@@ -1,8 +1,4 @@
-/**
- * @fileoverview Enhanced Error Handler Middleware
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Central error handler middleware
 
 const Logger = require('../utils/Logger');
 const ResponseFormatter = require('../utils/ResponseFormatter');
@@ -16,27 +12,20 @@ const {
   ConflictError
 } = require('../utils/errors');
 
-/**
- * Enhanced error handler middleware with comprehensive error handling
- * @param {Error} err - Error object
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next function
- */
+// Catches any error, logs it, and sends a clean response
 const errorHandler = (err, req, res, next) => {
   const logger = Logger.getLogger('ErrorHandler');
   const responseFormatter = new ResponseFormatter();
   
-  // Generate unique error ID for tracking
+  // Unique id so we can find this error in the logs
   const errorId = `ERR_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  
-  // Log error immediately to console for Vercel visibility
+
+  // Log to console so it shows up in Vercel
   console.error(`ERROR [${errorId}]:`, err.message);
   console.error('Stack:', err.stack);
   console.error('Request:', req.method, req.path); // path only — omit query/token
   
-  // Log error with context — sensitive fields (passwords, tokens, PHI) are
-  // redacted so they never land in application logs.
+  // Log with context; sensitive fields (passwords, tokens) are redacted first
   logger.error('Application error occurred:', {
     errorId,
     error: err.message,
@@ -54,9 +43,9 @@ const errorHandler = (err, req, res, next) => {
   
   let error = err;
   
-  // Convert known error types to AppError instances
+  // Turn known errors into our AppError types
   if (!(error instanceof AppError)) {
-    // Handle Mongoose errors
+    // Mongoose errors
     if (err.name === 'CastError') {
       error = new ValidationError(`Invalid ${err.path}: ${err.value}`);
     }

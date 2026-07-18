@@ -30,7 +30,7 @@ import toast from 'react-hot-toast';
 // Static fallback room list used only if API is unavailable
 const FALLBACK_ROOMS = ['Room 01', 'Room 02', 'Room 03', 'Room 04', 'Room 05'];
 
-// ── Helper: format time for display ─────────────────────────────────────────
+// Helper: format time for display
 const formatTime = (t) => {
   if (!t) return 'N/A';
   const [h, m] = t.split(':');
@@ -38,7 +38,7 @@ const formatTime = (t) => {
   return `${hour % 12 || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
 };
 
-// ── Pick the best appointment to auto-select after QR check-in ───────────────
+// Pick the best appointment to auto-select after QR check-in
 // Sorts by appointmentTime ascending; picks earliest upcoming (>= now).
 // If all have passed, picks the latest one of the day.
 // Appointments with no time (block-based OPD) are treated as upcoming.
@@ -55,7 +55,7 @@ const selectBestAppointment = (appointments) => {
   return upcoming.length > 0 ? upcoming[0] : sorted[sorted.length - 1];
 };
 
-// ── Queue slip print helper ──────────────────────────────────────────────────
+// Queue slip print helper
 const printQueueSlip = (queueEntry, isWalkIn = false) => {
   const { queueNumber, tokenType, patient, doctor, room, department, estimatedWaitMinutes, checkInTime, appointment, timeBlockId } = queueEntry;
   const patientName = `${patient?.firstName || ''} ${patient?.lastName || ''}`.trim();
@@ -111,14 +111,14 @@ const printQueueSlip = (queueEntry, isWalkIn = false) => {
   if (win) { win.document.write(slipHTML); win.document.close(); }
 };
 
-// ────────────────────────────────────────────────────────────────────────────
+//
 // Main Component
-// ────────────────────────────────────────────────────────────────────────────
+//
 const ReceptionistDashboard = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('checkin');
 
-  // ── Department + Room data (loaded once on mount) ────────────────────────
+  // Department + Room data (loaded once on mount)
   const [deptList, setDeptList] = useState([]);
   const [availableRooms, setAvailableRooms] = useState([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
@@ -126,7 +126,7 @@ const ReceptionistDashboard = () => {
   // determined from actual Room docs — NOT from hasMultipleRooms DB field
   const [deptIsMultiRoom, setDeptIsMultiRoom] = useState(false);
 
-  // ── Check-in tab state ────────────────────────────────────────────────────
+  // Check-in tab state
   const [qrInput, setQrInput] = useState('');
   const [qrLoading, setQrLoading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
@@ -149,14 +149,14 @@ const ReceptionistDashboard = () => {
   const html5QrCodeRef = useRef(null);
   const qrReaderId = 'qr-reader';
 
-  // ── Walk-in Registration state ────────────────────────────────────────────
+  // Walk-in Registration state
   const [showWalkInForm, setShowWalkInForm] = useState(false);
   const [walkInForm, setWalkInForm] = useState({
     firstName: '', lastName: '', phone: '', email: '', dateOfBirth: '', gender: 'male', nic: '', nicSeenAndVerified: false
   });
   const [walkInLoading, setWalkInLoading] = useState(false);
 
-  // ── Today's Queue tab state ───────────────────────────────────────────────
+  // Today's Queue tab state
   const [todaysQueue, setTodaysQueue] = useState([]);
   const [bookedNotArrived, setBookedNotArrived] = useState([]);
   const [queueSummary, setQueueSummary] = useState(null);
@@ -165,19 +165,19 @@ const ReceptionistDashboard = () => {
   // Doctor assignment modal state
   const [assignDoctorEntry, setAssignDoctorEntry] = useState(null);
 
-  // ── Appointment Lookup tab state ──────────────────────────────────────────
+  // Appointment Lookup tab state
   const [apptLookupQuery, setApptLookupQuery] = useState({ reference: '', name: '', phone: '' });
   const [apptLookupResults, setApptLookupResults] = useState([]);
   const [apptLookupLoading, setApptLookupLoading] = useState(false);
   const [eligibility, setEligibility] = useState(null); // result for selected appointment
 
-  // ── Patient Search tab state ──────────────────────────────────────────────
+  // Patient Search tab state
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState(null);
 
-  // ── Identity Verification tab state ──────────────────────────────────────
+  // Identity Verification tab state
   const [patientsForVerification, setPatientsForVerification] = useState([]);
   const [filterStatus, setFilterStatus] = useState('pending');
   const [verifyLoading, setVerifyLoading] = useState(false);
@@ -186,7 +186,7 @@ const ReceptionistDashboard = () => {
   // Inline NIC verification from the QR check-in screen (no tab switch needed)
   const [inlineVerifyLoading, setInlineVerifyLoading] = useState(false);
 
-  // ── Lab Upload tab state ──────────────────────────────────────────────────
+  // Lab Upload tab state
   const [patientMedicalHistory, setPatientMedicalHistory] = useState([]);
   // Documents fetched from the shared Document collection (same store patient
   // self-uploads use, and the one the doctor's Documents tab reads).
@@ -203,14 +203,14 @@ const ReceptionistDashboard = () => {
     { id: 'records', name: 'Upload Lab Tests', icon: DocumentArrowUpIcon }
   ];
 
-  // ── Load departments once on mount ────────────────────────────────────────
+  // Load departments once on mount
   useEffect(() => {
     departmentAPI.getDepartments({ status: 'active' })
       .then(res => { if (res.data.success) setDeptList(res.data.data || []); })
       .catch(() => {});
   }, []);
 
-  // ── Resolve rooms when department changes ────────────────────────────────
+  // Resolve rooms when department changes
   // Data-driven: fetch actual Room documents and check isAutoManaged to determine
   // whether to show a dropdown (multi-room, e.g. OPD) or auto-assign (single room).
   // Does NOT rely on hasMultipleRooms field which may not be set in existing DB records.
@@ -254,7 +254,7 @@ const ReceptionistDashboard = () => {
     }
   };
 
-  // ── Refresh OPD rooms without re-selecting department ────────────────────
+  // Refresh OPD rooms without re-selecting department
   const refreshRooms = async () => {
     if (!checkInForm.departmentId || !deptIsMultiRoom) return;
     setRoomsLoading(true);
@@ -269,7 +269,7 @@ const ReceptionistDashboard = () => {
     finally { setRoomsLoading(false); }
   };
 
-  // ── Effects ───────────────────────────────────────────────────────────────
+  // Effects
   useEffect(() => {
     if (activeTab === 'queue') fetchTodaysQueue();
     if (activeTab === 'verify') fetchPatientsForVerification();
@@ -304,7 +304,7 @@ const ReceptionistDashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPatient, activeTab]);
 
-  // ── Socket.io: auto-refresh Today's Queue when any queue event fires ─────────
+  // Socket.io: auto-refresh Today's Queue when any queue event fires
   useEffect(() => {
     const handleQueueEvent = () => {
       if (activeTab === 'queue') fetchTodaysQueue();
@@ -329,7 +329,7 @@ const ReceptionistDashboard = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  // ── Walk-in patient full registration ────────────────────────────────────
+  // Walk-in patient full registration
   const handleNewWalkIn = async () => {
     const { firstName, lastName, phone, dateOfBirth } = walkInForm;
     if (!firstName.trim() || !lastName.trim()) { toast.error('First and last name are required'); return; }
@@ -706,7 +706,7 @@ const ReceptionistDashboard = () => {
     } catch { toast.error('Failed to update verification status'); }
   };
 
-  // ── Inline NIC verification from the QR check-in screen ──────────────────
+  // Inline NIC verification from the QR check-in screen
   // Lets reception confirm the physical NIC right where they're checking the
   // patient in, instead of hunting for them in the separate "Verify Identity" tab.
   const handleInlineVerify = async (patientId, onVerified) => {
@@ -802,7 +802,7 @@ const ReceptionistDashboard = () => {
     finally { setUploadLoading(false); }
   };
 
-  // ── Status badge helper ───────────────────────────────────────────────────
+  // Status badge helper
   const getStatusBadge = (status) => {
     const map = {
       pending: 'bg-yellow-100 text-yellow-800',
@@ -818,14 +818,14 @@ const ReceptionistDashboard = () => {
     return <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${map[status] || 'bg-gray-100 text-gray-700'}`}>{status}</span>;
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
+  //
   // RENDER
-  // ─────────────────────────────────────────────────────────────────────────
+  //
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-        {/* ── Header ── */}
+        {/* Header */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
@@ -842,7 +842,7 @@ const ReceptionistDashboard = () => {
           </div>
         </div>
 
-        {/* ── Tab Nav ── */}
+        {/* Tab Nav */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
           <div className="border-b border-gray-200 bg-gray-50 px-2">
             <nav className="flex -mb-px overflow-x-auto">
@@ -865,9 +865,7 @@ const ReceptionistDashboard = () => {
 
           <div className="p-6 md:p-8">
 
-            {/* ══════════════════════════════════════════════════════════════
-                TAB 1 — QR CHECK-IN
-            ══════════════════════════════════════════════════════════════ */}
+            {/* TAB 1 — QR CHECK-IN */}
             {activeTab === 'checkin' && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between mb-2">
@@ -884,7 +882,7 @@ const ReceptionistDashboard = () => {
                   </button>
                 </div>
 
-                {/* ── Walk-in Registration Form ── */}
+                {/* Walk-in Registration Form */}
                 {showWalkInForm && (
                   <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-indigo-200 rounded-2xl p-6">
                     <div className="flex items-center justify-between mb-4">
@@ -990,7 +988,7 @@ const ReceptionistDashboard = () => {
                   </div>
                 )}
 
-                {/* ── Successful check-in result ── */}
+                {/* Successful check-in result */}
                 {completedEntry && (
                   <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-2xl p-6">
                     <div className="flex items-center justify-between">
@@ -1055,7 +1053,7 @@ const ReceptionistDashboard = () => {
                   </div>
                 )}
 
-                {/* ── Step 1: Scan / Enter QR ── */}
+                {/* Step 1: Scan / Enter QR */}
                 <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-6">
                   <h3 className="text-sm font-bold text-blue-800 mb-3 flex items-center space-x-2">
                     <span className="w-6 h-6 bg-blue-600 text-white rounded-full text-xs flex items-center justify-center font-bold">1</span>
@@ -1112,7 +1110,7 @@ const ReceptionistDashboard = () => {
                   </div>
                 </div>
 
-                {/* ── Step 2: Patient info + already-in-queue warning ── */}
+                {/* Step 2: Patient info + already-in-queue warning */}
                 {validatedData && (
                   <div className="space-y-4">
                     {/* Patient card */}
@@ -1271,7 +1269,7 @@ const ReceptionistDashboard = () => {
                       </div>
                     )}
 
-                    {/* ── Step 3: Check-in form ── */}
+                    {/* Step 3: Check-in form */}
                     {!validatedData.alreadyCheckedIn && (
                       <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5">
                         <h3 className="text-sm font-bold text-gray-700 mb-4 flex items-center space-x-2">
@@ -1512,12 +1510,8 @@ const ReceptionistDashboard = () => {
               </div>
             )}
 
-            {/* ══════════════════════════════════════════════════════════════
-                TAB 2 — TODAY'S QUEUE
-            ══════════════════════════════════════════════════════════════ */}
-            {/* ══════════════════════════════════════════════════════════════
-                TAB — APPOINTMENT CHECK-IN (non-QR / non-smartphone lookup)
-            ══════════════════════════════════════════════════════════════ */}
+            {/* TAB 2 — TODAY'S QUEUE */}
+            {/* TAB — APPOINTMENT CHECK-IN (non-QR / non-smartphone lookup) */}
             {activeTab === 'apptlookup' && (
               <div className="space-y-5">
                 <div className="flex items-center gap-3 mb-2">
@@ -1526,7 +1520,7 @@ const ReceptionistDashboard = () => {
                   <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">Token · Reference · Name · Phone</span>
                 </div>
 
-                {/* ── Quick check-in by appointment token ── */}
+                {/* Quick check-in by appointment token */}
                 <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-5 text-white mb-4">
                   <p className="text-sm font-bold mb-3 flex items-center gap-2">
                     <span className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-xs"></span>
@@ -1767,9 +1761,7 @@ const ReceptionistDashboard = () => {
               </div>
             )}
 
-            {/* ══════════════════════════════════════════════════════════════
-                TAB — TODAY'S QUEUE
-            ══════════════════════════════════════════════════════════════ */}
+            {/* TAB — TODAY'S QUEUE */}
             {activeTab === 'queue' && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between mb-2">
@@ -1955,9 +1947,7 @@ const ReceptionistDashboard = () => {
               </div>
             )}
 
-            {/* ══════════════════════════════════════════════════════════════
-                TAB 3 — PATIENT SEARCH
-            ══════════════════════════════════════════════════════════════ */}
+            {/* TAB 3 — PATIENT SEARCH */}
             {activeTab === 'search' && (
               <div>
                 <div className="flex items-center space-x-3 mb-6">
@@ -2018,9 +2008,7 @@ const ReceptionistDashboard = () => {
               </div>
             )}
 
-            {/* ══════════════════════════════════════════════════════════════
-                TAB 4 — IDENTITY VERIFICATION
-            ══════════════════════════════════════════════════════════════ */}
+            {/* TAB 4 — IDENTITY VERIFICATION */}
             {activeTab === 'verify' && (
               <div>
                 <div className="flex items-center space-x-3 mb-6">
@@ -2123,9 +2111,7 @@ const ReceptionistDashboard = () => {
               </div>
             )}
 
-            {/* ══════════════════════════════════════════════════════════════
-                TAB 5 — UPLOAD LAB TESTS (preserved from original)
-            ══════════════════════════════════════════════════════════════ */}
+            {/* TAB 5 — UPLOAD LAB TESTS (preserved from original) */}
             {activeTab === 'records' && (
               <div>
                 <div className="flex items-center space-x-3 mb-6">
@@ -2220,7 +2206,7 @@ const ReceptionistDashboard = () => {
         </div>
       </div>
 
-      {/* ── Doctor Assignment Modal ── */}
+      {/* Doctor Assignment Modal */}
       {assignDoctorEntry && (
         <AssignDoctorModal
           entry={assignDoctorEntry}
@@ -2232,7 +2218,7 @@ const ReceptionistDashboard = () => {
   );
 };
 
-// ── Health card print helper ─────────────────────────────────────────────────
+// Health card print helper
 const printHealthCardSlip = (p) => {
   const allergies = (p.allergies || []).join(', ') || 'None';
   const html = `
@@ -2303,7 +2289,7 @@ const printHealthCardSlip = (p) => {
   if (win) { win.document.write(html); win.document.close(); }
 };
 
-// ── Assign Doctor Modal ───────────────────────────────────────────────────────
+// Assign Doctor Modal
 const AssignDoctorModal = ({ entry, onClose, onAssigned }) => {
   const [doctors, setDoctors] = useState([]);
   const [selectedDoctorId, setSelectedDoctorId] = useState('');
@@ -2373,7 +2359,7 @@ const AssignDoctorModal = ({ entry, onClose, onAssigned }) => {
   );
 };
 
-// ── Inline doctor search for walk-in check-in ────────────────────────────────
+// Inline doctor search for walk-in check-in
 const DoctorSearchInput = ({ value, onChange, department }) => {
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(false);

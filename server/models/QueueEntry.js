@@ -1,30 +1,13 @@
 const mongoose = require('mongoose');
 
-/**
- * QueueEntry — source of truth for the active live queue.
- *
- * Lifecycle:
- *   waiting → ready → in_consultation → completed
- *   waiting → skipped  (doctor action; patient can return)
- *   waiting/ready → temporarily_away  (patient stepped out)
- *   temporarily_away → waiting  (patient returned)
- *   waiting/ready → no_show
- *   emergency_waiting → (same path as waiting)
- *
- * Token formats (scoped per doctor per queueDate):
- *   A001  appointment patient
- *   W001  walk-in patient
- *   E001  emergency patient
- *
- * Zones:
- *   CURRENT       — patient currently in consultation (locked)
- *   READY         — next N patients (locked unless emergency/admin override)
- *   WAITING_POOL  — rest of the active queue (reorderable)
- *   COMPLETED     — finished entries
- */
+// QueueEntry is the live queue for a doctor on a day.
+// Status flow: waiting -> ready -> in_consultation -> completed
+// (plus skipped, temporarily_away, no_show, emergency_waiting).
+// Tokens: A001 = appointment, W001 = walk-in, E001 = emergency.
+// Zones: CURRENT (in consultation), READY (next few), WAITING_POOL (the rest), COMPLETED.
 const queueEntrySchema = new mongoose.Schema({
 
-  // ── Participants ─────────────────────────────────────────────────────────────
+  // Who's involved
   patient: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -46,7 +29,7 @@ const queueEntrySchema = new mongoose.Schema({
     required: [true, 'Checked-in-by reference is required']
   },
 
-  // ── Location ─────────────────────────────────────────────────────────────────
+  // Location
   room: {
     type: String,
     required: [true, 'Room is required'],
@@ -58,12 +41,8 @@ const queueEntrySchema = new mongoose.Schema({
     trim: true
   },
 
-  // ── Token Identity ────────────────────────────────────────────────────────────
-  /**
-   * tokenType: A = appointment, W = walk-in, E = emergency
-   * queueNumber: human-readable token, e.g. A001, W003, E001 (fixed after issue)
-   * sequenceNumber: raw integer for legacy ordering (kept for migration safety)
-   */
+  // Token: tokenType is A/W/E, queueNumber is the shown token (e.g. A001),
+  // sequenceNumber is the raw number
   tokenType: {
     type: String,
     enum: ['A', 'W', 'E'],
@@ -79,17 +58,13 @@ const queueEntrySchema = new mongoose.Schema({
     required: true
   },
 
-  // ── Zone & Ordering ───────────────────────────────────────────────────────────
+  // Zone and ordering
   zone: {
     type: String,
     enum: ['CURRENT', 'READY', 'WAITING_POOL', 'COMPLETED'],
     default: 'WAITING_POOL'
   },
-  /**
-   * sortOrder determines live position within the waiting pool.
-   * Lower value = higher in queue. Recalculated by QueueEngine.
-   * Locked entries (READY/CURRENT) keep their position unless admin overrides.
-   */
+  // Position in the queue (lower = sooner). QueueEngine recalculates this.
   sortOrder: {
     type: Number,
     default: 0
@@ -103,7 +78,7 @@ const queueEntrySchema = new mongoose.Schema({
     default: 0
   },
 
-  // ── Status ───────────────────────────────────────────────────────────────────
+  // Status
   status: {
     type: String,
     enum: [
@@ -123,7 +98,7 @@ const queueEntrySchema = new mongoose.Schema({
     default: 'waiting'
   },
 
-  // ── Priority ─────────────────────────────────────────────────────────────────
+  // Priority
   priority: {
     type: String,
     enum: ['normal', 'urgent'],
@@ -134,48 +109,38 @@ const queueEntrySchema = new mongoose.Schema({
     default: 100  // lower = higher priority; QueueEngine sets this
   },
 
-  // ── Patient Type Flags ────────────────────────────────────────────────────────
+  // Patient type flags
   isWalkIn: { type: Boolean, default: false },
   isEmergency: { type: Boolean, default: false },
   isLate: { type: Boolean, default: false },
-  /**
-   * Arrival classification stored at check-in time by CheckInService.
-   * Used by QueueEngine during recalculation to classify pool entries
-   * without needing to re-fetch and re-compute appointment windows.
-   *
-   *   'on_time'           — arrived within the allowed check-in window (≤ lateGraceMinutes late)
-   *   'early_allowed'     — arrived before appointment but within earlyCheckInWindowMinutes
-   *   'late_within_grace' — arrived late but within the grace period (still gets appt priority)
-   *   'late_outside_grace'— arrived after the grace period (treated as walk-in for ordering)
-   *   'walk_in'           — genuine walk-in patient (isWalkIn = true)
-   *   'emergency'         — emergency patient (isEmergency = true)
-   */
+  // Set at check-in; QueueEngine uses it to order the queue.
+  // Values: on_time, early_allowed, late_within_grace, late_outside_grace, walk_in, emergency
   arrivalStatus: {
     type: String,
     enum: ['on_time', 'early_allowed', 'late_within_grace', 'late_outside_grace', 'walk_in', 'emergency'],
     default: 'on_time'
   },
 
-  // ── Appointment Context ───────────────────────────────────────────────────────
-  /** Scheduled appointment time (copied at check-in for ordering; null for block-based) */
+  // Appointment context
+  // Scheduled time, copied at check-in (null for block bookings)
   appointmentTime: {
     type: String,
     default: null
   },
-  /** Original appointment token (e.g. "A014") — set at booking, copied here at check-in */
+  // Original token from booking (e.g. "A014")
   appointmentToken: {
     type: String,
     default: null,
     uppercase: true
   },
-  /** Original token sequence number — used for ordering late patients */
+  // Original token number, used to order late patients
   originalTokenNumber: {
     type: Number,
     default: null
   },
 
-  // ── Time Block Context ────────────────────────────────────────────────────────
-  /** TimeBlock this entry belongs to (null for legacy exact-time entries) */
+  // Time block context
+  // The time block this entry belongs to (null for old exact-time entries)
   timeBlockId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'TimeBlock',
@@ -183,7 +148,7 @@ const queueEntrySchema = new mongoose.Schema({
     index: true,
     sparse: true
   },
-  /** Department ObjectId ref (mirrors department string for new-flow entries) */
+  // Department id (mirrors the department string for block bookings)
   departmentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Department',
@@ -192,19 +157,15 @@ const queueEntrySchema = new mongoose.Schema({
     sparse: true
   },
 
-  // ── Late Patient Insertion ────────────────────────────────────────────────────
-  /**
-   * When a late patient is inserted after the current consultation,
-   * this points to the QueueEntry that was CURRENT when the late patient arrived.
-   * Used for audit/display; the actual position is driven by sortOrder.
-   */
+  // For a late patient, points to whoever was in consultation when they arrived
+  // (just for display/audit; the real position comes from sortOrder)
   lateInsertedAfter: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'QueueEntry',
     default: null
   },
 
-  // ── Timestamps ───────────────────────────────────────────────────────────────
+  // Timestamps
   checkInTime: { type: Date, default: Date.now },
   calledTime: { type: Date },
   consultationStartTime: { type: Date },
@@ -213,20 +174,19 @@ const queueEntrySchema = new mongoose.Schema({
   returnedAt: { type: Date },
   temporarilyAwayAt: { type: Date },
   noShowAt: { type: Date },
-  /** Set when bulk-marked unserved_clinic_closed by ClinicSessionService */
+  // Set when marked unserved because the clinic session closed
   unservedAt: { type: Date, default: null },
 
-  // ── ETA ──────────────────────────────────────────────────────────────────────
+  // Estimated wait
   estimatedWaitMinutes: { type: Number, default: 0 },
   avgConsultationMinutes: { type: Number, default: 10 },
 
-  // ── Notes ────────────────────────────────────────────────────────────────────
   notes: {
     type: String,
     maxlength: [500, 'Notes cannot exceed 500 characters']
   },
 
-  /** YYYY-MM-DD string for efficient daily queries */
+  // YYYY-MM-DD string, makes daily queries fast
   queueDate: {
     type: String,
     required: true,
@@ -239,7 +199,7 @@ const queueEntrySchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// ── Virtuals ──────────────────────────────────────────────────────────────────
+// Virtuals
 
 queueEntrySchema.virtual('consultationDurationMinutes').get(function () {
   if (!this.consultationStartTime || !this.consultationEndTime) return null;
@@ -251,7 +211,7 @@ queueEntrySchema.virtual('actualWaitMinutes').get(function () {
   return Math.round((this.calledTime - this.checkInTime) / 60000);
 });
 
-// ── Indexes ───────────────────────────────────────────────────────────────────
+// Indexes
 
 queueEntrySchema.index({ doctor: 1, queueDate: 1, status: 1 });
 queueEntrySchema.index({ doctor: 1, queueDate: 1, sortOrder: 1 });
@@ -268,21 +228,11 @@ queueEntrySchema.index(
   { unique: true, name: 'unique_doctor_date_token' }
 );
 
-// ── Static Methods ────────────────────────────────────────────────────────────
+// Static methods
 
-/**
- * Generate the next candidate token for a doctor on a given date.
- *
- * Uses the highest existing sequenceNumber rather than countDocuments so the
- * result is correct even under concurrent inserts.  The unique index on
- * { doctor, queueDate, queueNumber } is the database-level safety net —
- * callers must catch duplicate-key errors (code 11000) and call this again.
- *
- * @param {string} doctorId
- * @param {string} queueDate   YYYY-MM-DD
- * @param {'A'|'W'|'E'} tokenType
- * @returns {Promise<{ queueNumber: string, sequenceNumber: number }>}
- */
+// Build the next token for a doctor on a date.
+// Uses the highest existing sequenceNumber so it's right even with concurrent inserts.
+// The unique index is the real safety net - callers should retry on a duplicate-key error.
 queueEntrySchema.statics.generateToken = async function (doctorId, queueDate, tokenType = 'A') {
   const last = await this.findOne(
     { doctor: doctorId, queueDate, tokenType },
@@ -294,10 +244,7 @@ queueEntrySchema.statics.generateToken = async function (doctorId, queueDate, to
   return { queueNumber, sequenceNumber };
 };
 
-/**
- * Legacy helper kept for backward compatibility.
- * New code should use generateToken() instead.
- */
+// Old helper kept for backward compatibility. New code should use generateToken().
 queueEntrySchema.statics.generateQueueNumber = async function (department, queueDate) {
   const prefix = department
     .replace(/[^a-zA-Z ]/g, '')
@@ -313,15 +260,7 @@ queueEntrySchema.statics.generateQueueNumber = async function (department, queue
   return { queueNumber, sequenceNumber };
 };
 
-/**
- * Calculate estimated wait time for a new patient joining a doctor's queue.
- * ETA = patientsAhead × avgConsultationMinutes
- *
- * @param {string} doctorId
- * @param {string} queueDate
- * @param {number} avgMinutes
- * @returns {number} estimated wait in minutes
- */
+// Estimated wait for a new patient = number of people ahead x average consultation time
 queueEntrySchema.statics.calculateETA = async function (doctorId, queueDate, avgMinutes = 10) {
   const waitingCount = await this.countDocuments({
     doctor: doctorId,
