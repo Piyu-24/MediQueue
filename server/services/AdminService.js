@@ -1,32 +1,17 @@
-/**
- * @fileoverview Admin Service implementing business logic for admin operations
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Business logic for admin dashboard and reports
 
 const BaseService = require('../core/BaseService');
 const Logger = require('../utils/Logger');
 
-/**
- * AdminService class handling admin-specific business logic
- * Extends BaseService following SOLID principles
- */
+// Admin logic, built on top of BaseService
 class AdminService extends BaseService {
-  /**
-   * Creates an instance of AdminService
-   * @param {Object} userRepository - User repository instance
-   * @param {Object} appointmentRepository - Appointment repository instance
-   */
   constructor(userRepository, appointmentRepository) {
     super(null, Logger.getLogger('AdminService'));
     this.userRepository = userRepository;
     this.appointmentRepository = appointmentRepository;
   }
 
-  /**
-   * Gets comprehensive dashboard overview statistics
-   * @returns {Promise<Object>} Dashboard statistics
-   */
+  // Get the stats for the admin dashboard
   async getDashboardOverview() {
     try {
       this.logger.info('Fetching dashboard overview statistics');
@@ -93,11 +78,7 @@ class AdminService extends BaseService {
     }
   }
 
-  /**
-   * Generates patient visit report with analytics
-   * @param {Object} filters - Report filters
-   * @returns {Promise<Object>} Patient visit report data
-   */
+  // Build the patient visit report
   async generatePatientVisitReport(filters = {}) {
     try {
       this.logger.info('Generating patient visit report', { filters });
@@ -157,11 +138,7 @@ class AdminService extends BaseService {
     }
   }
 
-  /**
-   * Generates staff utilization report
-   * @param {Object} filters - Report filters
-   * @returns {Promise<Object>} Staff utilization report data
-   */
+  // Build the staff utilization report
   async generateStaffUtilizationReport(filters = {}) {
     try {
       this.logger.info('Generating staff utilization report', { filters });
@@ -224,12 +201,7 @@ class AdminService extends BaseService {
     }
   }
 
-  /**
-   * Generates analytics for patient visits
-   * @param {Array} appointments - Array of appointments
-   * @returns {Object} Visit analytics
-   * @private
-   */
+  // Break down visits by day, department, status and doctor
   generateVisitAnalytics(appointments) {
     const analytics = {
       totalVisits: appointments.length,
@@ -263,13 +235,7 @@ class AdminService extends BaseService {
     return analytics;
   }
 
-  /**
-   * Calculates staff utilization metrics
-   * @param {Array} doctors - Array of doctors
-   * @param {Array} appointments - Array of appointments
-   * @returns {Array} Staff utilization data
-   * @private
-   */
+  // Work out how busy each doctor was
   calculateStaffUtilization(doctors, appointments) {
     return doctors.map(doctor => {
       const doctorAppointments = appointments.filter(apt => 
@@ -301,12 +267,7 @@ class AdminService extends BaseService {
     });
   }
 
-  /**
-   * Calculates utilization summary statistics
-   * @param {Array} staffUtilization - Staff utilization data
-   * @returns {Object} Summary statistics
-   * @private
-   */
+  // Average the utilization numbers across all staff
   calculateUtilizationSummary(staffUtilization) {
     if (staffUtilization.length === 0) {
       return {
@@ -334,10 +295,6 @@ class AdminService extends BaseService {
 
 
 
-  /**
-   * Gets resource name for base service
-   * @returns {string} Resource name
-   */
   getResourceName() {
     return 'Admin';
   }

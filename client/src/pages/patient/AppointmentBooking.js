@@ -14,7 +14,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { appointmentAPI, departmentAPI } from '../../services/api';
 import toast from 'react-hot-toast';
 
-// ── Visual style maps ─────────────────────────────────────────────────────────
+// Visual style maps
 
 const BLOCK_STYLES = {
   AVAILABLE:    'border-blue-200 hover:border-blue-500 hover:bg-blue-50 bg-white cursor-pointer',
@@ -25,7 +25,7 @@ const BLOCK_STYLES = {
   SELECTED:     'border-blue-600 bg-blue-600 text-white shadow-lg cursor-pointer',
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// Helpers
 
 const fmt12 = (hhmm) => {
   if (!hhmm) return '';
@@ -38,12 +38,12 @@ const fmtDate = (dateStr) =>
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
 
-// ── Steps ─────────────────────────────────────────────────────────────────────
+// Steps
 
 const STEPS      = ['Choose Department', 'Select Date & Session', 'Confirm & Book'];
 const STEP_ICONS = [BuildingOffice2Icon, CalendarIcon, CheckCircleIcon];
 
-// ── Token Success Card ────────────────────────────────────────────────────────
+// Token Success Card
 
 const TokenCard = ({ result, onDone }) => {
   const { appointment, token } = result;
@@ -107,7 +107,7 @@ const TokenCard = ({ result, onDone }) => {
   );
 };
 
-// ── Time Block Grid ───────────────────────────────────────────────────────────
+// Time Block Grid
 
 const TimeBlockGrid = ({ blocks, selectedBlock, onSelect, loading, error }) => {
   if (loading) return (
@@ -224,7 +224,7 @@ const TimeBlockGrid = ({ blocks, selectedBlock, onSelect, loading, error }) => {
   );
 };
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// Main Component
 
 const AppointmentBooking = () => {
   const { user }      = useAuth();
@@ -232,7 +232,7 @@ const AppointmentBooking = () => {
   const location      = useLocation();
   const submittingRef = useRef(false);
 
-  // ── State ──────────────────────────────────────────────────────────────────
+  // State
   const [step, setStep]                             = useState(1);
   const [loading, setLoading]                       = useState(false);
   const [selectedDate, setSelectedDate]             = useState('');
@@ -260,13 +260,13 @@ const AppointmentBooking = () => {
     setSelectedBlock(block);
   }, []);
 
-  // ── Date bounds ────────────────────────────────────────────────────────────
+  // Date bounds
   const minDate = new Date().toISOString().split('T')[0];
   const maxDate = (() => {
     const d = new Date(); d.setMonth(d.getMonth() + 3); return d.toISOString().split('T')[0];
   })();
 
-  // ── URL params (reschedule pre-fill) ───────────────────────────────────────
+  // URL params (reschedule pre-fill)
   useEffect(() => {
     const params    = new URLSearchParams(location.search);
     const fromId    = params.get('rescheduleFrom');
@@ -277,7 +277,7 @@ const AppointmentBooking = () => {
     if (type)      setAppointmentType(type);
   }, [location.search]);
 
-  // ── Load active departments ────────────────────────────────────────────────
+  // Load active departments
   useEffect(() => {
     (async () => {
       try {
@@ -287,7 +287,7 @@ const AppointmentBooking = () => {
     })();
   }, []);
 
-  // ── Fetch dates already booked for selected department ─────────────────────
+  // Fetch dates already booked for selected department
   useEffect(() => {
     if (!selectedDepartment) {
       setBookedDatesForDept([]);
@@ -304,7 +304,7 @@ const AppointmentBooking = () => {
     return () => { cancelled = true; };
   }, [selectedDepartment]);
 
-  // ── Load time blocks for selected date ────────────────────────────────────
+  // Load time blocks for selected date
   const fetchBlocks = useCallback(async () => {
     if (!selectedDepartment || !selectedDate) return;
     if (dateAlreadyBooked) {
@@ -331,11 +331,11 @@ const AppointmentBooking = () => {
 
   useEffect(() => { fetchBlocks(); }, [fetchBlocks]);
 
-  // ── Validation ─────────────────────────────────────────────────────────────
+  // Validation
   const isComplaintValid    = chiefComplaint.trim().length >= 5 && chiefComplaint.trim().length <= 500;
   const canProceedToConfirm = selectedDate && !dateAlreadyBooked && selectedBlock && appointmentType && isComplaintValid;
 
-  // ── Book appointment ───────────────────────────────────────────────────────
+  // Book appointment
   const handleBook = async () => {
     if (submittingRef.current) return;
     if (!isComplaintValid) { toast.error('Reason for visit must be 5–500 characters.'); return; }
@@ -376,7 +376,7 @@ const AppointmentBooking = () => {
     { value: 'emergency',    label: 'Emergency'     },
   ];
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // Render
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-gray-50">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -420,7 +420,7 @@ const AppointmentBooking = () => {
           </div>
         )}
 
-        {/* ── STEP 1: Choose Department ─────────────────────────────────────── */}
+        {/* STEP 1: Choose Department */}
         {step === 1 && (
           <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
             <h2 className="text-xl font-bold text-gray-900 mb-6">Choose Department</h2>
@@ -455,7 +455,7 @@ const AppointmentBooking = () => {
           </div>
         )}
 
-        {/* ── STEP 2: Date & Session ────────────────────────────────────────── */}
+        {/* STEP 2: Date & Session */}
         {step === 2 && selectedDepartment && (
           <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
             <div className="flex items-center justify-between mb-6">
@@ -585,7 +585,7 @@ const AppointmentBooking = () => {
           </div>
         )}
 
-        {/* ── STEP 3: Confirm ──────────────────────────────────────────────── */}
+        {/* STEP 3: Confirm */}
         {step === 3 && selectedDepartment && selectedBlock && (
           <div className="bg-white rounded-2xl shadow-xl p-5 sm:p-8">
             <div className="flex items-center justify-between mb-6">
@@ -647,7 +647,7 @@ const AppointmentBooking = () => {
           </div>
         )}
 
-        {/* ── SUCCESS SCREEN ────────────────────────────────────────────────── */}
+        {/* SUCCESS SCREEN */}
         {step === 4 && bookingResult && (
           <TokenCard
             result={bookingResult}
@@ -660,7 +660,7 @@ const AppointmentBooking = () => {
   );
 };
 
-// ── Shared sub-components ─────────────────────────────────────────────────────
+// Shared sub-components
 
 const Row = ({ icon, label, value, sub }) => (
   <div className="flex items-start gap-3">

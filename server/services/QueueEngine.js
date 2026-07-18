@@ -140,27 +140,23 @@ const recalculate = async (doctorId, queueDate, io = null) => {
 
     if (allActive.length === 0) return;
 
-    // ── Zone 0: Lock current consultation ─────────────────────────────────────
-    // The in_consultation patient is NEVER moved by recalculation.
+    // The patient in consultation is never moved
     const current    = allActive.filter(e => e.status === 'in_consultation');
     const currentIds = new Set(current.map(e => e._id.toString()));
 
-    // ── Zone 2: Preserve existing ready-zone entries ──────────────────────────
-    // Locked ready-zone patients keep their relative order.
-    // They will be shifted below emergency patients in the final list.
+    // Keep the already-locked ready-zone patients in their current order
     const readyZone = allActive
       .filter(e => e.status === 'ready' && e.isLocked && !currentIds.has(e._id.toString()))
       .sort((a, b) => a.sortOrder - b.sortOrder); // preserve existing order
     const readyIds  = new Set(readyZone.map(e => e._id.toString()));
 
-    // ── Movable pool: everything that is NOT current or already-ready ──────────
+    // Everyone else can still be reordered
     const pool = allActive.filter(
       e => !currentIds.has(e._id.toString()) && !readyIds.has(e._id.toString())
     );
 
-    // ── Zone 1: Emergency patients from pool ──────────────────────────────────
-    // Emergency patients are extracted BEFORE the ready-zone rebuild so they
-    // are NEVER counted against readyZoneSize or mixed with A/W patients.
+    // Pull out emergency patients first, so they don't count against the
+    // ready-zone size or get mixed with the appointment/walk-in ratio
     const emergencyPool = emergencyEnabled
       ? pool.filter(e => e.isEmergency || e.status === 'emergency_waiting')
       : [];
@@ -168,14 +164,14 @@ const recalculate = async (doctorId, queueDate, io = null) => {
 
     const sortedEmergency = sortEmergencyGroup(emergencyPool);
 
-    // ── Normal movable pool (non-emergency, non-current, non-ready) ────────────
+    // The rest of the movable pool (non-emergency)
     const normalPool = pool.filter(e => !emergencyIds.has(e._id.toString()));
 
-    // ── Classify normal pool into appointment / walk-in buckets ───────────────
-    const onTimeAppts    = []; // on_time + early_allowed
-    const graceAppts     = []; // late_within_grace (still get appointment priority)
-    const walkIns        = []; // genuine walk-in patients
-    const lateOutside    = []; // late_outside_grace → treated as walk-in for ordering
+    // Split them into appointment vs walk-in buckets
+    const onTimeAppts    = []; // on time or early
+    const graceAppts     = []; // a bit late but still get appointment priority
+    const walkIns        = []; // real walk-ins
+    const lateOutside    = []; // too late, treated like walk-ins
 
     for (const entry of normalPool) {
       const classification = classifyPoolEntry(entry);
@@ -184,30 +180,27 @@ const recalculate = async (doctorId, queueDate, io = null) => {
         case 'appointment_grace':   graceAppts.push(entry);   break;
         case 'walk_in':             walkIns.push(entry);      break;
         case 'late_outside_grace':  lateOutside.push(entry);  break;
-        default:                    walkIns.push(entry);       break; // safety fallback
+        default:                    walkIns.push(entry);       break; // fallback
       }
     }
 
-    // ── Sort each bucket deterministically ────────────────────────────────────
+    // Sort each bucket
     const sortedOnTime  = sortAppointmentGroup(onTimeAppts);
     const sortedGrace   = sortAppointmentGroup(graceAppts);
     const sortedWalkIns = sortWalkInGroup(walkIns);
     const sortedLate    = sortWalkInGroup(lateOutside);
 
-    // Merge appointment groups (on-time first, then grace-period late)
+    // On-time appointments first, then the grace-period ones
     const appointments = [...sortedOnTime, ...sortedGrace];
-    // Merge walk-in groups (genuine walk-ins + late-outside-grace)
+    // Real walk-ins first, then the too-late appointments
     const allWalkIns   = [...sortedWalkIns, ...sortedLate];
 
-    // ── Rebuild ready zone from normal pool ───────────────────────────────────
-    // This fills any empty READY slots from the normal (non-emergency) pool,
-    // but only if the current readyZone is smaller than readyZoneSize.
-    // Emergency patients are NOT promoted to ready zone.
+    // Fill any empty ready-zone slots from the normal pool (not emergencies)
     const slotsAvailable  = Math.max(0, readyZoneSize - readyZone.length);
     const newlyReadyList  = [];
     const remainingWaiting = [];
 
-    // Rebuild the full normal queue order first (appointments + walkIns mixed)
+    // Build the mixed appointment/walk-in order first
     const normalOrderedForReady = fairnessEnabled
       ? mixAppointmentsAndWalkIns(appointments, allWalkIns, apptRatio, walkInRatio)
       : [...appointments, ...allWalkIns];
@@ -222,11 +215,7 @@ const recalculate = async (doctorId, queueDate, io = null) => {
       }
     }
 
-    // ── Assemble final ordered list ────────────────────────────────────────────
-    // [current] + [emergency] + [readyZone (existing locked)] + [newlyReady] + [remainingWaiting]
-    //
-    // Note: We place newlyReadyList as READY and remainingWaiting as WAITING_POOL.
-    // The final orderedList drives sortOrder assignment.
+    // Put the whole queue together in order; this drives the sortOrder below
     const orderedList = [
       ...current,
       ...sortedEmergency,
@@ -235,7 +224,7 @@ const recalculate = async (doctorId, queueDate, io = null) => {
       ...remainingWaiting
     ];
 
-    // ── Assign sortOrder, zone, status, ETA ───────────────────────────────────
+    // Set sortOrder, zone, status and ETA for each entry
     const newlyReadyIds    = new Set(newlyReadyList.map(e => e._id.toString()));
     const bulkOps          = [];
     const logEntries       = [];
@@ -249,8 +238,7 @@ const recalculate = async (doctorId, queueDate, io = null) => {
         newStatus  = 'in_consultation';
         isLocked   = true;
       } else if (emergencyIds.has(entry._id.toString())) {
-        // Emergency patients stay in WAITING_POOL zone (they're next-to-call,
-        // but the zone is used for display-board distinction).
+        // Emergency patients stay in the WAITING_POOL zone but are next to call
         newZone    = 'WAITING_POOL';
         newStatus  = 'emergency_waiting';
         isLocked   = false;
@@ -268,7 +256,7 @@ const recalculate = async (doctorId, queueDate, io = null) => {
         isLocked   = false;
       }
 
-      // Patients ahead = all positions before this one, minus the current consultation
+      // Patients ahead = positions before this one, not counting the one in consultation
       const patientsAhead   = Math.max(0, position - (current.length > 0 ? 1 : 0));
       const estimatedWait   = patientsAhead * avgMins;
       const newSortOrder    = position;
@@ -324,11 +312,11 @@ const recalculate = async (doctorId, queueDate, io = null) => {
       position++;
     }
 
-    // ── Persist changes ────────────────────────────────────────────────────────
+    // Save the changes
     if (bulkOps.length    > 0) await QueueEntry.bulkWrite(bulkOps);
     if (logEntries.length > 0) await QueueEventLog.insertMany(logEntries);
 
-    // ── Broadcast real-time update ─────────────────────────────────────────────
+    // Push the updated queue to connected clients
     if (io) {
       const updatedEntries = await QueueEntry.find({
         doctor:   doctorId,
@@ -356,16 +344,11 @@ const recalculate = async (doctorId, queueDate, io = null) => {
 
   } catch (err) {
     console.error('QueueEngine.recalculate error:', err);
-    // Engine failures must not crash the calling request
+    // Don't let a queue error crash the request that called it
   }
 };
 
-// ── Queue View ────────────────────────────────────────────────────────────────
-
-/**
- * Get the full active queue view for a doctor (used by API endpoints).
- * Returns entries grouped by zone.
- */
+// Get the current queue for a doctor, grouped by zone (used by the API)
 const getQueueView = async (doctorId, queueDate) => {
   const [entries, session] = await Promise.all([
     QueueEntry.find({
@@ -404,12 +387,10 @@ const getQueueView = async (doctorId, queueDate) => {
   };
 };
 
-// ── Exports ───────────────────────────────────────────────────────────────────
-
 module.exports = {
   recalculate,
   getQueueView,
-  // Export helpers for unit testing
+  // exported so the tests can use them
   classifyPoolEntry,
   sortEmergencyGroup,
   sortAppointmentGroup,

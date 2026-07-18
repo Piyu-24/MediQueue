@@ -1,26 +1,16 @@
 const crypto = require('crypto');
 
-/**
- * Signed, short-lived URLs for protected uploads (PHI).
- *
- * The public `/uploads` static mount was removed because it exposed medical
- * documents and NIC scans to anyone who could guess a filename. Files are now
- * served exclusively through `GET /api/files/:category/:name`, which requires a
- * valid HMAC signature + unexpired timestamp. Only authenticated, authorised
- * API responses mint these URLs, so an anonymous caller can never forge one.
- *
- * This mirrors Cloudinary's "authenticated delivery" model: the bytes live
- * behind an unguessable, expiring, signature-scoped URL.
- */
+// Makes signed, short-lived URLs for protected uploads (medical files, NIC scans).
+// Files are only served through GET /api/files/:category/:name, which needs a
+// valid signature and an unexpired timestamp, so nobody can just guess a filename.
 
-// Default validity window — long enough to view a record, short enough to limit
-// accidental sharing of a leaked URL.
+// How long a signed URL stays valid
 const DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
-// Whitelisted upload sub-folders that may ever be served.
+// Only these upload folders can ever be served
 const ALLOWED_CATEGORIES = new Set(['documents', 'nic-documents']);
 
-// A filename must be a single path segment (no traversal, no separators).
+// A filename must be a single safe segment (no slashes, no ..)
 const SAFE_NAME = /^[A-Za-z0-9._-]+$/;
 
 function getSecret() {
@@ -31,26 +21,15 @@ function getSecret() {
   return secret;
 }
 
-/**
- * Sign a `cloudinary://<type>/<resource_type>/<format>/<public_id>` reference
- * into an authenticated Cloudinary *delivery* URL (res.cloudinary.com/...).
- *
- * A signed delivery URL renders inline in <img>/<a> and is served from the CDN
- * with permissive CORS (so axios blob fetches work too). Only a caller holding
- * the Cloudinary API secret can produce a valid signature, and such URLs are
- * only ever handed to already-authorised users.
- *
- * Note: true time-based expiry on delivery URLs requires Cloudinary's
- * token-based authentication add-on; the signature alone already prevents
- * forgery. `ttlMs` is accepted for API symmetry with the local signer.
- */
+// Turn a cloudinary:// reference into a signed Cloudinary URL.
+// Only someone with the Cloudinary secret can make a valid signature.
 function signCloudinaryRef(ref /*, ttlMs */) {
   const rest = ref.slice('cloudinary://'.length).split('/');
   if (rest.length < 4) return ref;
   const [type, resourceType, format, ...publicIdParts] = rest;
   const publicId = publicIdParts.join('/');
 
-  // Lazy-require so environments without Cloudinary configured never load it.
+  // Require here so setups without Cloudinary never load it
   const { cloudinary } = require('../config/cloudinary');
 
   return cloudinary.url(publicId, {
@@ -78,25 +57,17 @@ function isValidTarget(category, name) {
   );
 }
 
-/**
- * Turn a stored file reference into a signed, short-lived URL — the single
- * abstraction the rest of the app uses regardless of where a file lives:
- *
- *   cloudinary://... → signed, expiring Cloudinary delivery URL
- *   /uploads/...     → signed `/api/files/<category>/<name>?e=..&s=..` path
- *   https://...      → returned unchanged (already an absolute URL)
- *
- * @returns {string} a URL/path the client can load directly
- */
+// Turn a stored file reference into a signed URL the client can load.
+// Handles cloudinary:// refs, /uploads/... paths, and leaves full URLs alone.
 function signFileUrl(storedUrl, ttlMs = DEFAULT_TTL_MS) {
   if (!storedUrl || typeof storedUrl !== 'string') return storedUrl;
 
-  // Cloudinary-hosted asset → delegate to the Cloudinary signer.
+  // Cloudinary file - use the Cloudinary signer
   if (storedUrl.startsWith('cloudinary://')) {
     return signCloudinaryRef(storedUrl, ttlMs);
   }
 
-  // Leave absolute/external URLs untouched.
+  // Leave full external URLs as they are
   if (/^https?:\/\//i.test(storedUrl)) return storedUrl;
 
   const match = storedUrl.match(/^\/?(?:uploads\/)?([^/]+)\/([^/?#]+)$/);
@@ -111,11 +82,8 @@ function signFileUrl(storedUrl, ttlMs = DEFAULT_TTL_MS) {
   return `/api/files/${category}/${encodeURIComponent(name)}?e=${exp}&s=${sig}`;
 }
 
-/**
- * Verify a signed file request. Uses a constant-time comparison and rejects
- * expired or malformed signatures.
- * @returns {{ ok: boolean, reason?: string }}
- */
+// Check a signed file request. Rejects expired or bad signatures.
+// Uses a constant-time compare so timing can't leak the signature.
 function verifyFileSignature(category, name, exp, sig) {
   if (!isValidTarget(category, name)) {
     return { ok: false, reason: 'invalid_target' };

@@ -31,7 +31,7 @@ import {
 } from 'recharts';
 import { analyticsAPI } from '../../services/api';
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// Constants
 
 const PERIOD_OPTIONS = [
   { label: 'Last 7 Days',  value: 7  },
@@ -53,7 +53,7 @@ const LEVEL_BAR_COLORS = {
   'Low':       '#22C55E',
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// Helpers
 
 const fmt12h = (hour) => {
   if (hour === 0)  return '12 AM';
@@ -67,7 +67,7 @@ const fmtDate = (iso) =>
     month: 'short', day: 'numeric',
   });
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// Sub-components
 
 const KpiCard = ({ icon: Icon, label, value, sub, color = 'blue' }) => {
   const colorMap = {
@@ -105,7 +105,7 @@ const LevelBar = (props) => {
   return <rect x={x} y={y} width={width} height={height} fill={fill} rx={3} />;
 };
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// Main component
 
 const PeakHoursChartDashboard = ({ embedded = false }) => {
   const [days, setDays]           = useState(30);
@@ -132,11 +132,11 @@ const PeakHoursChartDashboard = ({ embedded = false }) => {
     fetchData();
   }, [fetchData]);
 
-  // ── Active hours (hours that have at least 1 day of data) ─────────────────
+  // Hours that have at least one day of data
   const activeHourlyData = (data?.hourlyActivity || [])
     .filter(h => h.avgCheckIns !== null);
 
-  // ── Chart datasets ────────────────────────────────────────────────────────
+  // Chart datasets
   const volumeChartData = activeHourlyData.map(h => ({
     label:       fmt12h(h.hour),
     avgCheckIns: h.avgCheckIns,
@@ -155,7 +155,7 @@ const PeakHoursChartDashboard = ({ embedded = false }) => {
     totalCheckIns: d.totalCheckIns,
   }));
 
-  // ── Render states ─────────────────────────────────────────────────────────
+  // Render states
 
   if (loading) {
     return (
@@ -191,7 +191,7 @@ const PeakHoursChartDashboard = ({ embedded = false }) => {
   return (
     <div className={`bg-white rounded-2xl shadow ${embedded ? 'p-5' : 'p-6'}`}>
 
-      {/* ── Header ──────────────────────────────────────────────────────── */}
+      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">
           <ChartBarIcon className="w-7 h-7 text-blue-600" />
@@ -231,7 +231,7 @@ const PeakHoursChartDashboard = ({ embedded = false }) => {
         </div>
       </div>
 
-      {/* ── Data quality note ────────────────────────────────────────────── */}
+      {/* Data quality note */}
       {meta && (
         <div className="flex items-start gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-4 py-2 mb-6">
           <InformationCircleIcon className="w-4 h-4 shrink-0 mt-0.5" />
@@ -239,12 +239,12 @@ const PeakHoursChartDashboard = ({ embedded = false }) => {
         </div>
       )}
 
-      {/* ── Insufficient data state ──────────────────────────────────────── */}
+      {/* Insufficient data state */}
       {insufficient && <InsufficientData note={meta?.note} />}
 
       {!insufficient && (
         <>
-          {/* ── KPI row ─────────────────────────────────────────────────── */}
+          {/* KPI row */}
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
             <div className="col-span-2 lg:col-span-3 xl:col-span-2">
               <KpiCard
@@ -281,7 +281,7 @@ const PeakHoursChartDashboard = ({ embedded = false }) => {
             </div>
           </div>
 
-          {/* ── Today row ───────────────────────────────────────────────── */}
+          {/* Today row */}
           <div className="border-t border-gray-100 pt-5 mb-8">
             <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
               <CalendarDaysIcon className="w-4 h-4 text-gray-400" />
@@ -305,7 +305,7 @@ const PeakHoursChartDashboard = ({ embedded = false }) => {
             </div>
           </div>
 
-          {/* ── Charts ──────────────────────────────────────────────────── */}
+          {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
 
             {/* Patient Volume by Hour */}
@@ -402,7 +402,7 @@ const PeakHoursChartDashboard = ({ embedded = false }) => {
             </div>
           )}
 
-          {/* ── Hourly breakdown table ───────────────────────────────────── */}
+          {/* Hourly breakdown table */}
           <div>
             <h3 className="text-sm font-semibold text-gray-700 mb-3">
               Hourly Activity Breakdown
@@ -461,7 +461,7 @@ const PeakHoursChartDashboard = ({ embedded = false }) => {
         </>
       )}
 
-      {/* ── Footer ──────────────────────────────────────────────────────── */}
+      {/* Footer */}
       {fetchedAt && (
         <div className="mt-6 pt-4 border-t border-gray-100 text-xs text-gray-400 text-center">
           Data queried from database at {fetchedAt.toLocaleTimeString()}.

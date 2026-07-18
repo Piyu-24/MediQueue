@@ -3,15 +3,10 @@ const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const mongoose = require('mongoose');
 
-/**
- * Slot Management Service - Doctor availability and slot management
- * Allows doctors to create, block, unblock, and manage their time slots
- */
+// Lets doctors create, block, unblock and manage their time slots
 class SlotManagementService {
 
-  /**
-   * Get doctor's slots for a specific date or date range
-   */
+  // Get a doctor's slots for a date or date range
   async getDoctorSlots(doctorId, startDate, endDate, requestInfo) {
     try {
       // Validate doctor exists
@@ -61,9 +56,7 @@ class SlotManagementService {
     }
   }
 
-  /**
-   * Create new time slots for doctor
-   */
+  // Create new time slots for a doctor
   async createSlots(doctorId, slotData, requestInfo) {
     const session = await mongoose.startSession();
     
@@ -167,9 +160,7 @@ class SlotManagementService {
     }
   }
 
-  /**
-   * Block specific time slots (doctor unavailable)
-   */
+  // Block slots (mark the doctor unavailable)
   async blockSlots(doctorId, slotIds, blockingData, requestInfo) {
     const session = await mongoose.startSession();
     
@@ -248,9 +239,7 @@ class SlotManagementService {
     }
   }
 
-  /**
-   * Unblock previously blocked slots
-   */
+  // Unblock slots that were blocked before
   async unblockSlots(doctorId, slotIds, requestInfo) {
     const session = await mongoose.startSession();
     
@@ -323,9 +312,7 @@ class SlotManagementService {
     }
   }
 
-  /**
-   * Get available slots for patient booking (public view)
-   */
+  // Get slots a patient can book (public view)
   async getAvailableSlots(doctorId, date) {
     try {
       const availableSlots = await DoctorSlot.getAvailableSlots(doctorId, date);
@@ -350,9 +337,7 @@ class SlotManagementService {
     }
   }
 
-  /**
-   * Get today's schedule summary for doctor
-   */
+  // Get today's schedule summary for a doctor
   async getTodaySchedule(doctorId, requestInfo) {
     try {
       const today = new Date();
@@ -408,9 +393,7 @@ class SlotManagementService {
     }
   }
 
-  /**
-   * Quick block slots for emergency/urgent situations
-   */
+  // Quickly block all free slots in a time range (for emergencies)
   async quickBlockSlots(doctorId, blockData, requestInfo) {
     try {
       const { date, startTime, endTime, reason, description } = blockData;
@@ -445,10 +428,7 @@ class SlotManagementService {
     }
   }
 
-  /**
-   * Generate slot summary statistics
-   * @private
-   */
+  // Count up slots by status, type and date
   _generateSlotSummary(slots) {
     const summary = {
       total: slots.length,

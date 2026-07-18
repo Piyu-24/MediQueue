@@ -1,33 +1,17 @@
-/**
- * @fileoverview Appointment Service implementing business logic for appointment operations
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Business logic for appointments
 
 const BaseService = require('../core/BaseService');
 const Logger = require('../utils/Logger');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 
-/**
- * AppointmentService class handling appointment-specific business logic
- * Extends BaseService following SOLID principles
- */
+// Appointment logic, built on top of BaseService
 class AppointmentService extends BaseService {
-  /**
-   * Creates an instance of AppointmentService
-   * @param {Object} appointmentRepository - Appointment repository instance
-   * @param {Object} userRepository - User repository instance
-   */
   constructor(appointmentRepository, userRepository) {
     super(appointmentRepository, Logger.getLogger('AppointmentService'));
     this.userRepository = userRepository;
   }
 
-  /**
-   * Creates a new appointment with comprehensive validation
-   * @param {Object} appointmentData - Appointment data
-   * @returns {Promise<Object>} Created appointment
-   */
+  // Create a new appointment (validates everything first)
   async createAppointment(appointmentData) {
     try {
       this.logger.info('Creating new appointment', { appointmentData });
@@ -68,12 +52,7 @@ class AppointmentService extends BaseService {
     }
   }
 
-  /**
-   * Gets alternative doctors when requested doctor is unavailable
-   * @param {string} department - Department/specialization
-   * @param {Date} appointmentDate - Desired appointment date
-   * @returns {Promise<Array>} Array of alternative doctors
-   */
+  // Find other doctors in the same department when the chosen one is busy
   async getAlternativeDoctors(department, appointmentDate) {
     try {
       this.logger.info('Finding alternative doctors', { department, appointmentDate });
@@ -95,13 +74,7 @@ class AppointmentService extends BaseService {
     }
   }
 
-  /**
-   * Cancels an appointment
-   * @param {string} appointmentId - Appointment ID
-   * @param {string} cancellationReason - Reason for cancellation
-   * @param {string} cancelledBy - Who cancelled (patient/doctor/admin)
-   * @returns {Promise<Object>} Updated appointment
-   */
+  // Cancel an appointment
   async cancelAppointment(appointmentId, cancellationReason, cancelledBy) {
     try {
       this.logger.info('Cancelling appointment', { appointmentId, cancelledBy });
@@ -134,12 +107,7 @@ class AppointmentService extends BaseService {
     }
   }
 
-  /**
-   * Validates appointment input data
-   * @param {Object} appointmentData - Appointment data to validate
-   * @throws {ValidationError} If validation fails
-   * @private
-   */
+  // Check the appointment input has all the required fields and valid values
   validateAppointmentInput(appointmentData) {
     const requiredFields = ['patientId', 'doctorId', 'appointmentDate', 'reasonForVisit', 'department'];
     
@@ -175,13 +143,7 @@ class AppointmentService extends BaseService {
     }
   }
 
-  /**
-   * Validates patient exists and has correct role
-   * @param {string} patientId - Patient ID
-   * @returns {Promise<Object>} Patient object
-   * @throws {NotFoundError|ValidationError} If patient not found or invalid role
-   * @private
-   */
+  // Make sure the patient exists, is a patient, and is active
   async validatePatient(patientId) {
     const patient = await this.userRepository.findById(patientId);
     if (!patient) {
@@ -196,13 +158,7 @@ class AppointmentService extends BaseService {
     return patient;
   }
 
-  /**
-   * Validates doctor exists and has correct role
-   * @param {string} doctorId - Doctor ID
-   * @returns {Promise<Object>} Doctor object
-   * @throws {NotFoundError|ValidationError} If doctor not found or invalid role
-   * @private
-   */
+  // Make sure the doctor exists, is a doctor, and is active
   async validateDoctor(doctorId) {
     const doctor = await this.userRepository.findById(doctorId);
     if (!doctor) {
@@ -217,13 +173,7 @@ class AppointmentService extends BaseService {
     return doctor;
   }
 
-  /**
-   * Validates business rules for appointment creation
-   * @param {Object} appointmentData - Appointment data
-   * @param {Object} doctor - Doctor object
-   * @throws {ValidationError} If business rules are violated
-   * @private
-   */
+  // Check the booking rules (future date, notice period, hours, weekday, etc.)
   validateBusinessRules(appointmentData, doctor) {
     const appointmentDate = new Date(appointmentData.appointmentDate);
     const now = new Date();
@@ -263,12 +213,7 @@ class AppointmentService extends BaseService {
     }
   }
 
-  /**
-   * Validates if cancellation is allowed
-   * @param {Object} appointment - Appointment object
-   * @throws {ValidationError} If cancellation is not allowed
-   * @private
-   */
+  // Check the appointment can still be cancelled
   validateCancellation(appointment) {
     if (appointment.status === 'cancelled') {
       throw new ValidationError('Appointment is already cancelled');
@@ -287,10 +232,6 @@ class AppointmentService extends BaseService {
     }
   }
 
-  /**
-   * Gets resource name for base service
-   * @returns {string} Resource name
-   */
   getResourceName() {
     return 'Appointment';
   }

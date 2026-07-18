@@ -1,10 +1,4 @@
-
-
-/**
- * @fileoverview Jest Configuration for MediQueue Backend Testing
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Jest config for the backend tests
 
 module.exports = {
   // Test environment

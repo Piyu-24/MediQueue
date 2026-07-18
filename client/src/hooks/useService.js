@@ -1,17 +1,8 @@
-/**
- * @fileoverview Custom hook for accessing services
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Hook to grab a service from the ServiceFactory
 
 import { useEffect, useState } from 'react';
 import ServiceFactory from '../services/ServiceFactory';
 
-/**
- * Custom hook for accessing services through dependency injection
- * @param {string} serviceName - Name of the service to access
- * @returns {Object} Service instance
- */
 export const useService = (serviceName) => {
   const [service, setService] = useState(null);
   const [error, setError] = useState(null);

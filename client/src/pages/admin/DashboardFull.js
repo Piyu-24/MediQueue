@@ -112,7 +112,7 @@ const AdminDashboard = () => {
   const [createdCredentials, setCreatedCredentials] = useState(null); // { email, tempPassword }
   const [availableDepartments, setAvailableDepartments] = useState([]);
 
-  // ── data fetching ────────────────────────────────────────────────────────────
+  // data fetching
 
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -204,7 +204,7 @@ const AdminDashboard = () => {
     setFilteredUsers(filtered);
   }, [users, searchQuery, selectedRole]);
 
-  // ── actions ──────────────────────────────────────────────────────────────────
+  // actions
 
   const handleToggleUserStatus = async (userId, currentStatus) => {
     try {
@@ -252,7 +252,7 @@ const AdminDashboard = () => {
       password, confirmPassword, autoGenerate,
     } = staffForm;
 
-    // ── Field validation (kept in sync with the POST /api/users/staff rules) ──
+    // Field validation (kept in sync with the POST /api/users/staff rules)
     const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const phoneRe = /^\+?[\d\s\-()]{7,20}$/;
     const strongPwRe = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
@@ -322,12 +322,12 @@ const AdminDashboard = () => {
     }
   };
 
-  // ── helpers ───────────────────────────────────────────────────────────────────
+  // helpers
 
   const formatDate = (d) =>
     new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-  // ── loading state ────────────────────────────────────────────────────────────
+  // loading state
 
   if (loading) {
     return (
@@ -340,7 +340,7 @@ const AdminDashboard = () => {
     );
   }
 
-  // ── render ────────────────────────────────────────────────────────────────────
+  // render
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -423,7 +423,7 @@ const AdminDashboard = () => {
 
         <div className="p-8 flex-1">
 
-          {/* ── OVERVIEW TAB ─────────────────────────────────────────────────── */}
+          {/* OVERVIEW TAB */}
           {activeTab === 'overview' && (
             <>
               {/* KPI cards */}
@@ -547,7 +547,7 @@ const AdminDashboard = () => {
             </>
           )}
 
-          {/* ── USER MANAGEMENT TAB ──────────────────────────────────────────── */}
+          {/* USER MANAGEMENT TAB */}
           {activeTab === 'users' && (
             <div className="bg-white rounded-lg shadow">
               <div className="p-6 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -695,7 +695,7 @@ const AdminDashboard = () => {
             </div>
           )}
 
-          {/* ── CREATE STAFF USER MODAL ───────────────────────────────────────── */}
+          {/* CREATE STAFF USER MODAL */}
           {showCreateModal && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -715,7 +715,7 @@ const AdminDashboard = () => {
                   </button>
                 </div>
 
-                {/* ── Success / credentials panel ── */}
+                {/* Success / credentials panel */}
                 {createdCredentials ? (
                   <div className="p-6 space-y-4">
                     <div className="bg-green-50 border-2 border-green-200 rounded-xl p-5 text-center">
@@ -772,10 +772,10 @@ const AdminDashboard = () => {
                     </div>
                   </div>
                 ) : (
-                  /* ── Form ── */
+                  /* Form */
                   <div className="p-6 space-y-5">
 
-                    {/* ── SECTION 1: Role selector (first, drives everything else) ── */}
+                    {/* SECTION 1: Role selector (first, drives everything else) */}
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-1">Role *</label>
                       <select value={staffForm.role}
@@ -801,7 +801,7 @@ const AdminDashboard = () => {
                       </div>
                     )}
 
-                    {/* ── SECTION 2: Basic Identity ── */}
+                    {/* SECTION 2: Basic Identity */}
                     <div className="border-t border-gray-100 pt-4">
                       <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Personal Information</p>
                       <div className="space-y-3">
@@ -854,7 +854,7 @@ const AdminDashboard = () => {
                       </div>
                     </div>
 
-                    {/* ── SECTION 3: Doctor professional fields ── */}
+                    {/* SECTION 3: Doctor professional fields */}
                     {staffForm.role === 'doctor' && (
                       <div className="border-t border-gray-100 pt-4">
                         <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Professional Details</p>
@@ -937,7 +937,7 @@ const AdminDashboard = () => {
                       </div>
                     )}
 
-                    {/* ── SECTION 3: Pharmacist professional fields ── */}
+                    {/* SECTION 3: Pharmacist professional fields */}
                     {staffForm.role === 'pharmacist' && (
                       <div className="border-t border-gray-100 pt-4">
                         <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Professional Details</p>
@@ -947,7 +947,7 @@ const AdminDashboard = () => {
                       </div>
                     )}
 
-                    {/* ── SECTION 3: Receptionist / Lab Staff / Admin: department only ── */}
+                    {/* SECTION 3: Receptionist / Lab Staff / Admin: department only */}
                     {['receptionist', 'staff', 'admin'].includes(staffForm.role) && (
                       <div className="border-t border-gray-100 pt-4">
                         <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Assignment</p>
@@ -970,7 +970,7 @@ const AdminDashboard = () => {
                       </div>
                     )}
 
-                    {/* ── SECTION 4: Employment details (all non-admin roles) ── */}
+                    {/* SECTION 4: Employment details (all non-admin roles) */}
                     {staffForm.role !== 'admin' && (
                       <div className="grid grid-cols-2 gap-3">
                         <div>
@@ -992,7 +992,7 @@ const AdminDashboard = () => {
                       </div>
                     )}
 
-                    {/* ── SECTION 5: Credentials ── */}
+                    {/* SECTION 5: Credentials */}
                     <div className="border-t border-gray-100 pt-4">
                       <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
                         <div className="flex items-center justify-between">
@@ -1063,27 +1063,27 @@ const AdminDashboard = () => {
             </div>
           )}
 
-          {/* ── ANALYTICS TAB ────────────────────────────────────────────────── */}
+          {/* ANALYTICS TAB */}
           {activeTab === 'analytics' && (
             <PeakHoursChartDashboard embedded={true} />
           )}
 
-          {/* ── REPORTS TAB ──────────────────────────────────────────────────── */}
+          {/* REPORTS TAB */}
           {activeTab === 'reports' && (
             <ReportsDashboard />
           )}
 
-          {/* ── DEPARTMENTS & TIME BLOCKS TAB ───────────────────────────────── */}
+          {/* DEPARTMENTS & TIME BLOCKS TAB */}
           {activeTab === 'capacity' && (
             <CapacityTab />
           )}
 
-          {/* ── PATIENT RECORDS TAB ──────────────────────────────────────────── */}
+          {/* PATIENT RECORDS TAB */}
           {activeTab === 'patient-records' && (
             <PatientRecordViewer />
           )}
 
-          {/* ── IDENTITY VERIFICATION TAB ────────────────────────────────────── */}
+          {/* IDENTITY VERIFICATION TAB */}
           {activeTab === 'identity-verification' && (
             <AccountVerificationStatus />
           )}
@@ -1094,9 +1094,9 @@ const AdminDashboard = () => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+//
 // Departments & Time Blocks management tab
-// ─────────────────────────────────────────────────────────────────────────────
+//
 
 const DEFAULT_BLOCK_TEMPLATES = [
   { startTime: '08:00', endTime: '09:00', sessionName: 'Block 1 (Morning Early)',  totalCapacity: 30, reportingOffsetMinutes: 15 },
@@ -1109,14 +1109,14 @@ const DEFAULT_BLOCK_TEMPLATES = [
 const CapacityTab = () => {
   const [section, setSection] = React.useState('departments');
 
-  // ── Department state ───────────────────────────────────────────────────────
+  // Department state
   const [departments, setDepartments]   = React.useState([]);
   const [deptLoading, setDeptLoading]   = React.useState(false);
   const [editingDept, setEditingDept]   = React.useState(null); // { _id, name, code, ... } | 'new'
   const [deptForm, setDeptForm]         = React.useState({ name: '', code: '', description: '', averageConsultationMinutes: 10 });
   const [deptSaving, setDeptSaving]     = React.useState(false);
 
-  // ── Room management state ──────────────────────────────────────────────────
+  // Room management state
   const [rooms, setRooms]               = React.useState([]);
   const [roomsLoading, setRoomsLoading] = React.useState(false);
   const [roomForm, setRoomForm]         = React.useState({ roomNumber: '', displayName: '', departmentId: '', status: 'available' });
@@ -1219,7 +1219,7 @@ const CapacityTab = () => {
     finally { setRoomSaving(false); }
   };
 
-  // ── Time Block Generator state ─────────────────────────────────────────────
+  // Time Block Generator state
   const [selectedDeptId, setSelectedDeptId]   = React.useState('');
   const [startDate, setStartDate]             = React.useState('');
   const [endDate, setEndDate]                 = React.useState('');
@@ -1229,7 +1229,7 @@ const CapacityTab = () => {
   const [blocksLoading, setBlocksLoading]     = React.useState(false);
   const [previewDate, setPreviewDate]         = React.useState('');
 
-  // ── Load departments ───────────────────────────────────────────────────────
+  // Load departments
   const loadDepts = React.useCallback(async () => {
     setDeptLoading(true);
     try {
@@ -1241,7 +1241,7 @@ const CapacityTab = () => {
 
   React.useEffect(() => { loadDepts(); }, [loadDepts]);
 
-  // ── Save department (create or update) ────────────────────────────────────
+  // Save department (create or update)
   const saveDept = async () => {
     if (!deptForm.name.trim() || !deptForm.code.trim()) {
       toast.error('Name and code are required');
@@ -1293,7 +1293,7 @@ const CapacityTab = () => {
     } catch { toast.error('Failed to update status'); }
   };
 
-  // ── Load blocks for preview date ──────────────────────────────────────────
+  // Load blocks for preview date
   const loadBlocks = React.useCallback(async () => {
     if (!selectedDeptId || !previewDate) return;
     setBlocksLoading(true);
@@ -1310,7 +1310,7 @@ const CapacityTab = () => {
 
   React.useEffect(() => { loadBlocks(); }, [loadBlocks]);
 
-  // ── Generate blocks ────────────────────────────────────────────────────────
+  // Generate blocks
   const generateBlocks = async () => {
     if (!selectedDeptId) { toast.error('Select a department'); return; }
     if (!startDate || !endDate) { toast.error('Select start and end dates'); return; }
@@ -1364,7 +1364,7 @@ const CapacityTab = () => {
     }
   };
 
-  // ── Capacity percentage summary ────────────────────────────────────────────
+  // Capacity percentage summary
   const capacitySummary = (total) => {
     const appt   = Math.floor(total * 0.65);
     const walkIn = Math.floor(total * 0.25);
@@ -1373,7 +1373,7 @@ const CapacityTab = () => {
     return { appt, walkIn, emerg, op };
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // Render
   return (
     <div className="space-y-6">
       {/* Sub-navigation */}
@@ -1395,7 +1395,7 @@ const CapacityTab = () => {
         ))}
       </div>
 
-      {/* ── DEPARTMENTS SECTION ───────────────────────────────────────────── */}
+      {/* DEPARTMENTS SECTION */}
       {section === 'departments' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -1514,7 +1514,7 @@ const CapacityTab = () => {
         </div>
       )}
 
-      {/* ── ROOMS SECTION ────────────────────────────────────────────────── */}
+      {/* ROOMS SECTION */}
       {section === 'rooms' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -1711,7 +1711,7 @@ const CapacityTab = () => {
         </div>
       )}
 
-      {/* ── TIME BLOCK GENERATOR SECTION ─────────────────────────────────── */}
+      {/* TIME BLOCK GENERATOR SECTION */}
       {section === 'blocks' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 

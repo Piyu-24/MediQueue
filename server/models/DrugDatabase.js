@@ -1,9 +1,6 @@
 const mongoose = require('mongoose');
 
-/**
- * Drug Database Model - Comprehensive drug information and safety data
- * Contains drug details, interactions, allergies, and dosage information
- */
+// Drug info: details, interactions, allergies and dosage
 const drugDatabaseSchema = new mongoose.Schema({
   // Basic Drug Information
   drugName: {

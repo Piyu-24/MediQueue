@@ -1,13 +1,9 @@
 const mongoose = require('mongoose');
 
-/**
- * QueueEventLog — immutable audit trail for every meaningful queue state change.
- * Never updated after creation. Used for analytics, debugging, and dispute resolution.
- */
+// A log of every queue change. Written once, never updated. Used for history/debugging.
 const queueEventLogSchema = new mongoose.Schema({
-  // ── References ────────────────────────────────────────────────────────────────
-  // null for session-level events (QUEUE_PAUSED, QUEUE_RESUMED) where there is
-  // no single QueueEntry responsible for the event.
+  // References
+  // null for session-level events (like pause/resume) with no single queue entry
   queueEntryId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'QueueEntry',
@@ -31,7 +27,7 @@ const queueEventLogSchema = new mongoose.Schema({
     default: null
   },
 
-  // ── Event ─────────────────────────────────────────────────────────────────────
+  // Event
   eventType: {
     type: String,
     required: true,
@@ -65,7 +61,7 @@ const queueEventLogSchema = new mongoose.Schema({
     index: true
   },
 
-  // ── Before / After ────────────────────────────────────────────────────────────
+  // Before / after values
   oldStatus: { type: String, default: null },
   newStatus: { type: String, default: null },
   oldZone: { type: String, default: null },
@@ -75,7 +71,7 @@ const queueEventLogSchema = new mongoose.Schema({
   oldEstimatedWait: { type: Number, default: null },
   newEstimatedWait: { type: Number, default: null },
 
-  // ── Actor ─────────────────────────────────────────────────────────────────────
+  // Who did it
   performedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -86,7 +82,7 @@ const queueEventLogSchema = new mongoose.Schema({
     default: null
   },
 
-  // ── Context ───────────────────────────────────────────────────────────────────
+  // Context
   queueDate: {
     type: String,
     required: true,

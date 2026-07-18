@@ -3,17 +3,10 @@ const SlotManagementService = require('../services/SlotManagementService');
 const PatientManagementService = require('../services/PatientManagementService');
 const { validationResult } = require('express-validator');
 
-/**
- * DoctorController - Handles HTTP requests for doctor operations
- * Follows Single Responsibility Principle - Only handles request/response logic
- * Delegates business logic to DoctorService
- */
+// Handles the doctor HTTP routes and calls the services
 class DoctorController {
 
-  /**
-   * Enhanced patient search with filters
-   * GET /api/doctor/patients/search?q=searchQuery&gender=male&bloodType=O+&page=1&limit=20
-   */
+  // GET /api/doctor/patients/search - search patients with filters
   async searchPatients(req, res) {
     try {
       // Validate request
@@ -77,10 +70,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Get recent patients for quick access
-   * GET /api/doctor/patients/recent?limit=10
-   */
+  // GET /api/doctor/patients/recent - recent patients
   async getRecentPatients(req, res) {
     try {
       const { limit = 10 } = req.query;
@@ -105,11 +95,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Get patient's complete medical history
-   * GET /api/doctor/patients/:patientId/medical-history
-   * User Story 3: View patient's complete medical history
-   */
+  // GET /api/doctor/patients/:patientId/medical-history - full medical history
   async getPatientMedicalHistory(req, res) {
     try {
       // Validate request
@@ -131,13 +117,12 @@ class DoctorController {
       };
 
       const result = await DoctorService.getPatientMedicalHistory(patientId, doctorId, requestInfo);
-      
+
       res.status(200).json(result);
 
     } catch (error) {
       console.error('Get patient medical history error:', error);
-      
-      // Return appropriate status code based on error type
+
       const statusCode = error.message.includes('not found') ? 404 : 500;
       
       res.status(statusCode).json({
@@ -148,11 +133,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Add treatment notes to patient record
-   * POST /api/doctor/patients/:patientId/treatment-notes
-   * User Story 4: Add new treatment notes during/after consultation
-   */
+  // POST /api/doctor/patients/:patientId/treatment-notes - add a treatment note
   async addTreatmentNote(req, res) {
     try {
       // Validate request
@@ -191,11 +172,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Update existing treatment note
-   * PUT /api/doctor/treatment-notes/:recordId
-   * User Story 5: Update patient records with secure logging
-   */
+  // PUT /api/doctor/treatment-notes/:recordId - update a treatment note
   async updateTreatmentNote(req, res) {
     try {
       // Validate request
@@ -236,11 +213,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Get doctor's schedule and upcoming appointments
-   * GET /api/doctor/schedule
-   * User Story 6 & 7: View schedule and available slots
-   */
+  // GET /api/doctor/schedule - schedule and upcoming appointments
   async getSchedule(req, res) {
     try {
       const doctorId = req.user.id;
@@ -267,11 +240,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Update doctor's availability
-   * PUT /api/doctor/availability
-   * User Story 6: Manage schedule and block specific times
-   */
+  // PUT /api/doctor/availability - update availability
   async updateAvailability(req, res) {
     try {
       // Validate request
@@ -307,23 +276,19 @@ class DoctorController {
     }
   }
 
-  /**
-   * Get doctor's dashboard summary
-   * GET /api/doctor/dashboard
-   */
+  // GET /api/doctor/dashboard - dashboard summary
   async getDashboard(req, res) {
     try {
       const doctorId = req.user.id;
-      
-      // This could be expanded to include dashboard-specific data
+
       const requestInfo = {
         ipAddress: req.ip || req.connection.remoteAddress,
         userAgent: req.get('User-Agent') || 'Unknown'
       };
 
       const scheduleResult = await DoctorService.getDoctorSchedule(doctorId, requestInfo);
-      
-      // Add dashboard-specific summary data
+
+      // Add the summary numbers for the dashboard
       const dashboardData = {
         ...scheduleResult.data,
         summary: {
@@ -354,12 +319,9 @@ class DoctorController {
     }
   }
 
-  // ==================== SLOT MANAGEMENT METHODS ====================
+  // Slot management
 
-  /**
-   * Get doctor's slots for a specific date or date range
-   * GET /api/doctor/slots?startDate=2024-01-15&endDate=2024-01-15
-   */
+  // GET /api/doctor/slots - slots for a date or date range
   async getSlots(req, res) {
     try {
       const { startDate, endDate } = req.query;
@@ -391,10 +353,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Create new time slots
-   * POST /api/doctor/slots
-   */
+  // POST /api/doctor/slots - create slots
   async createSlots(req, res) {
     try {
       const errors = validationResult(req);
@@ -428,10 +387,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Block specific time slots (make unavailable)
-   * POST /api/doctor/slots/block
-   */
+  // POST /api/doctor/slots/block - block slots
   async blockSlots(req, res) {
     try {
       const errors = validationResult(req);
@@ -470,10 +426,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Unblock previously blocked slots (make available again)
-   * POST /api/doctor/slots/unblock
-   */
+  // POST /api/doctor/slots/unblock - unblock slots
   async unblockSlots(req, res) {
     try {
       const { slotIds } = req.body;
@@ -505,10 +458,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Quick block slots for a time range (emergency blocking)
-   * POST /api/doctor/slots/quick-block
-   */
+  // POST /api/doctor/slots/quick-block - block a whole time range quickly
   async quickBlockSlots(req, res) {
     try {
       const errors = validationResult(req);
@@ -542,10 +492,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Get today's schedule with slot details
-   * GET /api/doctor/slots/today
-   */
+  // GET /api/doctor/slots/today - today's schedule with slot details
   async getTodaySchedule(req, res) {
     try {
       const doctorId = req.user.id;
@@ -569,10 +516,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Get available slots for patient booking (public endpoint)
-   * GET /api/doctor/slots/available?doctorId=123&date=2024-01-15
-   */
+  // GET /api/doctor/slots/available - slots a patient can book (public)
   async getAvailableSlots(req, res) {
     try {
       const { doctorId, date } = req.query;
@@ -598,12 +542,9 @@ class DoctorController {
     }
   }
 
-  // ==================== PATIENT MANAGEMENT METHODS ====================
+  // Patient management
 
-  /**
-   * Get patient management dashboard
-   * GET /api/doctor/patients/dashboard
-   */
+  // GET /api/doctor/patients/dashboard - patient management dashboard
   async getPatientDashboard(req, res) {
     try {
       const doctorId = req.user.id;
@@ -627,10 +568,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Get comprehensive patient profile (replaces separate medical records tab)
-   * GET /api/doctor/patients/:patientId/profile
-   */
+  // GET /api/doctor/patients/:patientId/profile - full patient profile
   async getPatientProfile(req, res) {
     try {
       const errors = validationResult(req);
@@ -667,10 +605,7 @@ class DoctorController {
     }
   }
 
-  /**
-   * Get patient list with enhanced filtering
-   * GET /api/doctor/patients/list?searchQuery=John&gender=male&page=1&limit=25
-   */
+  // GET /api/doctor/patients/list - patient list with filters
   async getPatientList(req, res) {
     try {
       const doctorId = req.user.id;

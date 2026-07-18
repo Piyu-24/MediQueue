@@ -1,12 +1,6 @@
-/**
- * @fileoverview Custom Error Classes for MediQueue Application
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Custom error classes with status codes
 
-/**
- * Base Application Error class
- */
+// Base error - all the others extend this
 class AppError extends Error {
   constructor(message, statusCode = 500, isOperational = true) {
     super(message);
@@ -18,9 +12,7 @@ class AppError extends Error {
   }
 }
 
-/**
- * Validation Error class
- */
+// 400
 class ValidationError extends AppError {
   constructor(message, details = null) {
     super(message, 400);
@@ -28,45 +20,35 @@ class ValidationError extends AppError {
   }
 }
 
-/**
- * Authentication Error class
- */
+// 401
 class AuthenticationError extends AppError {
   constructor(message = 'Authentication required') {
     super(message, 401);
   }
 }
 
-/**
- * Authorization Error class
- */
+// 403
 class AuthorizationError extends AppError {
   constructor(message = 'Access denied') {
     super(message, 403);
   }
 }
 
-/**
- * Not Found Error class
- */
+// 404
 class NotFoundError extends AppError {
   constructor(message = 'Resource not found') {
     super(message, 404);
   }
 }
 
-/**
- * Conflict Error class
- */
+// 409
 class ConflictError extends AppError {
   constructor(message = 'Resource conflict') {
     super(message, 409);
   }
 }
 
-/**
- * Rate Limit Error class
- */
+// 429
 class RateLimitError extends AppError {
   constructor(message = 'Rate limit exceeded', retryAfter = 60) {
     super(message, 429);
@@ -74,9 +56,7 @@ class RateLimitError extends AppError {
   }
 }
 
-/**
- * Database Error class
- */
+// 500 - database problem
 class DatabaseError extends AppError {
   constructor(message = 'Database operation failed', originalError = null) {
     super(message, 500);
@@ -84,9 +64,7 @@ class DatabaseError extends AppError {
   }
 }
 
-/**
- * External Service Error class
- */
+// 502 - another service failed
 class ExternalServiceError extends AppError {
   constructor(message = 'External service error', service = null) {
     super(message, 502);
@@ -94,9 +72,7 @@ class ExternalServiceError extends AppError {
   }
 }
 
-/**
- * Business Logic Error class
- */
+// 422 - a business rule was broken
 class BusinessLogicError extends AppError {
   constructor(message = 'Business logic error', code = null) {
     super(message, 422);
@@ -104,17 +80,8 @@ class BusinessLogicError extends AppError {
   }
 }
 
-/**
- * Error Factory for creating appropriate error instances
- */
+// Helper to build the right error from a type string
 class ErrorFactory {
-  /**
-   * Creates an error based on type
-   * @param {string} type - Error type
-   * @param {string} message - Error message
-   * @param {*} details - Additional error details
-   * @returns {AppError} Error instance
-   */
   static createError(type, message, details = null) {
     switch (type.toLowerCase()) {
       case 'validation':
@@ -144,22 +111,13 @@ class ErrorFactory {
     }
   }
 
-  /**
-   * Creates a validation error with field details
-   * @param {Array} fieldErrors - Array of field error objects
-   * @returns {ValidationError} Validation error instance
-   */
+  // Validation error with the list of field errors
   static createValidationError(fieldErrors) {
     const message = 'Validation failed';
     return new ValidationError(message, fieldErrors);
   }
 
-  /**
-   * Creates a not found error for a specific resource
-   * @param {string} resource - Resource name
-   * @param {string} identifier - Resource identifier
-   * @returns {NotFoundError} Not found error instance
-   */
+  // Not-found error for a specific resource
   static createNotFoundError(resource, identifier = null) {
     const message = identifier 
       ? `${resource} with identifier '${identifier}' not found`
@@ -167,13 +125,7 @@ class ErrorFactory {
     return new NotFoundError(message);
   }
 
-  /**
-   * Creates a conflict error for duplicate resources
-   * @param {string} resource - Resource name
-   * @param {string} field - Conflicting field
-   * @param {string} value - Conflicting value
-   * @returns {ConflictError} Conflict error instance
-   */
+  // Conflict error for a duplicate resource
   static createConflictError(resource, field, value) {
     const message = `${resource} with ${field} '${value}' already exists`;
     return new ConflictError(message);

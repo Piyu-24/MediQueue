@@ -1,13 +1,9 @@
 const mongoose = require('mongoose');
 
-/**
- * Consultation — one record per patient-doctor consultation.
- * Created when a doctor starts a consultation (QueueEntry → in_consultation).
- * Completed when the doctor marks it done.
- * Used for calibrating the rolling average consultation duration for ETA.
- */
+// One record per consultation. Created when the doctor starts, updated when done.
+// Also used to work out the average consultation time for ETAs.
 const consultationSchema = new mongoose.Schema({
-  // ── References ────────────────────────────────────────────────────────────────
+  // References
   queueEntry: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'QueueEntry',
@@ -32,14 +28,13 @@ const consultationSchema = new mongoose.Schema({
     index: true
   },
 
-  // ── Session ───────────────────────────────────────────────────────────────────
   queueDate: {
     type: String,   // YYYY-MM-DD
     required: true,
     index: true
   },
 
-  // ── Timing ───────────────────────────────────────────────────────────────────
+  // Timing
   startedAt: {
     type: Date,
     required: true
@@ -48,21 +43,20 @@ const consultationSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
-  /** Calculated when completedAt is set */
+  // Worked out when completedAt is set
   durationMinutes: {
     type: Number,
     default: null
   },
 
-  // ── Status ───────────────────────────────────────────────────────────────────
+  // Status
   status: {
     type: String,
     enum: ['in_progress', 'completed', 'interrupted'],
     default: 'in_progress'
   },
 
-  // ── Clinical Notes ────────────────────────────────────────────────────────────
-  /** Brief notes recorded by doctor during/after consultation */
+  // Notes the doctor writes during/after the consultation
   notes: {
     type: String,
     maxlength: 2000,
@@ -77,9 +71,7 @@ const consultationSchema = new mongoose.Schema({
 consultationSchema.index({ queueEntry: 1 }, { unique: true });
 consultationSchema.index({ doctor: 1, queueDate: 1, status: 1 });
 
-/**
- * Mark consultation as completed and calculate duration.
- */
+// Mark the consultation done and work out how long it took
 consultationSchema.methods.complete = async function (notes = null) {
   this.completedAt = new Date();
   this.status = 'completed';

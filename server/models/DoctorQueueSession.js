@@ -1,11 +1,7 @@
 const mongoose = require('mongoose');
 
-/**
- * DoctorQueueSession — one queue session per doctor per day.
- *
- * Tracks whether the doctor is active, paused, or ended for the day.
- * Created automatically when the first patient is checked in for a doctor on a given date.
- */
+// One queue session per doctor per day (active/paused/ended).
+// Created automatically when the first patient checks in for that doctor.
 const doctorQueueSessionSchema = new mongoose.Schema({
   doctor: {
     type: mongoose.Schema.Types.ObjectId,
@@ -28,38 +24,34 @@ const doctorQueueSessionSchema = new mongoose.Schema({
     index: true
   },
 
-  // ── Session Status ────────────────────────────────────────────────────────────
+  // Status
   status: {
     type: String,
     enum: ['active', 'paused', 'ended'],
     default: 'active'
   },
 
-  // ── Timestamps ───────────────────────────────────────────────────────────────
+  // Timestamps
   startedAt: { type: Date, default: Date.now },
   pausedAt: { type: Date, default: null },
   resumedAt: { type: Date, default: null },
   endedAt: { type: Date, default: null },
-  /** Set when the session is explicitly closed via ClinicSessionService */
-  closedAt: { type: Date, default: null },
+  closedAt: { type: Date, default: null }, // set when the session is closed
 
-  // ── Pause Reason ─────────────────────────────────────────────────────────────
   pauseReason: {
     type: String,
     maxlength: 200,
     default: null
   },
 
-  // ── Current State ─────────────────────────────────────────────────────────────
-  /** The QueueEntry currently in CURRENT zone */
+  // The queue entry currently with the doctor
   currentQueueEntryId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'QueueEntry',
     default: null
   },
 
-  // ── ETA Calibration ──────────────────────────────────────────────────────────
-  /** Rolling average consultation duration for this session, updated after each completion */
+  // Rolling average consultation time, updated after each one finishes
   avgConsultationMinutes: {
     type: Number,
     default: 10
@@ -69,19 +61,14 @@ const doctorQueueSessionSchema = new mongoose.Schema({
     default: 0
   },
 
-  // ── Delay Message ─────────────────────────────────────────────────────────────
-  /** Broadcast to patients when queue is paused */
+  // Shown to patients when the queue is paused
   delayMessage: {
     type: String,
     maxlength: 300,
     default: null
   },
 
-  // ── Day-End Report ────────────────────────────────────────────────────────────
-  /**
-   * Populated by ClinicSessionService.closeClinicSession().
-   * Stores the daily summary inline so it survives without a separate Report doc.
-   */
+  // Daily summary, filled in when the session is closed
   dayEndReport: {
     generatedAt:            { type: Date,   default: null },
     totalServed:            { type: Number, default: null }, // status: completed
@@ -103,10 +90,7 @@ const doctorQueueSessionSchema = new mongoose.Schema({
 // One session per doctor per date
 doctorQueueSessionSchema.index({ doctor: 1, queueDate: 1 }, { unique: true });
 
-/**
- * Get or create a session for a doctor on a given date.
- * Called automatically during check-in if no session exists.
- */
+// Get the session for a doctor/date, creating it if it doesn't exist
 doctorQueueSessionSchema.statics.getOrCreate = async function (doctorId, department, queueDate, room = null) {
   let session = await this.findOne({ doctor: doctorId, queueDate });
   if (!session) {
@@ -121,10 +105,7 @@ doctorQueueSessionSchema.statics.getOrCreate = async function (doctorId, departm
   return session;
 };
 
-/**
- * Update the rolling average consultation duration after a consultation completes.
- * Uses a simple cumulative moving average.
- */
+// Update the rolling average consultation time after one finishes
 doctorQueueSessionSchema.methods.recordConsultation = async function (durationMinutes) {
   const n = this.consultationsCompleted;
   this.avgConsultationMinutes = Math.round(

@@ -1,19 +1,10 @@
-/**
- * @fileoverview Validation Helper utilities for MediQueue Application
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Reusable express-validator rules and validation middleware
 
 const { body, param, query, validationResult } = require('express-validator');
 const { ValidationError } = require('./errors');
 
-/**
- * ValidationHelper class providing common validation rules and utilities
- */
 class ValidationHelper {
-  /**
-   * Common validation rules for user-related fields
-   */
+  // Rules for user fields
   static get userValidations() {
     return {
       email: body('email')
@@ -63,9 +54,7 @@ class ValidationHelper {
     };
   }
 
-  /**
-   * Common validation rules for appointment-related fields
-   */
+  // Rules for appointment fields
   static get appointmentValidations() {
     return {
       appointmentDate: body('appointmentDate')
@@ -99,9 +88,7 @@ class ValidationHelper {
     };
   }
 
-  /**
-   * Common validation rules for medical record fields
-   */
+  // Rules for medical record fields
   static get medicalRecordValidations() {
     return {
       diagnosis: body('diagnosis')
@@ -135,9 +122,7 @@ class ValidationHelper {
     };
   }
 
-  /**
-   * Common parameter validations
-   */
+  // Rules for URL params
   static get paramValidations() {
     return {
       id: param('id')
@@ -154,9 +139,7 @@ class ValidationHelper {
     };
   }
 
-  /**
-   * Common query parameter validations
-   */
+  // Rules for query params
   static get queryValidations() {
     return {
       page: query('page')
@@ -199,10 +182,7 @@ class ValidationHelper {
     };
   }
 
-  /**
-   * Creates validation middleware for user registration
-   * @returns {Array} Array of validation middleware
-   */
+  // Validation middleware for registration
   static validateUserRegistration() {
     return [
       this.userValidations.email,
@@ -216,10 +196,7 @@ class ValidationHelper {
     ];
   }
 
-  /**
-   * Creates validation middleware for user login
-   * @returns {Array} Array of validation middleware
-   */
+  // Validation middleware for login
   static validateUserLogin() {
     return [
       body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email'),
@@ -228,10 +205,7 @@ class ValidationHelper {
     ];
   }
 
-  /**
-   * Creates validation middleware for appointment creation
-   * @returns {Array} Array of validation middleware
-   */
+  // Validation middleware for creating an appointment
   static validateAppointmentCreation() {
     return [
       body('doctorId').isMongoId().withMessage('Invalid doctor ID'),
@@ -243,10 +217,7 @@ class ValidationHelper {
     ];
   }
 
-  /**
-   * Creates validation middleware for medical record creation
-   * @returns {Array} Array of validation middleware
-   */
+  // Validation middleware for creating a medical record
   static validateMedicalRecordCreation() {
     return [
       body('patientId').isMongoId().withMessage('Invalid patient ID'),
@@ -260,10 +231,7 @@ class ValidationHelper {
     ];
   }
 
-  /**
-   * Creates validation middleware for pagination and filtering
-   * @returns {Array} Array of validation middleware
-   */
+  // Validation middleware for pagination params
   static validatePagination() {
     return [
       this.queryValidations.page,
@@ -274,10 +242,7 @@ class ValidationHelper {
     ];
   }
 
-  /**
-   * Creates validation middleware for date range queries
-   * @returns {Array} Array of validation middleware
-   */
+  // Validation middleware for a date range
   static validateDateRange() {
     return [
       this.queryValidations.startDate,
@@ -286,10 +251,7 @@ class ValidationHelper {
     ];
   }
 
-  /**
-   * Creates validation middleware for ID parameters
-   * @returns {Array} Array of validation middleware
-   */
+  // Validation middleware for an :id param
   static validateIdParam() {
     return [
       this.paramValidations.id,
@@ -297,12 +259,7 @@ class ValidationHelper {
     ];
   }
 
-  /**
-   * Middleware to handle validation errors
-   * @param {Object} req - Express request object
-   * @param {Object} res - Express response object
-   * @param {Function} next - Express next function
-   */
+  // Throw a ValidationError if any rule above failed
   static handleValidationErrors(req, res, next) {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -317,11 +274,7 @@ class ValidationHelper {
     next();
   }
 
-  /**
-   * Custom validator for file uploads
-   * @param {Object} options - Validation options
-   * @returns {Function} Validation middleware
-   */
+  // Middleware to check an uploaded file's type and size
   static validateFileUpload(options = {}) {
     const {
       allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'],
@@ -348,11 +301,7 @@ class ValidationHelper {
     };
   }
 
-  /**
-   * Sanitizes input data by removing potentially harmful content
-   * @param {Object} data - Data to sanitize
-   * @returns {Object} Sanitized data
-   */
+  // Strip HTML tags from string values in an object
   static sanitizeInput(data) {
     if (typeof data !== 'object' || data === null) {
       return data;
@@ -375,11 +324,7 @@ class ValidationHelper {
     return sanitized;
   }
 
-  /**
-   * Validates business rules for appointments
-   * @param {Object} appointmentData - Appointment data to validate
-   * @returns {Array} Array of validation errors
-   */
+  // Check appointment booking rules (hours, weekday, 24h notice)
   static validateAppointmentBusinessRules(appointmentData) {
     const errors = [];
     const appointmentDate = new Date(appointmentData.appointmentDate);

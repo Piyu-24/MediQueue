@@ -23,7 +23,7 @@ import AppointmentBooking from './AppointmentBooking';
 import MedicalRecords from './MedicalRecords';
 import toast from 'react-hot-toast';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// Helpers
 
 /** Convert HH:MM (24-hour) to 12-hour with AM/PM. */
 const fmt12 = (hhmm) => {
@@ -109,7 +109,7 @@ const PatientDashboardEnhanced = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Socket.io real-time subscriptions ──────────────────────────────────────
+  // Socket.io real-time subscriptions
   useEffect(() => {
     if (!user?._id) return;
 

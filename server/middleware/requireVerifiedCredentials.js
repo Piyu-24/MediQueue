@@ -1,17 +1,5 @@
-/**
- * Credential-verification gate.
- *
- * Clinical staff (doctor, pharmacist, receptionist, staff) may only reach
- * protected clinical routes once an administrator has verified their
- * professional credentials (credentialVerificationStatus === 'verified').
- *
- * This is the second half of the C-2 fix: even if an account somehow holds a
- * clinical role, it cannot touch patient data until an admin has vetted it.
- *
- * - Admins bypass the gate (they perform the verification).
- * - Patients are not subject to credential verification.
- * - Must run AFTER the `auth` middleware (relies on req.user).
- */
+// Blocks clinical staff from clinical routes until an admin has verified their
+// credentials. Admins and patients are not affected. Must run after auth.
 const CLINICAL_ROLES = ['doctor', 'pharmacist', 'receptionist', 'staff'];
 
 const requireVerifiedCredentials = (req, res, next) => {

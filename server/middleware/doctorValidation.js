@@ -1,15 +1,9 @@
 const { body, param, query } = require('express-validator');
 const mongoose = require('mongoose');
 
-/**
- * Doctor Portal Input Validation Middleware
- * Follows Open/Closed Principle - Easy to extend without modifying existing validations
- * Provides comprehensive input validation for all doctor operations
- */
+// Input validation rules for the doctor routes
 
-/**
- * Validation for patient search
- */
+// Patient search
 const validatePatientSearch = [
   query('q')
     .notEmpty()
@@ -20,9 +14,7 @@ const validatePatientSearch = [
     .escape()
 ];
 
-/**
- * Validation for patient ID parameter
- */
+// :patientId param
 const validatePatientId = [
   param('patientId')
     .notEmpty()
@@ -35,9 +27,7 @@ const validatePatientId = [
     })
 ];
 
-/**
- * Validation for medical record ID parameter
- */
+// :recordId param
 const validateRecordId = [
   param('recordId')
     .notEmpty()
@@ -50,10 +40,7 @@ const validateRecordId = [
     })
 ];
 
-/**
- * Validation for treatment note creation
- * User Story 4: Add new treatment notes
- */
+// Creating a treatment note
 const validateTreatmentNote = [
   body('title')
     .notEmpty()
@@ -210,10 +197,7 @@ const validateTreatmentNote = [
     .trim()
 ];
 
-/**
- * Validation for treatment note updates
- * User Story 5: Update patient records
- */
+// Updating a treatment note (all fields optional)
 const validateTreatmentNoteUpdate = [
   // Allow partial updates - all fields are optional but must be valid if provided
   body('title')
@@ -243,10 +227,7 @@ const validateTreatmentNoteUpdate = [
   )
 ];
 
-/**
- * Validation for doctor availability updates
- * User Story 6: Manage schedule
- */
+// Updating availability
 const validateAvailability = [
   // Validate each day of the week
   ...['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => [
@@ -278,9 +259,7 @@ const validateAvailability = [
   ]).flat()
 ];
 
-/**
- * Custom validation middleware to check if user is a doctor
- */
+// Only allow doctors through
 const validateDoctorRole = (req, res, next) => {
   if (req.user.role !== 'doctor') {
     return res.status(403).json({
@@ -291,11 +270,8 @@ const validateDoctorRole = (req, res, next) => {
   next();
 };
 
-/**
- * Sanitization middleware to clean input data
- */
+// Strip out dangerous keys to prevent prototype pollution
 const sanitizeInput = (req, res, next) => {
-  // Remove any potentially dangerous fields
   const dangerousFields = ['__proto__', 'constructor', 'prototype'];
   
   const sanitizeObject = (obj) => {

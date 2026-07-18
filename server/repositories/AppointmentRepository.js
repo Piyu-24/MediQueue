@@ -1,32 +1,16 @@
-/**
- * @fileoverview Appointment Repository implementing data access for Appointment model
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Database access for appointments
 
 const BaseRepository = require('../core/BaseRepository');
 const Appointment = require('../models/Appointment');
 const Logger = require('../utils/Logger');
 const { ConflictError, BusinessLogicError } = require('../utils/errors');
 
-/**
- * AppointmentRepository class handling Appointment-specific data operations
- * Extends BaseRepository following Repository pattern
- */
 class AppointmentRepository extends BaseRepository {
-  /**
-   * Creates an instance of AppointmentRepository
-   */
   constructor() {
     super(Appointment, Logger.getLogger('AppointmentRepository'));
   }
 
-  /**
-   * Finds appointments by patient ID
-   * @param {string} patientId - Patient ID
-   * @param {Object} options - Query options
-   * @returns {Promise<Object>} Paginated appointments result
-   */
+  // Get a patient's appointments
   async findByPatientId(patientId, options = {}) {
     try {
       this.logger.debug('Finding appointments by patient ID', { patientId });
@@ -44,12 +28,7 @@ class AppointmentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Finds appointments by doctor ID
-   * @param {string} doctorId - Doctor ID
-   * @param {Object} options - Query options
-   * @returns {Promise<Object>} Paginated appointments result
-   */
+  // Get a doctor's appointments
   async findByDoctorId(doctorId, options = {}) {
     try {
       this.logger.debug('Finding appointments by doctor ID', { doctorId });
@@ -67,14 +46,7 @@ class AppointmentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Finds appointments by date range
-   * @param {Date} startDate - Start date
-   * @param {Date} endDate - End date
-   * @param {Object} filters - Additional filters
-   * @param {Object} options - Query options
-   * @returns {Promise<Object>} Paginated appointments result
-   */
+  // Get appointments within a date range
   async findByDateRange(startDate, endDate, filters = {}, options = {}) {
     try {
       this.logger.debug('Finding appointments by date range', { startDate, endDate });
@@ -100,12 +72,7 @@ class AppointmentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Finds appointments by status
-   * @param {string} status - Appointment status
-   * @param {Object} options - Query options
-   * @returns {Promise<Object>} Paginated appointments result
-   */
+  // Get appointments with a given status
   async findByStatus(status, options = {}) {
     try {
       this.logger.debug('Finding appointments by status', { status });
@@ -123,19 +90,14 @@ class AppointmentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Creates a new appointment with conflict checking
-   * @param {Object} appointmentData - Appointment data
-   * @param {Object} options - Creation options
-   * @returns {Promise<Object>} Created appointment document
-   */
+  // Create an appointment after checking for conflicts
   async createAppointment(appointmentData, options = {}) {
     try {
-      this.logger.debug('Creating new appointment', { 
+      this.logger.debug('Creating new appointment', {
         doctorId: appointmentData.doctor,
-        appointmentDate: appointmentData.appointmentDate 
+        appointmentDate: appointmentData.appointmentDate
       });
-      
+
       // Check for scheduling conflicts
       await this.checkSchedulingConflicts(
         appointmentData.doctor,
@@ -150,13 +112,7 @@ class AppointmentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Updates appointment status
-   * @param {string} appointmentId - Appointment ID
-   * @param {string} status - New status
-   * @param {Object} options - Update options
-   * @returns {Promise<Object>} Updated appointment document
-   */
+  // Update an appointment's status
   async updateStatus(appointmentId, status, options = {}) {
     try {
       this.logger.debug('Updating appointment status', { appointmentId, status });
@@ -178,19 +134,12 @@ class AppointmentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Reschedules an appointment
-   * @param {string} appointmentId - Appointment ID
-   * @param {Date} newDate - New appointment date
-   * @param {number} duration - Appointment duration
-   * @param {Object} options - Update options
-   * @returns {Promise<Object>} Updated appointment document
-   */
+  // Reschedule an appointment to a new date
   async reschedule(appointmentId, newDate, duration = 30, options = {}) {
     try {
       this.logger.debug('Rescheduling appointment', { appointmentId, newDate });
       
-      // Get current appointment to check doctor
+      // Load it so we know which doctor to check
       const appointment = await this.findById(appointmentId);
       if (!appointment) {
         throw new NotFoundError('Appointment not found');
@@ -211,12 +160,7 @@ class AppointmentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Gets today's appointments for a doctor
-   * @param {string} doctorId - Doctor ID
-   * @param {Object} options - Query options
-   * @returns {Promise<Array>} Today's appointments
-   */
+  // Get a doctor's appointments for today
   async getTodayAppointments(doctorId, options = {}) {
     try {
       this.logger.debug('Getting today\'s appointments', { doctorId });
@@ -237,13 +181,7 @@ class AppointmentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Gets upcoming appointments for a patient
-   * @param {string} patientId - Patient ID
-   * @param {number} limit - Number of appointments to return
-   * @param {Object} options - Query options
-   * @returns {Promise<Array>} Upcoming appointments
-   */
+  // Get a patient's upcoming appointments
   async getUpcomingAppointments(patientId, limit = 10, options = {}) {
     try {
       this.logger.debug('Getting upcoming appointments', { patientId, limit });
@@ -267,11 +205,7 @@ class AppointmentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Gets appointment statistics
-   * @param {Object} filters - Filter criteria
-   * @returns {Promise<Object>} Appointment statistics
-   */
+  // Count appointments grouped by status
   async getAppointmentStatistics(filters = {}) {
     try {
       this.logger.debug('Getting appointment statistics', { filters });
@@ -305,15 +239,7 @@ class AppointmentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Checks for scheduling conflicts
-   * @param {string} doctorId - Doctor ID
-   * @param {Date} appointmentDate - Appointment date
-   * @param {number} duration - Appointment duration in minutes
-   * @param {string} excludeAppointmentId - Appointment ID to exclude from conflict check
-   * @throws {ConflictError} If scheduling conflict exists
-   * @private
-   */
+  // Throw if the doctor already has an appointment overlapping this time
   async checkSchedulingConflicts(doctorId, appointmentDate, duration, excludeAppointmentId = null) {
     try {
       const startTime = new Date(appointmentDate);
@@ -363,12 +289,7 @@ class AppointmentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Gets appointment history for a patient
-   * @param {string} patientId - Patient ID
-   * @param {Object} options - Query options
-   * @returns {Promise<Object>} Appointment history
-   */
+  // Get a patient's past appointments (newest first)
   async getAppointmentHistory(patientId, options = {}) {
     try {
       this.logger.debug('Getting appointment history', { patientId });
@@ -384,13 +305,7 @@ class AppointmentRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Cancels an appointment
-   * @param {string} appointmentId - Appointment ID
-   * @param {string} cancellationReason - Reason for cancellation
-   * @param {Object} options - Update options
-   * @returns {Promise<Object>} Updated appointment document
-   */
+  // Cancel an appointment
   async cancelAppointment(appointmentId, cancellationReason, options = {}) {
     try {
       this.logger.debug('Cancelling appointment', { appointmentId, cancellationReason });

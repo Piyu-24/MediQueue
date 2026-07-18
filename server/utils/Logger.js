@@ -1,25 +1,13 @@
-/**
- * @fileoverview Centralized Logging System for MediQueue Application
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Sets up logging with winston. Keeps one logger per module.
 
 const winston = require('winston');
 const path = require('path');
 
-/**
- * Logger Configuration and Factory
- * Implements Singleton pattern for consistent logging across the application
- */
 class Logger {
   static instance = null;
   static loggers = new Map();
 
-  /**
-   * Gets or creates a logger instance for a specific module
-   * @param {string} module - Module name for the logger
-   * @returns {winston.Logger} Winston logger instance
-   */
+  // Get the logger for a module, creating it if needed
   static getLogger(module = 'app') {
     if (this.loggers.has(module)) {
       return this.loggers.get(module);
@@ -30,11 +18,7 @@ class Logger {
     return logger;
   }
 
-  /**
-   * Creates a new Winston logger instance
-   * @param {string} module - Module name
-   * @returns {winston.Logger} Configured logger instance
-   */
+  // Build a new winston logger
   static createLogger(module) {
     const logLevel = process.env.LOG_LEVEL || 'info';
     const logDir = process.env.LOG_DIR || 'logs';
@@ -157,23 +141,13 @@ class Logger {
     return winston.createLogger(loggerConfig);
   }
 
-  /**
-   * Creates a child logger with additional metadata
-   * @param {string} module - Parent module name
-   * @param {Object} meta - Additional metadata
-   * @returns {winston.Logger} Child logger instance
-   */
+  // Make a child logger that adds extra metadata
   static createChildLogger(module, meta = {}) {
     const parentLogger = this.getLogger(module);
     return parentLogger.child(meta);
   }
 
-  /**
-   * Logs HTTP request information
-   * @param {Object} req - Express request object
-   * @param {Object} res - Express response object
-   * @param {number} duration - Request duration in milliseconds
-   */
+  // Log an HTTP request
   static logHttpRequest(req, res, duration) {
     const logger = this.getLogger('http');
     const logData = {
@@ -194,14 +168,7 @@ class Logger {
     }
   }
 
-  /**
-   * Logs database operations
-   * @param {string} operation - Database operation type
-   * @param {string} collection - Collection/table name
-   * @param {Object} query - Query parameters
-   * @param {number} duration - Operation duration in milliseconds
-   * @param {Object} result - Operation result
-   */
+  // Log a database operation
   static logDatabaseOperation(operation, collection, query, duration, result) {
     const logger = this.getLogger('database');
     logger.debug('Database Operation', {
@@ -213,12 +180,7 @@ class Logger {
     });
   }
 
-  /**
-   * Logs security events
-   * @param {string} event - Security event type
-   * @param {Object} details - Event details
-   * @param {string} severity - Event severity (low, medium, high, critical)
-   */
+  // Log a security event, picking the log level from the severity
   static logSecurityEvent(event, details, severity = 'medium') {
     const logger = this.getLogger('security');
     const logMethod = severity === 'critical' ? 'error' : 
@@ -232,12 +194,7 @@ class Logger {
     });
   }
 
-  /**
-   * Logs business events for audit purposes
-   * @param {string} event - Business event type
-   * @param {Object} details - Event details
-   * @param {string} userId - User ID who triggered the event
-   */
+  // Log a business event for the audit trail
   static logBusinessEvent(event, details, userId) {
     const logger = this.getLogger('business');
     logger.info('Business Event', {
@@ -248,11 +205,7 @@ class Logger {
     });
   }
 
-  /**
-   * Sanitizes query parameters for logging (removes sensitive data)
-   * @param {Object} query - Query object to sanitize
-   * @returns {Object} Sanitized query object
-   */
+  // Redact sensitive fields before logging a query
   static sanitizeQuery(query) {
     if (!query || typeof query !== 'object') {
       return query;
@@ -275,10 +228,7 @@ class Logger {
     return sanitized;
   }
 
-  /**
-   * Creates middleware for HTTP request logging
-   * @returns {Function} Express middleware function
-   */
+  // Express middleware that logs each request when it finishes
   static createHttpLoggerMiddleware() {
     return (req, res, next) => {
       const startTime = Date.now();
@@ -292,9 +242,7 @@ class Logger {
     };
   }
 
-  /**
-   * Gracefully closes all loggers
-   */
+  // Close all loggers cleanly
   static async close() {
     const closePromises = Array.from(this.loggers.values()).map(logger => {
       return new Promise((resolve) => {

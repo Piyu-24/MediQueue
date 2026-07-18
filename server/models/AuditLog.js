@@ -1,9 +1,6 @@
 const mongoose = require('mongoose');
 
-/**
- * AuditLog Model - Tracks all system activities for compliance and security
- * Follows Single Responsibility Principle - Only handles audit logging
- */
+// Logs system activity for security and compliance
 const auditLogSchema = new mongoose.Schema({
   // User Information
   userId: {

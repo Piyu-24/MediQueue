@@ -12,7 +12,7 @@ import PrescriptionForm from './PrescriptionForm';
 import icd10Codes from '../../data/icd10_codes.json';
 import toast from 'react-hot-toast';
 
-// ─── Print helper ────────────────────────────────────────────────────────────
+// Print helper
 const printPrescription = ({ patient, doctor, formData, prescriptions, date }) => {
   const drugsHTML = prescriptions
     .filter((r) => r.name)
@@ -117,7 +117,7 @@ const printPrescription = ({ patient, doctor, formData, prescriptions, date }) =
   if (win) { win.document.write(html); win.document.close(); }
 };
 
-// ─── ICD-10 search ───────────────────────────────────────────────────────────
+// ICD-10 search
 const useICD10Search = () => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -143,7 +143,7 @@ const useICD10Search = () => {
   return { query, setQuery, results, show, setShow, search };
 };
 
-// ─── Main Modal ──────────────────────────────────────────────────────────────
+// Main Modal
 const ConsultationNoteModal = ({ entry, doctor, onClose, onSaved }) => {
   const [saving, setSaving] = useState(false);
   const [sendingToDispensary, setSendingToDispensary] = useState(false);

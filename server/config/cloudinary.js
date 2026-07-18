@@ -1,13 +1,8 @@
 const { v2: cloudinary } = require('cloudinary');
 
-/**
- * Cloudinary configuration for protected (authenticated) uploads.
- *
- * Assets are uploaded with `type: 'authenticated'`, so they are NOT publicly
- * accessible — they can only be delivered through a signed, expiring URL
- * generated with the API secret (see utils/signedFileUrl.js). This is the
- * Cloudinary equivalent of the local signed-URL scheme and keeps PHI private.
- */
+// Cloudinary setup for private uploads.
+// Files are uploaded as 'authenticated' so they aren't public - they can only
+// be reached through a signed URL (see utils/signedFileUrl.js).
 
 function isPlaceholder(v) {
   return !v || /^your_/i.test(String(v).trim());

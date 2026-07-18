@@ -8,10 +8,8 @@ const SENSITIVE_KEYS = new Set([
   'nicnumber', 'cardnumber', 'cvv', 'ssn',
 ]);
 
-/**
- * Return a deep copy of a value with sensitive fields masked, safe for logging.
- * Never mutates the input. Bounded depth to avoid huge/cyclic structures.
- */
+// Return a copy with sensitive fields masked, safe to log.
+// Doesn't change the original, and stops after a few levels deep.
 function redactSensitive(value, depth = 0) {
   if (value == null || depth > 5) return value;
   if (Array.isArray(value)) return value.map((v) => redactSensitive(v, depth + 1));

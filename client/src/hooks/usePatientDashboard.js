@@ -1,18 +1,10 @@
-/**
- * @fileoverview Custom hook for patient dashboard business logic
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Hook that holds the patient dashboard data and actions,
+// so the components can stay focused on the UI
 
 import { useState, useEffect, useCallback } from 'react';
 import { useService } from './useService';
 import toast from 'react-hot-toast';
 
-/**
- * Custom hook for patient dashboard data and operations
- * Separates business logic from UI components
- * @returns {Object} Dashboard data and operations
- */
 export const usePatientDashboard = () => {
   const patientService = useService('patient');
   
@@ -27,9 +19,7 @@ export const usePatientDashboard = () => {
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  /**
-   * Fetches all dashboard data
-   */
+  // Load all the dashboard data
   const fetchDashboardData = useCallback(async () => {
     if (!patientService) return;
 
@@ -47,17 +37,14 @@ export const usePatientDashboard = () => {
     }
   }, [patientService]);
 
-  /**
-   * Refreshes dashboard data
-   */
+  // Reload the dashboard, ignoring the cache
   const refreshData = useCallback(async () => {
     if (!patientService) return;
 
     try {
       setRefreshing(true);
       setError(null);
-      
-      // Clear cache to get fresh data
+
       patientService.clearCache('patient_dashboard');
       
       const dashboardData = await patientService.getDashboardData();
@@ -71,17 +58,13 @@ export const usePatientDashboard = () => {
     }
   }, [patientService]);
 
-  /**
-   * Books a new appointment
-   * @param {Object} appointmentData - Appointment data
-   */
+  // Book an appointment and add it to local state
   const bookAppointment = useCallback(async (appointmentData) => {
     if (!patientService) return;
 
     try {
       const newAppointment = await patientService.bookAppointment(appointmentData);
-      
-      // Update local state
+
       setData(prevData => ({
         ...prevData,
         appointments: [newAppointment, ...prevData.appointments]
@@ -95,18 +78,13 @@ export const usePatientDashboard = () => {
     }
   }, [patientService]);
 
-  /**
-   * Cancels an appointment
-   * @param {string} appointmentId - Appointment ID
-   * @param {string} reason - Cancellation reason
-   */
+  // Cancel an appointment and update local state
   const cancelAppointment = useCallback(async (appointmentId, reason) => {
     if (!patientService) return;
 
     try {
       await patientService.cancelAppointment(appointmentId, reason);
-      
-      // Update local state
+
       setData(prevData => ({
         ...prevData,
         appointments: prevData.appointments.map(apt => 
@@ -123,9 +101,7 @@ export const usePatientDashboard = () => {
     }
   }, [patientService]);
 
-  /**
-   * Gets upcoming appointments
-   */
+  // Get upcoming appointments
   const getUpcomingAppointments = useCallback(async () => {
     if (!patientService) return [];
 

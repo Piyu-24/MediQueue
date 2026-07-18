@@ -1,9 +1,6 @@
 const mongoose = require('mongoose');
 
-/**
- * Prescription Model - Electronic Prescription Management
- * Handles drug prescriptions, interactions, and safety checks
- */
+// A prescription: the drugs, interactions and safety checks
 const prescriptionSchema = new mongoose.Schema({
   // Patient and Doctor Information
   patient: {

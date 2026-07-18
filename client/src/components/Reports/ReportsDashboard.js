@@ -40,7 +40,7 @@ import {
 } from 'recharts';
 import { analyticsAPI } from '../../services/api';
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// Constants
 
 const PIE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#F97316'];
 
@@ -60,7 +60,7 @@ const STATUS_COLORS = {
   inQueue:   '#8B5CF6',
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// Helpers
 
 const fmtDate = (iso) =>
   new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -70,7 +70,7 @@ const nDaysAgo = (n) =>
 
 const today = () => new Date().toISOString().split('T')[0];
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// Sub-components
 
 const KpiCard = ({ label, value, sub, color = '#3B82F6' }) => (
   <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
@@ -106,7 +106,7 @@ const ErrorState = ({ message, onRetry }) => (
   </div>
 );
 
-// ── Report Panels ─────────────────────────────────────────────────────────────
+// Report panels
 
 const PatientVisitsPanel = ({ data, meta }) => {
   if (!data) return <InsufficientData />;
@@ -292,7 +292,7 @@ const DoctorActivityPanel = ({ data, meta }) => {
   );
 };
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// Main component
 
 const REPORT_TABS = [
   { id: 'patient-visits',   label: 'Patient Visits',    icon: UsersIcon },

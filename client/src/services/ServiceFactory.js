@@ -1,38 +1,23 @@
-/**
- * @fileoverview Service Factory for frontend dependency injection
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Creates and hands out the frontend service instances
 
 import ApiService from './ApiService';
 import PatientService from './PatientService';
 
-/**
- * ServiceFactory class implementing Factory pattern for frontend services
- * Provides dependency injection and service management
- */
 class ServiceFactory {
   static instances = new Map();
   static initialized = false;
 
-  /**
-   * Initializes the service factory
-   */
+  // Set up the services once
   static initialize() {
     if (this.initialized) return;
 
-    // Initialize core services
     this.instances.set('api', ApiService.getInstance());
     this.instances.set('patient', new PatientService());
 
     this.initialized = true;
   }
 
-  /**
-   * Gets a service instance
-   * @param {string} serviceName - Name of the service
-   * @returns {Object} Service instance
-   */
+  // Get a service by name
   static getService(serviceName) {
     if (!this.initialized) {
       this.initialize();
@@ -45,19 +30,12 @@ class ServiceFactory {
     return this.instances.get(serviceName);
   }
 
-  /**
-   * Registers a new service
-   * @param {string} serviceName - Name of the service
-   * @param {Object} serviceInstance - Service instance
-   */
+  // Add a service
   static registerService(serviceName, serviceInstance) {
     this.instances.set(serviceName, serviceInstance);
   }
 
-  /**
-   * Gets all available services
-   * @returns {Array} Array of service names
-   */
+  // List the service names
   static getAvailableServices() {
     if (!this.initialized) {
       this.initialize();
@@ -65,10 +43,7 @@ class ServiceFactory {
     return Array.from(this.instances.keys());
   }
 
-  /**
-   * Gets health status of all services
-   * @returns {Promise<Object>} Health status
-   */
+  // Collect health info from every service
   static async getHealthStatus() {
     if (!this.initialized) {
       this.initialize();
@@ -96,9 +71,7 @@ class ServiceFactory {
     return status;
   }
 
-  /**
-   * Clears all service caches
-   */
+  // Clear the cache on every service
   static clearAllCaches() {
     for (const service of this.instances.values()) {
       if (typeof service.clearCache === 'function') {
@@ -107,9 +80,7 @@ class ServiceFactory {
     }
   }
 
-  /**
-   * Resets the factory (useful for testing)
-   */
+  // Reset everything (handy in tests)
   static reset() {
     this.instances.clear();
     this.initialized = false;

@@ -5,16 +5,10 @@ const Appointment = require('../models/Appointment');
 const mongoose = require('mongoose');
 const { signFileUrl } = require('../utils/signedFileUrl');
 
-/**
- * DoctorService - Business logic for doctor operations
- * Follows Single Responsibility Principle and Dependency Inversion
- */
+// Business logic for doctor operations
 class DoctorService {
-  
-  /**
-   * Enhanced patient search with advanced filters
-   * User Story: As a doctor, I need to search for patients with multiple criteria
-   */
+
+  // Search patients with filters (name, phone, email, health card, etc.)
   async searchPatients(searchQuery, filters = {}, doctorId, requestInfo) {
     try {
       let searchCriteria = {
@@ -265,9 +259,7 @@ class DoctorService {
     }
   }
 
-  /**
-   * Get recent patients for doctor (quick access)
-   */
+  // Get the doctor's recent patients
   async getRecentPatients(doctorId, limit = 10, requestInfo) {
     try {
       // Get recent patients from medical records or appointments
@@ -349,10 +341,7 @@ class DoctorService {
     }
   }
 
-  /**
-   * Calculate age from date of birth
-   * @private
-   */
+  // Work out age from date of birth
   _calculateAge(dateOfBirth) {
     if (!dateOfBirth) return null;
     const today = new Date();
@@ -365,10 +354,7 @@ class DoctorService {
     return age;
   }
 
-  /**
-   * Get complete patient medical history
-   * User Story 3: View patient's complete medical history
-   */
+  // Get a patient's full medical history
   async getPatientMedicalHistory(patientId, doctorId, requestInfo) {
     try {
       // Validate patient exists
@@ -414,8 +400,7 @@ class DoctorService {
         metadata: { recordCount: medicalRecords.length }
       });
 
-      // Sign any embedded attachment URLs (raw /uploads/... paths are no longer
-      // publicly served — see utils/signedFileUrl.js).
+      // Turn attached file paths into signed URLs before sending them back
       for (const rec of medicalRecords) {
         if (Array.isArray(rec.documents)) {
           rec.documents = rec.documents.map(doc =>
@@ -459,10 +444,7 @@ class DoctorService {
     }
   }
 
-  /**
-   * Add treatment notes to patient record
-   * User Story 4: Add new treatment notes during/after consultation
-   */
+  // Add a treatment note (saved as a medical record)
   async addTreatmentNote(patientId, treatmentData, doctorId, requestInfo) {
     let session = null;
     let useTransaction = false;
@@ -568,10 +550,7 @@ class DoctorService {
     }
   }
 
-  /**
-   * Update existing treatment note
-   * User Story 5: Update patient records with secure logging
-   */
+  // Update an existing treatment note (keeps a version history)
   async updateTreatmentNote(recordId, updateData, doctorId, requestInfo) {
     let session = null;
     let useTransaction = false;
@@ -595,7 +574,7 @@ class DoctorService {
         throw new Error('Medical record not found');
       }
 
-      // Verify doctor has permission to update this record
+      // A doctor can only update their own notes
       if (originalRecord.doctor.toString() !== doctorId.toString()) {
         throw new Error('Unauthorized: You can only update your own treatment notes');
       }
@@ -680,10 +659,7 @@ class DoctorService {
     }
   }
 
-  /**
-   * Get doctor's schedule and availability
-   * User Story 6 & 7: Manage schedule and check available slots
-   */
+  // Get the doctor's schedule and upcoming appointments
   async getDoctorSchedule(doctorId, requestInfo) {
     try {
       const doctor = await User.findById(doctorId)
@@ -734,10 +710,7 @@ class DoctorService {
     }
   }
 
-  /**
-   * Update doctor's availability
-   * User Story 6: Manage schedule and block specific times
-   */
+  // Update the doctor's availability
   async updateAvailability(doctorId, availabilityData, requestInfo) {
     try {
       const originalDoctor = await User.findById(doctorId);
@@ -776,10 +749,7 @@ class DoctorService {
     }
   }
 
-  /**
-   * Helper method to summarize record types
-   * @private
-   */
+  // Count how many records there are of each type
   _getRecordTypeSummary(records) {
     const summary = {};
     records.forEach(record => {

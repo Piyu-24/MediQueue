@@ -1,8 +1,4 @@
-/**
- * @fileoverview Appointments List Component
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Shows the patient's list of appointments
 
 import React from 'react';
 import {
@@ -11,29 +7,14 @@ import {
   MapPinIcon
 } from '@heroicons/react/24/outline';
 
-/**
- * AppointmentsList component for displaying patient appointments
- * Follows Single Responsibility Principle - only renders appointments list
- * @param {Object} props - Component props
- * @param {Array} props.appointments - Appointments array
- * @param {boolean} props.loading - Loading state
- * @param {Function} props.onViewDetails - Callback for viewing appointment details
- * @param {Function} props.onCancel - Callback for cancelling appointment
- * @param {Function} props.onReschedule - Callback for rescheduling appointment
- * @returns {JSX.Element} Appointments list component
- */
-const AppointmentsList = ({ 
+const AppointmentsList = ({
   appointments = [], 
   loading = false,
   onViewDetails = () => {},
   onCancel = () => {},
   onReschedule = () => {}
 }) => {
-  /**
-   * Gets status badge styling
-   * @param {string} status - Appointment status
-   * @returns {string} CSS classes for status badge
-   */
+  // CSS classes for the status badge
   const getStatusBadge = (status) => {
     const statusStyles = {
       scheduled: 'bg-blue-100 text-blue-800',
@@ -46,11 +27,7 @@ const AppointmentsList = ({
     return statusStyles[status] || 'bg-gray-100 text-gray-800';
   };
 
-  /**
-   * Formats appointment date and time
-   * @param {string|Date} dateTime - Appointment date time
-   * @returns {Object} Formatted date and time
-   */
+  // Split an appointment datetime into a date and time string
   const formatDateTime = (dateTime) => {
     const date = new Date(dateTime);
     return {
@@ -66,11 +43,7 @@ const AppointmentsList = ({
     };
   };
 
-  /**
-   * Checks if appointment is upcoming
-   * @param {string|Date} dateTime - Appointment date time
-   * @returns {boolean} True if appointment is upcoming
-   */
+  // True if the appointment is in the future
   const isUpcoming = (dateTime) => {
     return new Date(dateTime) > new Date();
   };

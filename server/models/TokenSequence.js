@@ -1,30 +1,11 @@
 const mongoose = require('mongoose');
 
-/**
- * TokenSequence — atomic counter for A/W/E token numbering.
- *
- * There are two sequence types:
- *   NORMAL    — shared by A (appointment) and W (walk-in) tokens.
- *               Scoped per (departmentId, date) or (doctorId, date) based on policy.
- *               Example: A001, W002, A003, W004 all come from the same counter.
- *   EMERGENCY — separate counter for E tokens, always starts at 1 each day.
- *               Scoped per departmentId + date (or globally per date).
- *
- * Token uniqueness rule:
- *   A and W tokens share a numeric sequence so that the combined display
- *   shows a meaningful ordering (A001 was patient #1, W002 was patient #2).
- *   E tokens are independent and never consume the A/W quota.
- *
- * Token scope (driven by QueuePolicy.tokenScope):
- *   dept_date_session — per department + date + timeBlock  (default)
- *   dept_date         — per department + date (shared across all blocks)
- *   doctor_date       — per doctor + date (specialist booking)
- *
- * The TokenSequenceService uses findOneAndUpdate with $inc and upsert:true
- * for atomic counter increments — no race conditions, no retries needed.
- */
+// Counter for token numbers.
+// NORMAL is shared by A and W tokens (so A001, W002, A003 all come from one counter).
+// EMERGENCY is a separate counter for E tokens.
+// The scope keys (department/doctor/date/block) depend on QueuePolicy.tokenScope.
 const tokenSequenceSchema = new mongoose.Schema({
-  // ── Scope keys (only the fields relevant to the chosen tokenScope are set) ───
+  // Scope keys - only the ones relevant to the chosen scope are set
   departmentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Department',
@@ -51,14 +32,14 @@ const tokenSequenceSchema = new mongoose.Schema({
     default: null
   },
 
-  // ── Counter type ──────────────────────────────────────────────────────────────
+  // Which counter this is
   sequenceType: {
     type: String,
     enum: ['NORMAL', 'EMERGENCY'],
     required: true
   },
 
-  // ── Counter ───────────────────────────────────────────────────────────────────
+  // The last number handed out
   lastNumber: {
     type: Number,
     default: 0,

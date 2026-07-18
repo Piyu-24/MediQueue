@@ -1,8 +1,4 @@
-
-/**
- * Jest Setup File
- * Initializes test environment, global test utilities, and database configuration
- */
+// Jest setup: test env vars, global helpers, and the test database
 
 const TestDatabase = require('./testDatabase');
 
@@ -24,19 +20,12 @@ global.console = {
   error: jest.fn()
 };
 
-// ---------------------------------------------------------------------------
-// Global TestDatabase — used by integration tests via global.TestDatabase
-// ---------------------------------------------------------------------------
+// Used by integration tests via global.TestDatabase
 global.TestDatabase = TestDatabase;
 
-// ---------------------------------------------------------------------------
-// Global Test Utilities — factory helpers shared across all test files
-// ---------------------------------------------------------------------------
+// Helper factories shared across the test files
 global.testUtils = {
-  /**
-   * Creates a mock user object
-   * @param {Object} overrides - Fields to override on the default mock
-   */
+  // Make a mock user
   createMockUser(overrides = {}) {
     return {
       _id: overrides._id || '507f1f77bcf86cd799439011',
@@ -58,10 +47,7 @@ global.testUtils = {
     };
   },
 
-  /**
-   * Creates a mock appointment object
-   * @param {Object} overrides - Fields to override on the default mock
-   */
+  // Make a mock appointment
   createMockAppointment(overrides = {}) {
     return {
       _id: overrides._id || '507f1f77bcf86cd799439012',
@@ -84,10 +70,7 @@ global.testUtils = {
     };
   },
 
-  /**
-   * Creates a mock Express request object
-   * @param {Object} overrides - Fields to override on the default mock
-   */
+  // Make a mock Express request
   createMockRequest(overrides = {}) {
     return {
       body: overrides.body || {},
@@ -102,9 +85,7 @@ global.testUtils = {
     };
   },
 
-  /**
-   * Creates a mock Express response object with chainable status/json methods
-   */
+  // Make a mock Express response (status/json are chainable)
   createMockResponse() {
     const res = {
       status: jest.fn(),
@@ -120,9 +101,7 @@ global.testUtils = {
     return res;
   },
 
-  /**
-   * Creates a mock Express next() function
-   */
+  // Make a mock Express next()
   createMockNext() {
     return jest.fn();
   }

@@ -1,12 +1,7 @@
 const mongoose = require('mongoose');
 
-/**
- * Department — represents a hospital department/OPD unit.
- *
- * Used as the scope for General OPD booking (patient selects department,
- * not a specific doctor). Also used as the token-sequence scope for
- * shared A/W numbering and department-level capacity policies.
- */
+// A hospital department. Patients book by department for General OPD,
+// and tokens/capacity policies are scoped per department too.
 const departmentSchema = new mongoose.Schema({
   name: {
     type: String,

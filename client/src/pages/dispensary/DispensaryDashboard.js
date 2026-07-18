@@ -15,7 +15,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { dispensaryAPI } from '../../services/api';
 import toast from 'react-hot-toast';
 
-// ── Status badge ─────────────────────────────────────────────────────────────
+// Status badge
 const StatusBadge = ({ status }) => {
   const map = {
     active:               'bg-blue-100 text-blue-800',
@@ -40,18 +40,18 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-// ── Format date ───────────────────────────────────────────────────────────────
+// Format date
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-LK', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 const fmtDateTime = (d) => d ? new Date(d).toLocaleString('en-LK', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 
-// ─────────────────────────────────────────────────────────────────────────────
+//
 // Main Component
-// ─────────────────────────────────────────────────────────────────────────────
+//
 const DispensaryDashboard = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('scan');
 
-  // ── Scan tab ──────────────────────────────────────────────────────────────
+  // Scan tab
   const [cardInput, setCardInput]       = useState('');
   const [scanLoading, setScanLoading]   = useState(false);
   const [isScanning, setIsScanning]     = useState(false);
@@ -61,11 +61,11 @@ const DispensaryDashboard = () => {
   const html5QrRef   = useRef(null);
   const qrReaderId   = 'dispensary-qr-reader';
 
-  // ── Queue tab ─────────────────────────────────────────────────────────────
+  // Queue tab
   const [queue, setQueue]           = useState([]);
   const [queueLoading, setQueueLoading] = useState(false);
 
-  // ── History tab ───────────────────────────────────────────────────────────
+  // History tab
   const [history, setHistory]           = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -88,7 +88,7 @@ const DispensaryDashboard = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  // ── QR camera scanner ─────────────────────────────────────────────────────
+  // QR camera scanner
   const startScanner = async () => {
     if (isScanning) return;
     try {
@@ -123,7 +123,7 @@ const DispensaryDashboard = () => {
     finally { setIsScanning(false); }
   };
 
-  // ── Scan / lookup ─────────────────────────────────────────────────────────
+  // Scan / lookup
   const handleScan = async (overrideValue) => {
     const raw = (overrideValue ?? cardInput).trim();
     if (!raw) { toast.error('Enter or scan a health card number'); return; }
@@ -152,7 +152,7 @@ const DispensaryDashboard = () => {
     }
   };
 
-  // ── One-click issue ───────────────────────────────────────────────────────
+  // One-click issue
   // Marks the whole prescription as issued. The dispense record is auto-filled
   // from the prescription's own medications — no manual entry, no slip printing.
   const handleQuickIssue = async (rx) => {
@@ -190,7 +190,7 @@ const DispensaryDashboard = () => {
     }
   };
 
-  // ── Queue ─────────────────────────────────────────────────────────────────
+  // Queue
   const fetchQueue = async () => {
     try {
       setQueueLoading(true);
@@ -201,7 +201,7 @@ const DispensaryDashboard = () => {
   };
 
 
-  // ── History ───────────────────────────────────────────────────────────────
+  // History
   const fetchHistory = async () => {
     try {
       setHistoryLoading(true);
@@ -211,9 +211,9 @@ const DispensaryDashboard = () => {
     finally { setHistoryLoading(false); }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
+  //
   // RENDER
-  // ─────────────────────────────────────────────────────────────────────────
+  //
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-teal-50 to-white">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -261,7 +261,7 @@ const DispensaryDashboard = () => {
 
           <div className="p-6 md:p-8">
 
-            {/* ══ TAB 1 — SCAN & DISPENSE ══ */}
+            {/* Tab 1 - Scan & dispense */}
             {activeTab === 'scan' && (
               <div className="space-y-6">
 
@@ -398,7 +398,7 @@ const DispensaryDashboard = () => {
               </div>
             )}
 
-            {/* ══ TAB 2 — PENDING QUEUE ══ */}
+            {/* Tab 2 - Pending queue */}
             {activeTab === 'queue' && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between mb-2">
@@ -473,7 +473,7 @@ const DispensaryDashboard = () => {
               </div>
             )}
 
-            {/* ══ TAB 3 — HISTORY ══ */}
+            {/* Tab 3 - History */}
             {activeTab === 'history' && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between mb-2">

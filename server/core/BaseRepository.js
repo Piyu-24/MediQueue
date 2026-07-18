@@ -1,21 +1,8 @@
-/**
- * @fileoverview Base Repository class for MediQueue Application
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Base class with shared database access methods
 
 const Logger = require('../utils/Logger');
 
-/**
- * Base Repository class providing common data access functionality
- * Implements Repository pattern and SOLID principles
- */
 class BaseRepository {
-  /**
-   * Creates an instance of BaseRepository
-   * @param {Object} model - Mongoose model
-   * @param {Object} logger - Logger instance
-   */
   constructor(model, logger = null) {
     if (this.constructor === BaseRepository) {
       throw new Error('BaseRepository is abstract and cannot be instantiated directly');
@@ -26,12 +13,7 @@ class BaseRepository {
     this.logger = logger || Logger.getLogger(this.constructor.name);
   }
 
-  /**
-   * Creates a new document
-   * @param {Object} data - Document data
-   * @param {Object} options - Creation options
-   * @returns {Promise<Object>} Created document
-   */
+  // Create a new document
   async create(data, options = {}) {
     try {
       this.logger.debug('Creating document', { modelName: this.modelName });
@@ -43,12 +25,7 @@ class BaseRepository {
     }
   }
 
-  /**
-   * Finds a document by ID
-   * @param {string} id - Document ID
-   * @param {Object} options - Query options
-   * @returns {Promise<Object|null>} Found document or null
-   */
+  // Find a document by id
   async findById(id, options = {}) {
     try {
       this.logger.debug('Finding document by ID', { id, modelName: this.modelName });
@@ -70,12 +47,7 @@ class BaseRepository {
     }
   }
 
-  /**
-   * Finds one document matching the query
-   * @param {Object} query - Query object
-   * @param {Object} options - Query options
-   * @returns {Promise<Object|null>} Found document or null
-   */
+  // Find one document matching the query
   async findOne(query = {}, options = {}) {
     try {
       this.logger.debug('Finding one document', { query, modelName: this.modelName });
@@ -101,12 +73,7 @@ class BaseRepository {
     }
   }
 
-  /**
-   * Finds multiple documents with pagination
-   * @param {Object} query - Query object
-   * @param {Object} options - Query options
-   * @returns {Promise<Object>} Result with data and pagination info
-   */
+  // Find many documents with pagination
   async findMany(query = {}, options = {}) {
     try {
       this.logger.debug('Finding multiple documents', { query, options, modelName: this.modelName });
@@ -120,8 +87,7 @@ class BaseRepository {
       } = options;
       
       const skip = (page - 1) * limit;
-      
-      // Build query
+
       let mongoQuery = this.model.find(query);
       
       if (populate) {
@@ -136,7 +102,7 @@ class BaseRepository {
         mongoQuery = mongoQuery.sort(sort);
       }
       
-      // Execute query with pagination
+      // Get the page of results and the total count together
       const [data, total] = await Promise.all([
         mongoQuery.skip(skip).limit(limit).exec(),
         this.model.countDocuments(query)
@@ -161,13 +127,7 @@ class BaseRepository {
     }
   }
 
-  /**
-   * Updates a document by ID
-   * @param {string} id - Document ID
-   * @param {Object} updateData - Update data
-   * @param {Object} options - Update options
-   * @returns {Promise<Object|null>} Updated document
-   */
+  // Update a document by id
   async updateById(id, updateData, options = {}) {
     try {
       this.logger.debug('Updating document by ID', { id, modelName: this.modelName });
@@ -188,13 +148,7 @@ class BaseRepository {
     }
   }
 
-  /**
-   * Updates multiple documents
-   * @param {Object} query - Query object
-   * @param {Object} updateData - Update data
-   * @param {Object} options - Update options
-   * @returns {Promise<Object>} Update result
-   */
+  // Update many documents
   async updateMany(query, updateData, options = {}) {
     try {
       this.logger.debug('Updating multiple documents', { query, modelName: this.modelName });
@@ -205,12 +159,7 @@ class BaseRepository {
     }
   }
 
-  /**
-   * Deletes a document by ID
-   * @param {string} id - Document ID
-   * @param {Object} options - Delete options
-   * @returns {Promise<Object|null>} Deleted document
-   */
+  // Delete a document by id
   async deleteById(id, options = {}) {
     try {
       this.logger.debug('Deleting document by ID', { id, modelName: this.modelName });
@@ -221,12 +170,7 @@ class BaseRepository {
     }
   }
 
-  /**
-   * Deletes multiple documents
-   * @param {Object} query - Query object
-   * @param {Object} options - Delete options
-   * @returns {Promise<Object>} Delete result
-   */
+  // Delete many documents
   async deleteMany(query, options = {}) {
     try {
       this.logger.debug('Deleting multiple documents', { query, modelName: this.modelName });
@@ -237,11 +181,7 @@ class BaseRepository {
     }
   }
 
-  /**
-   * Counts documents matching the query
-   * @param {Object} query - Query object
-   * @returns {Promise<number>} Document count
-   */
+  // Count documents matching the query
   async count(query = {}) {
     try {
       this.logger.debug('Counting documents', { query, modelName: this.modelName });
@@ -252,12 +192,7 @@ class BaseRepository {
     }
   }
 
-  /**
-   * Performs aggregation query
-   * @param {Array} pipeline - Aggregation pipeline
-   * @param {Object} options - Aggregation options
-   * @returns {Promise<Array>} Aggregation result
-   */
+  // Run an aggregation pipeline
   async aggregate(pipeline, options = {}) {
     try {
       this.logger.debug('Performing aggregation', { pipeline, modelName: this.modelName });
@@ -268,11 +203,7 @@ class BaseRepository {
     }
   }
 
-  /**
-   * Checks if document exists
-   * @param {Object} query - Query object
-   * @returns {Promise<boolean>} True if document exists
-   */
+  // True if at least one document matches
   async exists(query) {
     try {
       const count = await this.count(query);

@@ -1,18 +1,5 @@
-/**
- * @fileoverview Base Service class for frontend services
- * @author MediQueue Development Team
- * @version 1.0.0
- */
-
-/**
- * Base Service class implementing common service functionality for frontend
- * Following SOLID principles for frontend architecture
- */
+// Base class for the frontend services (caching, events, error handling)
 class BaseService {
-  /**
-   * Creates an instance of BaseService
-   * @param {Object} apiService - API service instance for HTTP calls
-   */
   constructor(apiService) {
     if (this.constructor === BaseService) {
       throw new Error('BaseService is abstract and cannot be instantiated directly');
@@ -23,13 +10,7 @@ class BaseService {
     this.subscribers = new Set();
   }
 
-  /**
-   * Handles API calls with error handling and caching
-   * @param {Function} apiCall - API call function
-   * @param {string} cacheKey - Cache key for the result
-   * @param {Object} options - Options for caching and error handling
-   * @returns {Promise<*>} API response data
-   */
+  // Run an API call with optional caching and shared error handling
   async handleApiCall(apiCall, cacheKey = null, options = {}) {
     const { useCache = false, cacheTTL = 300000 } = options; // 5 minutes default TTL
 
@@ -63,38 +44,22 @@ class BaseService {
     }
   }
 
-  /**
-   * Handles service errors
-   * @param {Error} error - Error object
-   */
+  // Log an error and tell subscribers about it
   handleError(error) {
     console.error(`${this.constructor.name} Error:`, error);
-    
-    // Notify subscribers about error
     this.notifySubscribers('error', { error });
-    
-    // You could integrate with error reporting service here
-    // ErrorReportingService.reportError(error);
   }
 
-  /**
-   * Subscribes to service events
-   * @param {Function} callback - Callback function
-   */
+  // Subscribe to service events; returns a function to unsubscribe
   subscribe(callback) {
     this.subscribers.add(callback);
-    
-    // Return unsubscribe function
+
     return () => {
       this.subscribers.delete(callback);
     };
   }
 
-  /**
-   * Notifies all subscribers
-   * @param {string} event - Event type
-   * @param {*} data - Event data
-   */
+  // Call every subscriber with an event
   notifySubscribers(event, data) {
     this.subscribers.forEach(callback => {
       try {
@@ -105,10 +70,7 @@ class BaseService {
     });
   }
 
-  /**
-   * Clears cache
-   * @param {string} key - Specific key to clear, or null to clear all
-   */
+  // Clear one cache key, or the whole cache
   clearCache(key = null) {
     if (key) {
       this.cache.delete(key);
@@ -117,24 +79,14 @@ class BaseService {
     }
   }
 
-  /**
-   * Gets cached data
-   * @param {string} key - Cache key
-   * @returns {*} Cached data or null
-   */
+  // Get cached data for a key (or null)
   getCachedData(key) {
     const cached = this.cache.get(key);
     return cached ? cached.data : null;
   }
 
-  /**
-   * Validates input data
-   * @param {*} data - Data to validate
-   * @param {Object} schema - Validation schema
-   * @returns {boolean} True if valid
-   */
+  // Simple field-rules validation
   validateData(data, schema) {
-    // Basic validation - can be enhanced with a validation library
     for (const [field, rules] of Object.entries(schema)) {
       const value = data[field];
       
@@ -158,38 +110,21 @@ class BaseService {
     return true;
   }
 
-  /**
-   * Transforms data for API consumption
-   * @param {*} data - Data to transform
-   * @returns {*} Transformed data
-   */
+  // Child classes can override these to reshape data
   transformForApi(data) {
-    // Override in child classes for specific transformations
     return data;
   }
 
-  /**
-   * Transforms data from API response
-   * @param {*} data - API response data
-   * @returns {*} Transformed data
-   */
   transformFromApi(data) {
-    // Override in child classes for specific transformations
     return data;
   }
 
-  /**
-   * Gets service name (to be implemented by child classes)
-   * @returns {string} Service name
-   */
+  // Child classes must implement this
   getServiceName() {
     throw new Error('getServiceName() must be implemented by child class');
   }
 
-  /**
-   * Gets service health status
-   * @returns {Object} Health status
-   */
+  // Basic health info for this service
   getHealthStatus() {
     return {
       serviceName: this.getServiceName(),

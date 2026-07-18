@@ -19,7 +19,7 @@ const VerifyEmail = () => {
   const [errorMsg,  setErrorMsg]  = useState('');
   const [countdown, setCountdown] = useState(5);
 
-  // ── Step 1: hit the backend as soon as the page loads ──────────────────────
+  // Step 1: hit the backend as soon as the page loads
   useEffect(() => {
     const verify = async () => {
       if (!token) {
@@ -51,7 +51,7 @@ const VerifyEmail = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  // ── Step 2: auto-redirect after success ────────────────────────────────────
+  // Step 2: auto-redirect after success
   useEffect(() => {
     if (status !== 'success') return;
     if (countdown === 0) {
@@ -62,7 +62,7 @@ const VerifyEmail = () => {
     return () => clearTimeout(t);
   }, [status, countdown, isAuthenticated, navigate]);
 
-  // ── Verifying (spinner) ────────────────────────────────────────────────────
+  // Verifying (spinner)
   if (status === 'verifying') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -75,7 +75,7 @@ const VerifyEmail = () => {
     );
   }
 
-  // ── Success ────────────────────────────────────────────────────────────────
+  // Success
   if (status === 'success') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-emerald-50 px-4">
@@ -108,7 +108,7 @@ const VerifyEmail = () => {
     );
   }
 
-  // ── Error ──────────────────────────────────────────────────────────────────
+  // Error
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-orange-50 px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg border border-red-100 p-8 text-center space-y-5">

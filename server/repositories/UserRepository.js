@@ -1,32 +1,16 @@
-/**
- * @fileoverview User Repository implementing data access for User model
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Database access for users
 
 const BaseRepository = require('../core/BaseRepository');
 const User = require('../models/User');
 const Logger = require('../utils/Logger');
 const { ConflictError } = require('../utils/errors');
 
-/**
- * UserRepository class handling User-specific data operations
- * Extends BaseRepository following Repository pattern
- */
 class UserRepository extends BaseRepository {
-  /**
-   * Creates an instance of UserRepository
-   */
   constructor() {
     super(User, Logger.getLogger('UserRepository'));
   }
 
-  /**
-   * Finds a user by email address
-   * @param {string} email - User email
-   * @param {Object} options - Query options
-   * @returns {Promise<Object|null>} User document or null
-   */
+  // Find a user by email
   async findByEmail(email, options = {}) {
     try {
       this.logger.debug('Finding user by email', { email });
@@ -38,12 +22,7 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Finds users by role
-   * @param {string} role - User role
-   * @param {Object} options - Query options
-   * @returns {Promise<Object>} Paginated users result
-   */
+  // Find users with a given role
   async findByRole(role, options = {}) {
     try {
       this.logger.debug('Finding users by role', { role });
@@ -55,12 +34,7 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Finds doctors by specialization
-   * @param {string} specialization - Doctor specialization
-   * @param {Object} options - Query options
-   * @returns {Promise<Object>} Paginated doctors result
-   */
+  // Find doctors with a given specialization
   async findDoctorsBySpecialization(specialization, options = {}) {
     try {
       this.logger.debug('Finding doctors by specialization', { specialization });
@@ -77,23 +51,17 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Creates a new user with email uniqueness check
-   * @param {Object} userData - User data
-   * @param {Object} options - Creation options
-   * @returns {Promise<Object>} Created user document
-   */
+  // Create a user, making sure the email isn't already taken
   async createUser(userData, options = {}) {
     try {
       this.logger.debug('Creating new user', { email: userData.email });
-      
-      // Check if user with email already exists
+
       const existingUser = await this.findByEmail(userData.email);
       if (existingUser) {
         throw new ConflictError('User with this email already exists');
       }
-      
-      // Normalize email
+
+      // Lowercase the email
       const normalizedData = {
         ...userData,
         email: userData.email.toLowerCase()
@@ -106,25 +74,19 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Updates user profile information
-   * @param {string} userId - User ID
-   * @param {Object} updateData - Data to update
-   * @param {Object} options - Update options
-   * @returns {Promise<Object>} Updated user document
-   */
+  // Update a user's profile
   async updateProfile(userId, updateData, options = {}) {
     try {
       this.logger.debug('Updating user profile', { userId });
-      
-      // Remove sensitive fields that shouldn't be updated via profile
+
+      // Don't let password or role be changed through here
       const { password, role, ...profileData } = updateData;
-      
-      // Normalize email if provided
+
+      // Lowercase the email if given
       if (profileData.email) {
         profileData.email = profileData.email.toLowerCase();
-        
-        // Check for email conflicts
+
+        // Make sure no one else has this email
         const existingUser = await this.findOne({
           email: profileData.email,
           _id: { $ne: userId }
@@ -142,13 +104,7 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Updates user password
-   * @param {string} userId - User ID
-   * @param {string} hashedPassword - New hashed password
-   * @param {Object} options - Update options
-   * @returns {Promise<Object>} Updated user document
-   */
+  // Update a user's password
   async updatePassword(userId, hashedPassword, options = {}) {
     try {
       this.logger.debug('Updating user password', { userId });
@@ -160,13 +116,7 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Activates or deactivates a user account
-   * @param {string} userId - User ID
-   * @param {boolean} isActive - Active status
-   * @param {Object} options - Update options
-   * @returns {Promise<Object>} Updated user document
-   */
+  // Activate or deactivate a user
   async setActiveStatus(userId, isActive, options = {}) {
     try {
       this.logger.debug('Setting user active status', { userId, isActive });
@@ -178,13 +128,7 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Finds users with search functionality
-   * @param {string} searchTerm - Search term
-   * @param {Object} filters - Additional filters
-   * @param {Object} options - Query options
-   * @returns {Promise<Object>} Search results
-   */
+  // Search users by name/email/phone
   async searchUsers(searchTerm, filters = {}, options = {}) {
     try {
       this.logger.debug('Searching users', { searchTerm, filters });
@@ -208,10 +152,7 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Gets user statistics by role
-   * @returns {Promise<Object>} User statistics
-   */
+  // Count users by role, with active/inactive breakdown
   async getUserStatistics() {
     try {
       this.logger.debug('Getting user statistics');
@@ -246,12 +187,7 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Gets recently registered users
-   * @param {number} limit - Number of users to return
-   * @param {Object} options - Query options
-   * @returns {Promise<Array>} Recent users
-   */
+  // Get the most recently registered users
   async getRecentUsers(limit = 10, options = {}) {
     try {
       this.logger.debug('Getting recent users', { limit });
@@ -270,12 +206,7 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Finds users by multiple IDs
-   * @param {Array} userIds - Array of user IDs
-   * @param {Object} options - Query options
-   * @returns {Promise<Array>} Users array
-   */
+  // Find several users by their ids
   async findByIds(userIds, options = {}) {
     try {
       this.logger.debug('Finding users by IDs', { count: userIds.length });
@@ -292,12 +223,7 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Counts users by role and active status
-   * @param {string} role - User role (optional)
-   * @param {boolean} isActive - Active status (optional)
-   * @returns {Promise<number>} User count
-   */
+  // Count users, optionally filtered by role and active status
   async countByRoleAndStatus(role = null, isActive = null) {
     try {
       const query = {};
@@ -313,12 +239,7 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Soft deletes a user (marks as inactive)
-   * @param {string} userId - User ID
-   * @param {Object} options - Update options
-   * @returns {Promise<Object>} Updated user document
-   */
+  // Soft delete: mark the user inactive
   async softDelete(userId, options = {}) {
     try {
       this.logger.debug('Soft deleting user', { userId });
@@ -333,12 +254,7 @@ class UserRepository extends BaseRepository {
     }
   }
 
-  /**
-   * Restores a soft-deleted user
-   * @param {string} userId - User ID
-   * @param {Object} options - Update options
-   * @returns {Promise<Object>} Updated user document
-   */
+  // Restore a soft-deleted user
   async restore(userId, options = {}) {
     try {
       this.logger.debug('Restoring user', { userId });

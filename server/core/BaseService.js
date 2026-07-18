@@ -1,22 +1,9 @@
-/**
- * @fileoverview Base Service class for MediQueue Application
- * @author MediQueue Development Team
- * @version 1.0.0
- */
+// Base class with shared service helpers
 
 const EventEmitter = require('events');
 const Logger = require('../utils/Logger');
 
-/**
- * Base Service class providing common service functionality
- * Implements SOLID principles and Observer pattern
- */
 class BaseService extends EventEmitter {
-  /**
-   * Creates an instance of BaseService
-   * @param {Object} repository - Repository instance for data access
-   * @param {Object} logger - Logger instance
-   */
   constructor(repository = null, logger = null) {
     super();
     
@@ -28,11 +15,7 @@ class BaseService extends EventEmitter {
     this.logger = logger || Logger.getLogger(this.constructor.name);
   }
 
-  /**
-   * Handles service errors and transforms them appropriately
-   * @param {Error} error - Original error
-   * @returns {Error} Transformed error
-   */
+  // Log a service error and return it
   handleServiceError(error) {
     this.logger.error('Service error:', {
       error: error.message,
@@ -46,13 +29,7 @@ class BaseService extends EventEmitter {
     return error;
   }
 
-  /**
-   * Validates input data against schema
-   * @param {Object} data - Data to validate
-   * @param {Object} schema - Validation schema
-   * @returns {boolean} True if valid
-   * @throws {Error} If validation fails
-   */
+  // Check the data against a simple field-rules schema
   validateInput(data, schema) {
     for (const [field, rules] of Object.entries(schema)) {
       const value = data[field];
@@ -69,11 +46,7 @@ class BaseService extends EventEmitter {
     return true;
   }
 
-  /**
-   * Logs business events
-   * @param {string} event - Event name
-   * @param {Object} data - Event data
-   */
+  // Log a business event and emit it for listeners
   logBusinessEvent(event, data = {}) {
     this.logger.info(`Business event: ${event}`, {
       event,
@@ -85,10 +58,7 @@ class BaseService extends EventEmitter {
     this.emit('businessEvent', { event, data });
   }
 
-  /**
-   * Gets resource name (to be implemented by child classes)
-   * @returns {string} Resource name
-   */
+  // Child classes must implement this
   getResourceName() {
     throw new Error('getResourceName() must be implemented by child class');
   }
