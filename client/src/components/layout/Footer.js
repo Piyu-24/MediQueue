@@ -73,7 +73,7 @@ const Footer = () => {
             <div className="space-y-2 text-gray-400">
               <p> No. 25, Hospital Road, Colombo 07, Sri Lanka</p>
               <p> +94 11 234 5678</p>
-              <p> info@mediqueue.lk</p>
+              <p> queuemedi@gmail.com</p>
             </div>
           </div>
         </div>
