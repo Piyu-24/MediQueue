@@ -27,11 +27,8 @@ const handleValidation = (req, res, next) => {
   next();
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/check-in/eligibility/:appointmentId
-// Check if a patient can check in for their appointment right now.
-// Also returns appointment token info for new-flow appointments.
-// ─────────────────────────────────────────────────────────────────────────────
+// Check if a patient can check in right now, and return their token info.
 router.get('/eligibility/:appointmentId', auth, async (req, res) => {
   try {
     const patientId =
@@ -79,19 +76,9 @@ router.get('/eligibility/:appointmentId', auth, async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/check-in/appointment
-// Check in a booked appointment patient.
-//
-// NEW FLOW (block-based, bookingType='general_opd'):
-//   - appointment.appointmentToken already set at booking
-//   - doctorId assigned HERE by reception (required)
-//   - departmentId optional (derived from appointment if not provided)
-//
-// LEGACY FLOW (exact-time specialist):
-//   - doctorId is the same doctor from booking
-//   - A token generated at this point
-// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/check-in/appointment - check in a booked appointment patient.
+// For General OPD the token was already made at booking; reception just
+// assigns the doctor here.
 router.post(
   '/appointment',
   checkinLimiter,
@@ -123,8 +110,7 @@ router.post(
         priority
       } = req.body;
 
-      // ── Session-closed guard ───────────────────────────────────────────
-      // Once a doctor closes their session, no further check-ins are accepted.
+      // No check-ins once the doctor has closed their session
       const queueDate = localDateStr();
       const checkinSession = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate }).lean();
       if (checkinSession?.status === 'ended') {
@@ -188,11 +174,8 @@ router.post(
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/check-in/appointment/by-token
-// Check in using an appointment token (e.g. scan token slip QR code).
-// Looks up the appointment by token string, then delegates to the normal check-in.
-// ─────────────────────────────────────────────────────────────────────────────
+// Check in using the appointment token (e.g. from scanning the token slip).
 router.post(
   '/appointment/by-token',
   checkinLimiter,
@@ -210,7 +193,7 @@ router.post(
     try {
       const { appointmentToken, doctorId, room, department, departmentId, notes, priority } = req.body;
 
-      // Find appointment by token — only active (not yet checked-in) appointments
+      // Find the appointment by token (only ones not yet checked in)
       const appointment = await Appointment.findOne({
         appointmentToken: appointmentToken.toUpperCase(),
         status: { $in: ['booked', 'scheduled', 'confirmed'] }
@@ -223,7 +206,7 @@ router.post(
         });
       }
 
-      // ── Session-closed guard ───────────────────────────────────────────
+      // No check-ins once the session has ended
       const queueDate = localDateStr();
       const byTokenSession = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate }).lean();
       if (byTokenSession?.status === 'ended') {
@@ -278,11 +261,7 @@ router.post(
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/check-in/walk-in
-// Register and check in a walk-in patient (W token from shared A/W sequence).
-// departmentId is preferred over department string for proper token scoping.
-// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/check-in/walk-in - register and check in a walk-in patient (W token)
 router.post(
   '/walk-in',
   checkinLimiter,
@@ -300,8 +279,7 @@ router.post(
     try {
       const { patientId, doctorId, room, department, departmentId, notes, isEmergency, priority } = req.body;
 
-      // ── Session-closed guard ───────────────────────────────────────────
-      // Emergency walk-ins always bypass this check.
+      // Block walk-ins if the session ended (emergencies always go through)
       if (isEmergency !== true) {
         const queueDate = localDateStr();
         const existingSession = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate }).lean();

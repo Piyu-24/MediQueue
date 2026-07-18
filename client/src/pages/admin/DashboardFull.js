@@ -24,11 +24,11 @@ import {
   ClipboardDocumentIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
-import { userAPI, adminAPI, managerAPI, queueAPI, departmentAPI, timeBlockAPI, roomAPI } from '../../services/api';
+import { userAPI, adminAPI, queueAPI, departmentAPI, timeBlockAPI, roomAPI } from '../../services/api';
 import ReportsDashboard from '../../components/Reports/ReportsDashboard';
 import PeakHoursChartDashboard from '../../components/Analytics/PeakHoursChartDashboard';
-import PatientRecordViewer from '../../components/Manager/PatientRecordViewer';
-import AccountVerificationStatus from '../../components/Manager/AccountVerificationStatus';
+import PatientRecordViewer from '../../components/Admin/PatientRecordViewer';
+import AccountVerificationStatus from '../../components/Admin/AccountVerificationStatus';
 import toast from 'react-hot-toast';
 
 const TABS = [
@@ -43,12 +43,22 @@ const TABS = [
 
 const ROLE_COLORS = {
   admin:        'bg-red-100 text-red-800',
-  manager:      'bg-teal-100 text-teal-800',
   doctor:       'bg-blue-100 text-blue-800',
   staff:        'bg-green-100 text-green-800',
   receptionist: 'bg-purple-100 text-purple-800',
   pharmacist:   'bg-orange-100 text-orange-800',
   patient:      'bg-gray-100 text-gray-800',
+};
+
+// Roles subject to professional-credential verification (must be admin-verified
+// before they can access clinical features).
+const CLINICAL_ROLES = ['doctor', 'pharmacist', 'receptionist', 'staff'];
+
+const CREDENTIAL_BADGE = {
+  verified:   'bg-green-100 text-green-800',
+  pending:    'bg-yellow-100 text-yellow-800',
+  rejected:   'bg-red-100 text-red-800',
+  unverified: 'bg-gray-100 text-gray-600',
 };
 
 const AdminDashboard = () => {
@@ -72,6 +82,7 @@ const AdminDashboard = () => {
   const [selectedRole, setSelectedRole] = useState('all');
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [togglingUser, setTogglingUser] = useState(null);
+  const [verifyingUser, setVerifyingUser] = useState(null);
 
   // Create staff user modal
   const SPECIALIZATIONS = [
@@ -107,9 +118,9 @@ const AdminDashboard = () => {
     try {
       setLoading(true);
 
-      // Try the rich manager overview endpoint first (now accessible to admin)
+      // Try the rich admin overview endpoint first
       try {
-        const res = await managerAPI.getDashboardOverview();
+        const res = await adminAPI.getDashboardOverview();
         if (res.data.success) {
           const d = res.data.data;
           setStats(prev => ({
@@ -212,6 +223,27 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleVerifyCredentials = async (userId, status) => {
+    if (status === 'rejected' &&
+        !window.confirm('Reject this account’s credentials? They will lose access to clinical features until re-verified.')) {
+      return;
+    }
+    try {
+      setVerifyingUser(userId);
+      const res = await adminAPI.verifyStaffCredentials(userId, status);
+      if (res.data.success) {
+        toast.success(res.data.message);
+        setUsers(prev =>
+          prev.map(u => u._id === userId ? { ...u, credentialVerificationStatus: status } : u)
+        );
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to update credentials');
+    } finally {
+      setVerifyingUser(null);
+    }
+  };
+
   const handleCreateStaffUser = async () => {
     const {
       firstName, lastName, email, phone, gender, role,
@@ -220,18 +252,35 @@ const AdminDashboard = () => {
       password, confirmPassword, autoGenerate,
     } = staffForm;
 
+    // ── Field validation (kept in sync with the POST /api/users/staff rules) ──
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const phoneRe = /^\+?[\d\s\-()]{7,20}$/;
+    const strongPwRe = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
+
     if (!firstName.trim() || !lastName.trim()) { toast.error('First and last name are required'); return; }
     if (!email.trim()) { toast.error('Email is required'); return; }
+    if (!emailRe.test(email.trim())) { toast.error('Enter a valid email address'); return; }
+    if (phone.trim() && !phoneRe.test(phone.trim())) { toast.error('Enter a valid phone number'); return; }
+
     if (role === 'doctor') {
       if (!specialization) { toast.error('Specialization is required for doctors'); return; }
+      if (!department.trim()) { toast.error('Department is required for doctors'); return; }
       if (!licenseNumber.trim()) { toast.error('SLMC License Number is required for doctors'); return; }
       if (!qualification) { toast.error('Qualification is required for doctors'); return; }
+      if (yearsOfExperience === '' || Number.isNaN(Number(yearsOfExperience))) {
+        toast.error('Years of experience is required for doctors'); return;
+      }
+      if (Number(yearsOfExperience) < 0 || Number(yearsOfExperience) > 60) {
+        toast.error('Years of experience must be between 0 and 60'); return;
+      }
     }
-    if (role === 'pharmacist' && !licenseNumber.trim()) {
-      toast.error('Pharmacy license number is required'); return;
-    }
+
     if (!autoGenerate) {
       if (!password) { toast.error('Enter a password or enable auto-generate'); return; }
+      if (!strongPwRe.test(password)) {
+        toast.error('Password must be at least 8 characters and include uppercase, lowercase, a number and a special character (@$!%*?&)');
+        return;
+      }
       if (password !== confirmPassword) { toast.error('Passwords do not match'); return; }
     }
     try {
@@ -259,6 +308,7 @@ const AdminDashboard = () => {
         setCreatedCredentials({
           email: res.data.data.user.email,
           tempPassword: res.data.data.temporaryPassword,
+          employeeId: res.data.data.user.employeeId,
         });
         setStaffForm(EMPTY_STAFF_FORM);
         // Refresh user list
@@ -538,7 +588,7 @@ const AdminDashboard = () => {
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm flex items-center gap-1 font-semibold shadow-sm"
                   >
                     <UserPlusIcon className="w-4 h-4" />
-                    Add Staff User
+                    Add User
                   </button>
                 </div>
               </div>
@@ -552,7 +602,7 @@ const AdminDashboard = () => {
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
-                          {['User', 'Role', 'Email Verified', 'Status', 'Joined', 'Actions'].map(h => (
+                          {['User', 'Role', 'Credentials', 'Email Verified', 'Status', 'Joined', 'Actions'].map(h => (
                             <th key={h} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                               {h}
                             </th>
@@ -576,6 +626,15 @@ const AdminDashboard = () => {
                               </span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
+                              {CLINICAL_ROLES.includes(u.role) ? (
+                                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${CREDENTIAL_BADGE[u.credentialVerificationStatus] || CREDENTIAL_BADGE.unverified}`}>
+                                  {u.credentialVerificationStatus || 'unverified'}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-gray-400">—</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
                               <span className={`px-2 py-1 text-xs font-semibold rounded-full ${u.isEmailVerified ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
                                 {u.isEmailVerified ? 'Verified' : 'Unverified'}
                               </span>
@@ -589,17 +648,37 @@ const AdminDashboard = () => {
                               {formatDate(u.createdAt)}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                              <button
-                                onClick={() => handleToggleUserStatus(u._id, u.isActive)}
-                                disabled={togglingUser === u._id}
-                                className={`${
-                                  u.isActive
-                                    ? 'text-red-600 hover:text-red-900'
-                                    : 'text-green-600 hover:text-green-900'
-                                } disabled:opacity-50`}
-                              >
-                                {togglingUser === u._id ? 'Updating…' : u.isActive ? 'Deactivate' : 'Activate'}
-                              </button>
+                              <div className="flex items-center gap-3">
+                                {CLINICAL_ROLES.includes(u.role) && u.credentialVerificationStatus !== 'verified' && (
+                                  <button
+                                    onClick={() => handleVerifyCredentials(u._id, 'verified')}
+                                    disabled={verifyingUser === u._id}
+                                    className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
+                                  >
+                                    {verifyingUser === u._id ? 'Saving…' : 'Verify'}
+                                  </button>
+                                )}
+                                {CLINICAL_ROLES.includes(u.role) && u.credentialVerificationStatus === 'verified' && (
+                                  <button
+                                    onClick={() => handleVerifyCredentials(u._id, 'rejected')}
+                                    disabled={verifyingUser === u._id}
+                                    className="text-amber-600 hover:text-amber-900 disabled:opacity-50"
+                                  >
+                                    {verifyingUser === u._id ? 'Saving…' : 'Revoke'}
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleToggleUserStatus(u._id, u.isActive)}
+                                  disabled={togglingUser === u._id}
+                                  className={`${
+                                    u.isActive
+                                      ? 'text-red-600 hover:text-red-900'
+                                      : 'text-green-600 hover:text-green-900'
+                                  } disabled:opacity-50`}
+                                >
+                                  {togglingUser === u._id ? 'Updating…' : u.isActive ? 'Deactivate' : 'Activate'}
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -626,8 +705,8 @@ const AdminDashboard = () => {
                       <UserPlusIcon className="w-5 h-5 text-blue-600" />
                     </div>
                     <div>
-                      <h2 className="text-lg font-bold text-gray-900">Create Staff Account</h2>
-                      <p className="text-xs text-gray-500">Account is active immediately — share credentials with the staff member</p>
+                      <h2 className="text-lg font-bold text-gray-900">Create User Account</h2>
+                      <p className="text-xs text-gray-500">Account is active immediately — share credentials with the new user</p>
                     </div>
                   </div>
                   <button onClick={() => { setShowCreateModal(false); setCreatedCredentials(null); setStaffForm(EMPTY_STAFF_FORM); }}
@@ -667,6 +746,18 @@ const AdminDashboard = () => {
                             </button>
                           </div>
                         )}
+                        {createdCredentials.employeeId && (
+                          <div className="flex items-center justify-between gap-3 pt-2 border-t border-green-100">
+                            <div>
+                              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Employee ID</p>
+                              <p className="font-mono text-sm font-bold text-gray-900">{createdCredentials.employeeId}</p>
+                            </div>
+                            <button onClick={() => { navigator.clipboard.writeText(createdCredentials.employeeId); toast.success('Employee ID copied'); }}
+                              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
+                              <ClipboardDocumentIcon className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-3">
@@ -697,7 +788,7 @@ const AdminDashboard = () => {
                         <option value="receptionist">Receptionist</option>
                         <option value="doctor">Doctor</option>
                         <option value="pharmacist">Pharmacist</option>
-                        <option value="staff">Laboratory / General Staff</option>
+                        <option value="staff">General Staff</option>
                         <option value="admin">Admin</option>
                       </select>
                     </div>
@@ -799,11 +890,11 @@ const AdminDashboard = () => {
                           <div>
                             <label className="block text-xs font-semibold text-gray-600 mb-1">
                               SLMC License Number *
-                              <span className="ml-1 text-gray-400 font-normal">(Sri Lanka Medical Council registration)</span>
+                              <span className="ml-1 text-gray-400 font-normal">(Sri Lanka Medical Council registration no.)</span>
                             </label>
                             <input type="text" value={staffForm.licenseNumber}
                               onChange={e => setStaffForm(f => ({ ...f, licenseNumber: e.target.value.toUpperCase() }))}
-                              placeholder="e.g. SLMC/2018/12345"
+                              placeholder="e.g. 25467"
                               className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono" />
                           </div>
 
@@ -824,17 +915,6 @@ const AdminDashboard = () => {
                                 placeholder="e.g. 5"
                                 className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
                             </div>
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-semibold text-gray-600 mb-1">
-                              Consultation Fee (LKR)
-                              <span className="ml-1 text-gray-400 font-normal">optional — shown to patients during booking</span>
-                            </label>
-                            <input type="number" min="0" value={staffForm.consultationFee}
-                              onChange={e => setStaffForm(f => ({ ...f, consultationFee: e.target.value }))}
-                              placeholder="e.g. 1500"
-                              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
                           </div>
 
                           <div>
@@ -861,20 +941,8 @@ const AdminDashboard = () => {
                     {staffForm.role === 'pharmacist' && (
                       <div className="border-t border-gray-100 pt-4">
                         <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Professional Details</p>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="block text-xs font-semibold text-gray-600 mb-1">
-                              Pharmacy License Number *
-                              <span className="ml-1 text-gray-400 font-normal">(SLPP registration)</span>
-                            </label>
-                            <input type="text" value={staffForm.licenseNumber}
-                              onChange={e => setStaffForm(f => ({ ...f, licenseNumber: e.target.value.toUpperCase() }))}
-                              placeholder="e.g. SLPP/2020/XXXXX"
-                              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono" />
-                          </div>
-                          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
-                            Department will be set to <strong>Pharmacy</strong> automatically. License credentials marked as <strong>Pending Verification</strong>.
-                          </div>
+                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
+                          Department will be set to <strong>Pharmacy</strong> automatically. The account is marked <strong>Pending Verification</strong> until approved by an administrator.
                         </div>
                       </div>
                     )}
@@ -906,11 +974,14 @@ const AdminDashboard = () => {
                     {staffForm.role !== 'admin' && (
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Employee ID</label>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">
+                            Employee ID
+                            <span className="ml-1 text-gray-400 font-normal">optional — leave blank to auto-generate</span>
+                          </label>
                           <input type="text" value={staffForm.employeeId}
-                            onChange={e => setStaffForm(f => ({ ...f, employeeId: e.target.value }))}
-                            placeholder="e.g. EMP-0042"
-                            className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                            onChange={e => setStaffForm(f => ({ ...f, employeeId: e.target.value.toUpperCase() }))}
+                            placeholder="Auto-generated (e.g. DOC-2026-0007)"
+                            className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono" />
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-gray-600 mb-1">Joining Date</label>
@@ -1052,6 +1123,13 @@ const CapacityTab = () => {
   const [roomSaving, setRoomSaving]     = React.useState(false);
   const [showAddRoom, setShowAddRoom]   = React.useState(false);
 
+  // Doctor-to-room assignment (static config). allDoctors is the full roster;
+  // each room's editor shows only doctors whose department matches the room.
+  const [allDoctors, setAllDoctors]         = React.useState([]);
+  const [assignRoomId, setAssignRoomId]     = React.useState(null);   // room being edited
+  const [assignDraft, setAssignDraft]       = React.useState([]);     // selected doctor ids
+  const [assignSaving, setAssignSaving]     = React.useState(false);
+
   const loadRooms = React.useCallback(async () => {
     setRoomsLoading(true);
     try {
@@ -1061,9 +1139,45 @@ const CapacityTab = () => {
     finally { setRoomsLoading(false); }
   }, []);
 
+  const loadDoctors = React.useCallback(async () => {
+    try {
+      const res = await userAPI.getDoctors();
+      if (res.data.success) setAllDoctors(res.data.data.doctors || []);
+    } catch { /* non-fatal: assignment editor just shows no doctors */ }
+  }, []);
+
   React.useEffect(() => {
-    if (section === 'rooms') loadRooms();
-  }, [section, loadRooms]);
+    if (section === 'rooms') { loadRooms(); loadDoctors(); }
+  }, [section, loadRooms, loadDoctors]);
+
+  // Doctors selectable for a room = active doctors in the room's department
+  const doctorsForRoom = React.useCallback((room) => {
+    const deptName = (room.department?.name || '').toLowerCase();
+    return allDoctors.filter(d => (d.department || '').toLowerCase() === deptName);
+  }, [allDoctors]);
+
+  const openAssignEditor = (room) => {
+    setAssignRoomId(room._id);
+    setAssignDraft((room.assignedDoctors || []).map(d => d._id || d));
+  };
+
+  const toggleDraftDoctor = (doctorId) => {
+    setAssignDraft(prev =>
+      prev.includes(doctorId) ? prev.filter(id => id !== doctorId) : [...prev, doctorId]
+    );
+  };
+
+  const saveAssignment = async (room) => {
+    setAssignSaving(true);
+    try {
+      await roomAPI.updateRoom(room._id, { assignedDoctors: assignDraft });
+      toast.success(`Doctors updated for ${room.roomNumber}`);
+      setAssignRoomId(null);
+      setAssignDraft([]);
+      loadRooms();
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to update doctors'); }
+    finally { setAssignSaving(false); }
+  };
 
   const toggleRoomStatus = async (room) => {
     try {
@@ -1407,7 +1521,7 @@ const CapacityTab = () => {
             <div>
               <h3 className="text-lg font-bold text-gray-900">OPD Consultation Rooms</h3>
               <p className="text-sm text-gray-500">
-                Manage room availability for the OPD department. Non-OPD rooms are controlled via department status.
+                Manage room availability and assign doctors to each room. Non-OPD rooms are controlled via department status.
               </p>
             </div>
             <button
@@ -1502,6 +1616,64 @@ const CapacityTab = () => {
                         )}
                       </div>
                     </div>
+                    {/* Assigned doctors (OPD/admin rooms only) */}
+                    {!isAuto && (
+                      <div className="border-t border-gray-200 pt-2.5">
+                        {assignRoomId === room._id ? (
+                          <div className="space-y-2">
+                            <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide">Assign doctors</p>
+                            {doctorsForRoom(room).length === 0 ? (
+                              <p className="text-xs text-gray-400 italic">No doctors in {room.department?.name || 'this department'}.</p>
+                            ) : (
+                              <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                                {doctorsForRoom(room).map(d => (
+                                  <label key={d._id} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                                    <input type="checkbox"
+                                      checked={assignDraft.includes(d._id)}
+                                      onChange={() => toggleDraftDoctor(d._id)}
+                                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                                    Dr. {d.firstName} {d.lastName}
+                                    <span className="text-gray-400">· {d.specialization || 'General'}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                            <div className="flex gap-2 pt-1">
+                              <button onClick={() => { setAssignRoomId(null); setAssignDraft([]); }}
+                                className="flex-1 py-1 text-xs font-semibold rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-50">
+                                Cancel
+                              </button>
+                              <button onClick={() => saveAssignment(room)} disabled={assignSaving}
+                                className="flex-1 py-1 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60">
+                                {assignSaving ? 'Saving…' : 'Save'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Doctors</p>
+                              <button onClick={() => openAssignEditor(room)}
+                                className="text-[11px] font-semibold text-blue-600 hover:text-blue-800">
+                                Manage
+                              </button>
+                            </div>
+                            {(room.assignedDoctors || []).length === 0 ? (
+                              <p className="text-xs text-gray-400 italic">None assigned</p>
+                            ) : (
+                              <div className="flex flex-wrap gap-1">
+                                {room.assignedDoctors.map(d => (
+                                  <span key={d._id} className="text-[11px] font-medium bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                                    Dr. {d.firstName} {d.lastName}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex gap-2 mt-auto">
                       {!isAuto && (
                         <button onClick={() => toggleRoomStatus(room)}

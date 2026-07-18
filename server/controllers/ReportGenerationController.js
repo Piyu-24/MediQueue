@@ -1,6 +1,5 @@
 const User = require('../models/User');
 const Appointment = require('../models/Appointment');
-const GeneratedReport = require('../models/GeneratedReport');
 
 class ReportGenerationController {
   // Generate Patient Visit Report

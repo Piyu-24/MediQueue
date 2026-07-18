@@ -6,18 +6,14 @@
 
 const Logger = require('../utils/Logger');
 const ResponseFormatter = require('../utils/ResponseFormatter');
+const { redactSensitive } = require('../utils/redact');
 const { 
   AppError, 
   ValidationError, 
   AuthenticationError, 
   AuthorizationError, 
   NotFoundError,
-  ConflictError,
-  RateLimitError,
-  DatabaseError,
-  ExternalServiceError,
-  BusinessLogicError,
-  ErrorFactory
+  ConflictError
 } = require('../utils/errors');
 
 /**
@@ -35,11 +31,12 @@ const errorHandler = (err, req, res, next) => {
   const errorId = `ERR_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
   // Log error immediately to console for Vercel visibility
-  console.error(` ERROR [${errorId}]:`, err.message);
+  console.error(`ERROR [${errorId}]:`, err.message);
   console.error('Stack:', err.stack);
-  console.error('Request:', req.method, req.url);
+  console.error('Request:', req.method, req.path); // path only — omit query/token
   
-  // Log error with context
+  // Log error with context — sensitive fields (passwords, tokens, PHI) are
+  // redacted so they never land in application logs.
   logger.error('Application error occurred:', {
     errorId,
     error: err.message,
@@ -50,9 +47,9 @@ const errorHandler = (err, req, res, next) => {
     ip: req.ip || req.connection.remoteAddress,
     userId: req.user?.id,
     userRole: req.user?.role,
-    body: req.method !== 'GET' ? req.body : undefined,
-    query: req.query,
-    params: req.params
+    body: req.method !== 'GET' ? redactSensitive(req.body) : undefined,
+    query: redactSensitive(req.query),
+    params: redactSensitive(req.params)
   });
   
   let error = err;

@@ -472,21 +472,6 @@ appointmentSchema.index(
   }
 );
 
-// Static method to find booked slots for a doctor (availability display)
-appointmentSchema.statics.findAvailableSlots = async function(doctorId, date) {
-  const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
-
-  const endOfDay = new Date(date);
-  endOfDay.setHours(23, 59, 59, 999);
-
-  return this.find({
-    doctor: doctorId,
-    appointmentDate: { $gte: startOfDay, $lte: endOfDay },
-    status: { $in: ACTIVE_CONFLICT_STATUSES }
-  }).select('appointmentTime duration');
-};
-
 /**
  * Check whether a doctor's calendar has an overlap with the given slot.
  * Used to prevent double-booking a doctor beyond slot capacity.

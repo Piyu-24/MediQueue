@@ -6,7 +6,7 @@
 
 const BaseService = require('../core/BaseService');
 const Logger = require('../utils/Logger');
-const { ValidationError, ConflictError, NotFoundError, BusinessLogicError } = require('../utils/errors');
+const { ValidationError, NotFoundError } = require('../utils/errors');
 
 /**
  * AppointmentService class handling appointment-specific business logic

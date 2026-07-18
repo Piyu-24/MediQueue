@@ -9,11 +9,44 @@ const xss = require('xss-clean');
 const hpp = require('hpp');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
-const path = require('path');
-const crypto = require('crypto');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
+
+// ── Secret validation ────────────────────────────────────────────────────────
+// Refuse to start with missing or placeholder secrets. A known placeholder JWT
+// secret lets anyone forge tokens (full auth bypass), so this must never reach
+// production. In production a bad secret is fatal; in dev it's a loud warning.
+function validateRequiredSecrets() {
+  const PLACEHOLDER_MARKERS = [
+    'your_', 'change_in_production', 'super_secret_jwt_key_here',
+    'refresh_token_secret_here', 'dev_file_url_secret',
+  ];
+  const isPlaceholder = (v) =>
+    !v || v.length < 32 || PLACEHOLDER_MARKERS.some((m) => v.toLowerCase().includes(m));
+
+  const required = ['JWT_SECRET', 'JWT_REFRESH_SECRET'];
+  const problems = required.filter((k) => isPlaceholder(process.env[k]));
+
+  // FILE_URL_SECRET falls back to JWT_SECRET, so only flag it if it's a placeholder value.
+  if (process.env.FILE_URL_SECRET && isPlaceholder(process.env.FILE_URL_SECRET)) {
+    problems.push('FILE_URL_SECRET');
+  }
+
+  if (problems.length === 0) return;
+
+  const msg =
+    `Insecure/placeholder secret(s): ${problems.join(', ')}. ` +
+    `Generate strong values, e.g. node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`;
+
+  if (process.env.NODE_ENV === 'production') {
+    console.error(`FATAL: ${msg}`);
+    process.exit(1);
+  } else {
+    console.warn(`⚠️  ${msg}`);
+  }
+}
+validateRequiredSecrets();
 
 const { connectMongo } = require('./config/mongo');
 
@@ -25,7 +58,7 @@ const medicalRecordRoutes = require('./routes/medicalRecords');
 const reportRoutes = require('./routes/reports');
 const generatedReportRoutes = require('./routes/generatedReports');
 const reportGenerationRoutes = require('./routes/reportGeneration');
-const managerRoutes = require('./routes/manager');
+const adminRoutes = require('./routes/admin');
 const healthCardRoutes = require('./routes/healthCards');
 const documentRoutes = require('./routes/documents');
 const chatbotRoutes = require('./routes/chatbot');
@@ -40,12 +73,19 @@ const receptionRoutes = require('./routes/reception');
 const prescriptionRoutes = require('./routes/prescriptions');
 const dispensaryRoutes = require('./routes/dispensary');
 const roomRoutes = require('./routes/rooms');
+const fileRoutes = require('./routes/files');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
 const notFound = require('./middleware/notFound');
 
 const app = express();
+
+// Trust the first proxy hop (Vercel / load balancer) so req.ip reflects the
+// real client IP — required for rate limiting and account lockout to work
+// correctly. Without this, all clients appear to share the proxy's IP.
+app.set('trust proxy', 1);
+
 const server = createServer(app);
 
 // Socket.io setup
@@ -69,15 +109,28 @@ connectMongo(mongoose)
     console.warn(`MongoDB Atlas connection failed (${atlasErrorKind}); using local fallback.`);
   }
 
-  // Migrate any legacy 'manager' role users to 'admin'
+  // Grandfather pre-existing clinical accounts so the new credential gate does
+  // not lock out staff created before verification existed. Accounts whose
+  // status is the legacy schema default ('unverified' / unset) are trusted;
+  // accounts explicitly created as 'pending' via the admin workflow are left
+  // for an admin to verify. (One-time no-op once all rows are migrated.)
   try {
     const User = require('./models/User');
-    const result = await User.updateMany({ role: 'manager' }, { $set: { role: 'admin' } });
+    const result = await User.updateMany(
+      {
+        role: { $in: ['doctor', 'pharmacist', 'receptionist', 'staff'] },
+        $or: [
+          { credentialVerificationStatus: 'unverified' },
+          { credentialVerificationStatus: { $exists: false } },
+        ],
+      },
+      { $set: { credentialVerificationStatus: 'verified' } }
+    );
     if (result.modifiedCount > 0) {
-      console.log(`Migrated ${result.modifiedCount} legacy manager user(s) to admin role.`);
+      console.log(`Grandfathered ${result.modifiedCount} existing clinical account(s) to credential-verified.`);
     }
   } catch (error) {
-    console.error('Error migrating manager users:', error.message);
+    console.error('Error grandfathering clinical credentials:', error.message);
   }
 
   // Drop the old appointment slot uniqueness index (renamed to unique_active_booking_slot
@@ -180,14 +233,11 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Serve uploaded files BEFORE API routes to avoid notFound middleware
-app.use('/uploads', (req, res, next) => {
-  // Add CORS headers for static files
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  next();
-}, express.static(path.join(__dirname, 'uploads')));
+// NOTE: The previous public `express.static('/uploads')` mount was removed —
+// it exposed medical documents and NIC scans to anyone who could guess a
+// filename. Protected uploads are now served ONLY via `/api/files/*`, which
+// requires a short-lived HMAC signature minted by authorised API responses
+// (see routes/files.js + utils/signedFileUrl.js).
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -206,15 +256,17 @@ app.get('/*.hot-update.json', (req, res) => res.status(204).end());
 
 // Handle preflight OPTIONS requests for all routes
 app.options('*', (req, res) => {
-  console.log(` OPTIONS request handled: ${req.url}`);
   res.status(200).end();
 });
 
-// Log all incoming requests
-app.use((req, res, next) => {
-  console.log(` ${req.method} ${req.url} - Origin: ${req.headers.origin || 'none'}`);
-  next();
-});
+// Log incoming requests in development only. URLs can contain sensitive path
+// tokens (e.g. password-reset links), so this is never enabled in production.
+if (process.env.NODE_ENV === 'development') {
+  app.use((req, res, next) => {
+    console.log(`${req.method} ${req.path} - Origin: ${req.headers.origin || 'none'}`);
+    next();
+  });
+}
 
 // API routes
 app.use('/api/auth', authRoutes);
@@ -224,7 +276,7 @@ app.use('/api/medical-records', medicalRecordRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/generated-reports', generatedReportRoutes);
 app.use('/api/report-generation', reportGenerationRoutes);
-app.use('/api/manager', managerRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/health-cards', healthCardRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/chatbot', chatbotRoutes);
@@ -239,6 +291,7 @@ app.use('/api/reception', receptionRoutes);
 app.use('/api/prescriptions', prescriptionRoutes);
 app.use('/api/dispensary', dispensaryRoutes);
 app.use('/api/rooms', roomRoutes);
+app.use('/api/files', fileRoutes);
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
@@ -289,11 +342,14 @@ io.on('connection', (socket) => {
   });
 });
 
-// Debug middleware to log unmatched routes
-app.use((req, res, next) => {
-  console.log(`  Unmatched route: ${req.method} ${req.url}`);
-  next();
-});
+// Debug middleware to log unmatched routes (development only — URLs may carry
+// sensitive path tokens).
+if (process.env.NODE_ENV === 'development') {
+  app.use((req, res, next) => {
+    console.log(`Unmatched route: ${req.method} ${req.path}`);
+    next();
+  });
+}
 
 // Error handling middleware
 app.use(notFound);

@@ -243,10 +243,11 @@ const DoctorActivityPanel = ({ data, meta }) => {
               formatter={(v, name) => [v, name]}
             />
             <Legend />
-            <Bar dataKey="total"     name="Total"     fill="#3B82F6" radius={[0, 3, 3, 0]} stackId="a" />
-            <Bar dataKey="completed" name="Completed" fill="#10B981" radius={[0, 3, 3, 0]} stackId="b" />
-            <Bar dataKey="cancelled" name="Cancelled" fill="#EF4444" radius={[0, 3, 3, 0]} stackId="c" />
-            <Bar dataKey="noShow"    name="No-show"   fill="#F59E0B" radius={[0, 3, 3, 0]} stackId="d" />
+            <Bar dataKey="total"     name="Total"           fill="#3B82F6" radius={[0, 3, 3, 0]} stackId="a" />
+            <Bar dataKey="completed" name="Completed"       fill="#10B981" radius={[0, 3, 3, 0]} stackId="b" />
+            <Bar dataKey="cancelled" name="Cancelled"       fill="#EF4444" radius={[0, 3, 3, 0]} stackId="c" />
+            <Bar dataKey="noShow"    name="No-show"         fill="#F59E0B" radius={[0, 3, 3, 0]} stackId="d" />
+            <Bar dataKey="other"     name="Upcoming/Other"  fill="#8B5CF6" radius={[0, 3, 3, 0]} stackId="e" />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -262,6 +263,7 @@ const DoctorActivityPanel = ({ data, meta }) => {
               <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Completed</th>
               <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Cancelled</th>
               <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">No-show</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Upcoming/Other</th>
               <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Completion %</th>
             </tr>
           </thead>
@@ -274,6 +276,7 @@ const DoctorActivityPanel = ({ data, meta }) => {
                 <td className="px-4 py-3 text-right text-green-700">{doc.completed}</td>
                 <td className="px-4 py-3 text-right text-red-600">{doc.cancelled}</td>
                 <td className="px-4 py-3 text-right text-amber-600">{doc.noShow}</td>
+                <td className="px-4 py-3 text-right text-violet-600">{doc.other ?? (doc.total - doc.completed - doc.cancelled - doc.noShow)}</td>
                 <td className="px-4 py-3 text-right font-semibold text-gray-700">
                   {doc.total > 0 ? `${Math.round(doc.completed / doc.total * 100)}%` : '—'}
                 </td>

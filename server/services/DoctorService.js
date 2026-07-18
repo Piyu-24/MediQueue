@@ -3,6 +3,7 @@ const MedicalRecord = require('../models/MedicalRecord');
 const AuditLog = require('../models/AuditLog');
 const Appointment = require('../models/Appointment');
 const mongoose = require('mongoose');
+const { signFileUrl } = require('../utils/signedFileUrl');
 
 /**
  * DoctorService - Business logic for doctor operations
@@ -412,6 +413,16 @@ class DoctorService {
         description: `Accessed medical history for patient ${patient.firstName} ${patient.lastName}`,
         metadata: { recordCount: medicalRecords.length }
       });
+
+      // Sign any embedded attachment URLs (raw /uploads/... paths are no longer
+      // publicly served — see utils/signedFileUrl.js).
+      for (const rec of medicalRecords) {
+        if (Array.isArray(rec.documents)) {
+          rec.documents = rec.documents.map(doc =>
+            doc && doc.fileUrl ? { ...doc, fileUrl: signFileUrl(doc.fileUrl) } : doc
+          );
+        }
+      }
 
       return {
         success: true,

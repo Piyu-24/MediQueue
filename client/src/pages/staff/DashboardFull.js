@@ -7,16 +7,16 @@ import {
   MagnifyingGlassIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
-import { appointmentAPI, userAPI } from '../../services/api';
+import { appointmentAPI } from '../../services/api';
 import toast from 'react-hot-toast';
 
 const StaffDashboard = () => {
   const { user } = useAuth();
-  
+
   const [loading, setLoading] = useState(true);
   const [todayAppointments, setTodayAppointments] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
+  // Filters the already-loaded today list only — no patient-directory access.
+  const [filterQuery, setFilterQuery] = useState('');
   const [stats, setStats] = useState({
     pending: 0,
     checkedIn: 0,
@@ -30,21 +30,21 @@ const StaffDashboard = () => {
   const fetchStaffData = async () => {
     try {
       setLoading(true);
-      
+
       const today = new Date().toISOString().split('T')[0];
       const response = await appointmentAPI.getAppointments({ date: today });
-      
+
       if (response.data.success) {
         const appointments = response.data.data.appointments || [];
         setTodayAppointments(appointments);
-        
+
         const pending = appointments.filter(a => a.status === 'scheduled').length;
         const checkedIn = appointments.filter(a => a.status === 'confirmed').length;
         const completed = appointments.filter(a => a.status === 'completed').length;
-        
+
         setStats({ pending, checkedIn, completed });
       }
-      
+
     } catch (error) {
       console.error('Error fetching staff data:', error);
       toast.error('Failed to load dashboard data');
@@ -64,26 +64,16 @@ const StaffDashboard = () => {
     }
   };
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    try {
-      const response = await userAPI.searchUsers(searchQuery);
-      if (response.data.success) {
-        setSearchResults(response.data.data.users || []);
-      }
-    } catch (error) {
-      console.error('Error searching:', error);
-      toast.error('Search failed');
-    }
-  };
-
-  const formatTime = (timeString) => {
-    return timeString;
-  };
+  // Client-side filter over today's list — supports assisting/locating a patient
+  // without querying the user directory or exposing any extra patient data.
+  const q = filterQuery.trim().toLowerCase();
+  const visibleAppointments = q
+    ? todayAppointments.filter(a => {
+        const name = `${a.patient?.firstName || ''} ${a.patient?.lastName || ''}`.toLowerCase();
+        const card = (a.patient?.digitalHealthCardId || '').toLowerCase();
+        return name.includes(q) || card.includes(q);
+      })
+    : todayAppointments;
 
   if (loading) {
     return (
@@ -102,7 +92,7 @@ const StaffDashboard = () => {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">
-            Welcome, {user?.firstName} 
+            Welcome, {user?.firstName}
           </h1>
           <p className="text-gray-600 mt-2">
             Staff Dashboard • {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
@@ -142,58 +132,26 @@ const StaffDashboard = () => {
           </div>
         </div>
 
-        {/* Patient Search */}
-        <div className="bg-white rounded-lg shadow mb-8 p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Patient Search</h2>
-          <div className="flex space-x-4">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-              placeholder="Search by name, email, or health card ID..."
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <button
-              onClick={handleSearch}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <MagnifyingGlassIcon className="w-5 h-5 inline mr-2" />
-              Search
-            </button>
-          </div>
-
-          {searchResults.length > 0 && (
-            <div className="mt-4 space-y-2">
-              {searchResults.map((patient) => (
-                <div key={patient._id} className="p-4 bg-gray-50 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-semibold">{patient.firstName} {patient.lastName}</p>
-                      <p className="text-sm text-gray-600">{patient.email}</p>
-                      <p className="text-sm text-gray-500">ID: {patient.digitalHealthCardId}</p>
-                    </div>
-                    <button
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                    >
-                      View Profile
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
         {/* Today's Appointments */}
         <div className="bg-white rounded-lg shadow">
-          <div className="p-6 border-b border-gray-200">
+          <div className="p-6 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <h2 className="text-xl font-bold text-gray-900">Today's Appointments</h2>
+            {/* Find a patient within today's list (local filter, no directory lookup) */}
+            <div className="relative w-full sm:w-72">
+              <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={filterQuery}
+                onChange={(e) => setFilterQuery(e.target.value)}
+                placeholder="Find patient in today's list..."
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              />
+            </div>
           </div>
           <div className="p-6">
-            {todayAppointments.length > 0 ? (
+            {visibleAppointments.length > 0 ? (
               <div className="space-y-4">
-                {todayAppointments.map((appointment) => (
+                {visibleAppointments.map((appointment) => (
                   <div
                     key={appointment._id}
                     className="border border-gray-200 rounded-lg p-6"
@@ -209,9 +167,12 @@ const StaffDashboard = () => {
                           </h3>
                           <p className="text-sm text-gray-600">
                             Dr. {appointment.doctor?.firstName} {appointment.doctor?.lastName}
+                            {appointment.doctor?.department && (
+                              <span className="text-gray-400"> • {appointment.doctor.department}</span>
+                            )}
                           </p>
                           <p className="text-sm text-gray-500">
-                            {formatTime(appointment.appointmentTime)} • {appointment.appointmentType}
+                            {appointment.appointmentTime} • {appointment.appointmentType}
                           </p>
                           <div className="mt-2">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
@@ -226,22 +187,15 @@ const StaffDashboard = () => {
                         </div>
                       </div>
 
-                      <div className="flex flex-col space-y-2">
-                        {appointment.status === 'scheduled' && (
-                          <button
-                            onClick={() => handleCheckIn(appointment._id)}
-                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                          >
-                            <CheckCircleIcon className="w-4 h-4 inline mr-1" />
-                            Check In
-                          </button>
-                        )}
+                      {appointment.status === 'scheduled' && (
                         <button
-                          className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                          onClick={() => handleCheckIn(appointment._id)}
+                          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
                         >
-                          View Details
+                          <CheckCircleIcon className="w-4 h-4 inline mr-1" />
+                          Check In
                         </button>
-                      </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -249,7 +203,9 @@ const StaffDashboard = () => {
             ) : (
               <div className="text-center py-12">
                 <CalendarIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">No appointments for today</p>
+                <p className="text-gray-500">
+                  {q ? 'No matching patients in today\'s list' : 'No appointments for today'}
+                </p>
               </div>
             )}
           </div>

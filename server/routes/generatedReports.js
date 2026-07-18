@@ -7,7 +7,7 @@ const { body, validationResult } = require('express-validator');
 
 // @desc    Get all generated reports
 // @route   GET /api/generated-reports
-// @access  Private (Manager, Staff)
+// @access  Private (Admin, Staff)
 router.get('/', auth, authorize('staff', 'admin'), async (req, res) => {
   try {
     const { 
@@ -84,7 +84,7 @@ router.get('/', auth, authorize('staff', 'admin'), async (req, res) => {
 
 // @desc    Get single generated report
 // @route   GET /api/generated-reports/:id
-// @access  Private (Manager, Staff)
+// @access  Private (Admin, Staff)
 router.get('/:id', auth, authorize('staff', 'admin'), async (req, res) => {
   try {
     const report = await GeneratedReport.findById(req.params.id)
@@ -112,7 +112,7 @@ router.get('/:id', auth, authorize('staff', 'admin'), async (req, res) => {
 
 // @desc    Create new generated report
 // @route   POST /api/generated-reports
-// @access  Private (Manager, Staff)
+// @access  Private (Admin, Staff)
 router.post('/', [
   auth,
   authorize('staff', 'admin'),
@@ -180,7 +180,7 @@ router.post('/', [
 
 // @desc    Update generated report
 // @route   PUT /api/generated-reports/:id
-// @access  Private (Manager, Staff)
+// @access  Private (Admin, Staff)
 router.put('/:id', [
   auth,
   authorize('staff', 'admin'),
@@ -232,7 +232,7 @@ router.put('/:id', [
 
 // @desc    Delete generated report
 // @route   DELETE /api/generated-reports/:id
-// @access  Private (Manager)
+// @access  Private (Admin)
 router.delete('/:id', auth, authorize('admin'), async (req, res) => {
   try {
     const report = await GeneratedReport.findById(req.params.id);
@@ -260,7 +260,7 @@ router.delete('/:id', auth, authorize('admin'), async (req, res) => {
 
 // @desc    Download generated report
 // @route   GET /api/generated-reports/:id/download
-// @access  Private (Manager, Staff)
+// @access  Private (Admin, Staff)
 router.get('/:id/download', auth, authorize('staff', 'admin'), async (req, res) => {
   try {
     const report = await GeneratedReport.findById(req.params.id);
@@ -300,7 +300,7 @@ router.get('/:id/download', auth, authorize('staff', 'admin'), async (req, res) 
 
 // @desc    Get report statistics
 // @route   GET /api/generated-reports/stats/overview
-// @access  Private (Manager)
+// @access  Private (Admin)
 router.get('/stats/overview', auth, authorize('admin'), async (req, res) => {
   try {
     const totalReports = await GeneratedReport.countDocuments({ isArchived: false });

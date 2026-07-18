@@ -99,7 +99,7 @@ router.post('/message', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error processing your message',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -125,7 +125,7 @@ router.get('/history', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error retrieving chat history',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -158,7 +158,7 @@ router.get('/health-tips/:category', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error retrieving health tips',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -197,7 +197,7 @@ router.get('/symptom/:symptom', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error retrieving symptom information',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -233,7 +233,7 @@ router.post('/emergency-check', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error checking for emergency',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });

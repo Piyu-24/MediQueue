@@ -1,34 +1,31 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 const MedicalRecord = require('../models/MedicalRecord');
 const User = require('../models/User');
-const Appointment = require('../models/Appointment');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
+const { signFileUrl } = require('../utils/signedFileUrl');
+const { saveUpload, deleteUpload } = require('../utils/fileStorage');
 
 const router = express.Router();
 
-// Configure multer for document uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadPath = path.join(__dirname, '../uploads/documents');
-    
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    
-    cb(null, uploadPath);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const extension = path.extname(file.originalname);
-    cb(null, 'medical-doc-' + uniqueSuffix + extension);
+// Swap each attached file's stored path for a short-lived signed URL,
+// so files aren't exposed through a public route
+function withSignedRecord(record) {
+  if (!record) return record;
+  const obj = typeof record.toObject === 'function' ? record.toObject() : { ...record };
+  if (Array.isArray(obj.documents)) {
+    obj.documents = obj.documents.map(doc => {
+      if (doc && doc.fileUrl) return { ...doc, fileUrl: signFileUrl(doc.fileUrl) };
+      return doc;
+    });
   }
-});
+  return obj;
+}
+
+// Keep uploads in memory; saveUpload() stores them afterwards
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
@@ -67,7 +64,7 @@ router.get('/', auth, async (req, res) => {
     // Additional filters from query params
     const { patientId, recordType, startDate, endDate, search } = req.query;
     
-    // Only admin, manager, staff, and receptionist can filter by patient
+    // Only admin, staff, and receptionist can filter by patient
     if (patientId && ['admin', 'staff', 'receptionist'].includes(req.user.role)) {
       query.patient = patientId;
     }
@@ -86,14 +83,21 @@ router.get('/', auth, async (req, res) => {
       query.$text = { $search: search };
     }
     
-    const records = await MedicalRecord.find(query)
+    let dbQuery = MedicalRecord.find(query)
       .populate('patient', 'firstName lastName email digitalHealthCardId')
       .populate('doctor', 'firstName lastName specialization')
       .populate('createdBy', 'firstName lastName role')
       .populate('appointment')
       .sort({ createdAt: -1 })
       .limit(parseInt(req.query.limit) || 50);
-    
+
+    // A receptionist only attaches files, so don't send them the clinical content
+    if (req.user.role === 'receptionist') {
+      dbQuery = dbQuery.select('recordType title description createdAt documents patient');
+    }
+
+    const records = await dbQuery;
+
     // Log access for each record
     const clientIp = req.ip || req.connection.remoteAddress;
     for (const record of records) {
@@ -103,14 +107,14 @@ router.get('/', auth, async (req, res) => {
     res.json({
       success: true,
       count: records.length,
-      data: { records }
+      data: { records: records.map(withSignedRecord) }
     });
   } catch (error) {
     console.error('Get medical records error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -150,17 +154,17 @@ router.get('/:id', auth, async (req, res) => {
     // Log access
     const clientIp = req.ip || req.connection.remoteAddress;
     await record.logAccess(req.user.id, 'view', clientIp);
-    
+
     res.json({
       success: true,
-      data: { record }
+      data: { record: withSignedRecord(record) }
     });
   } catch (error) {
     console.error('Get medical record error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -234,8 +238,7 @@ router.post('/',
       const derivedDescription = req.body.description ||
         req.body.diagnosis || req.body.chiefComplaint || req.body.treatment || 'Consultation record';
 
-      // Map 'medications' (consultation form field) → 'prescriptions' (MedicalRecord schema field)
-      // so embedded drug history is stored even when the simplified consultation form is used.
+      // The consultation form sends 'medications', but the schema uses 'prescriptions'
       if (otherFields.medications && !otherFields.prescriptions) {
         otherFields.prescriptions = otherFields.medications.map(med => ({
           medication:   med.name   || med.drugName || 'Unknown',
@@ -280,7 +283,7 @@ router.post('/',
       res.status(500).json({
         success: false,
         message: 'Server error',
-        error: error.message
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
@@ -288,73 +291,66 @@ router.post('/',
 
 // @desc    Upload documents to medical record
 // @route   POST /api/medical-records/:id/documents
-// @access  Private (Doctor, Staff, Receptionist, Manager)
+// @access  Private (Doctor, Staff, Receptionist, Admin)
 router.post('/:id/documents', 
   auth, 
   authorize('doctor', 'staff', 'receptionist', 'admin'),
   upload.array('documents', 10), // Allow up to 10 files
   async (req, res) => {
+    let savedRefs = [];
     try {
       const record = await MedicalRecord.findById(req.params.id);
-      
+
       if (!record) {
-        // Clean up uploaded files if record not found
-        if (req.files) {
-          req.files.forEach(file => {
-            if (fs.existsSync(file.path)) {
-              fs.unlinkSync(file.path);
-            }
-          });
-        }
-        
         return res.status(404).json({
           success: false,
           message: 'Medical record not found'
         });
       }
-      
-      // Process uploaded files
-      const documents = req.files.map(file => ({
-        fileName: file.originalname,
-        fileUrl: `/uploads/documents/${file.filename}`,
-        fileType: file.mimetype,
-        fileSize: file.size,
-        uploadedBy: req.user.id,
-        uploadedAt: new Date()
-      }));
-      
+
+      // Save each uploaded file
+      const documents = [];
+      for (const file of req.files) {
+        const saved = await saveUpload(file, { folder: 'documents', prefix: 'medical-doc' });
+        savedRefs.push(saved.ref);
+        documents.push({
+          fileName: file.originalname,
+          fileUrl: saved.ref,          // stored path; signed when read back
+          fileType: saved.mimeType,
+          fileSize: saved.size,
+          uploadedBy: req.user.id,
+          uploadedAt: new Date()
+        });
+      }
+
       // Add documents to medical record
       if (!record.documents) {
         record.documents = [];
       }
       record.documents.push(...documents);
-      
+
       await record.save();
       
       res.json({
         success: true,
         message: `${documents.length} document(s) uploaded successfully`,
         data: {
-          record,
-          uploadedDocuments: documents
+          record: withSignedRecord(record),
+          uploadedDocuments: withSignedRecord(record).documents.slice(-documents.length)
         }
       });
     } catch (error) {
       console.error('Upload documents error:', error);
-      
-      // Clean up uploaded files on error
-      if (req.files) {
-        req.files.forEach(file => {
-          if (fs.existsSync(file.path)) {
-            fs.unlinkSync(file.path);
-          }
-        });
+
+      // Roll back any files stored before the failure
+      for (const ref of savedRefs) {
+        await deleteUpload(ref);
       }
-      
+
       res.status(500).json({
         success: false,
         message: 'Server error',
-        error: error.message
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
@@ -425,7 +421,7 @@ router.put('/:id', auth, authorize('doctor', 'admin'), async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -461,14 +457,14 @@ router.delete('/:id', auth, authorize('admin'), async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 // @desc    Get all medical records for a patient
 // @route   GET /api/medical-records/patient/:patientId
-// @access  Private (Doctor, Staff, Receptionist, Manager)
+// @access  Private (Doctor, Staff, Receptionist, Admin)
 router.get('/patient/:patientId', auth, authorize('doctor', 'staff', 'receptionist', 'patient', 'admin'), async (req, res) => {
   try {
     const { patientId } = req.params;
@@ -494,7 +490,7 @@ router.get('/patient/:patientId', auth, authorize('doctor', 'staff', 'receptioni
       success: true,
       count: records.length,
       data: {
-        records
+        records: records.map(withSignedRecord)
       }
     });
   } catch (error) {
@@ -502,7 +498,7 @@ router.get('/patient/:patientId', auth, authorize('doctor', 'staff', 'receptioni
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -550,7 +546,7 @@ router.get('/patient/:patientId/summary', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });

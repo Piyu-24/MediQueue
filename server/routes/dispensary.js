@@ -3,16 +3,17 @@ const { body, validationResult } = require('express-validator');
 const HealthCard   = require('../models/HealthCard');
 const Prescription = require('../models/Prescription');
 const Dispense     = require('../models/Dispense');
-const User         = require('../models/User');
 const auth         = require('../middleware/auth');
 const authorize    = require('../middleware/authorize');
 
+const requireVerifiedCredentials = require('../middleware/requireVerifiedCredentials');
+
 const router = express.Router();
 
-// All dispensary routes require authentication. Role authorization is applied
-// per-route below — most routes are pharmacist/admin/staff only, but the
-// "send to dispensary" action must also allow the prescribing doctor.
+// All dispensary routes need auth. Roles are checked per route below - most are
+// pharmacy staff only, but "send to dispensary" also allows the doctor.
 router.use(auth);
+router.use(requireVerifiedCredentials); // clinical staff must be admin-verified
 
 // Pharmacy-staff-only guard, applied to the dispensing/viewing routes
 const pharmacyStaff = authorize('pharmacist', 'admin', 'staff');
@@ -25,11 +26,7 @@ const validate = (req, res, next) => {
   next();
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SCAN QR / HEALTH CARD  →  return patient + pending prescriptions
-// POST /api/dispensary/scan
-// Body: { cardNumber } or { qrData }
-// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/dispensary/scan - scan a health card, return patient + pending prescriptions
 router.post('/scan',
   pharmacyStaff,
   [body('cardNumber').optional().trim(), body('qrData').optional().trim()],
@@ -53,7 +50,7 @@ router.post('/scan',
       }
 
       const card = await HealthCard.findOne({ cardNumber: cardNumber.trim().toUpperCase() })
-        .populate('patient', 'firstName lastName phone dateOfBirth gender digitalHealthCardId');
+        .populate('patient', 'firstName lastName phone digitalHealthCardId');
 
       if (!card) {
         return res.status(404).json({ success: false, message: 'Health card not found' });
@@ -81,15 +78,12 @@ router.post('/scan',
       });
     } catch (err) {
       console.error('Dispensary scan error:', err);
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// QUEUE  —  all prescriptions awaiting dispensing (most recent first)
-// GET /api/dispensary/queue
-// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/dispensary/queue - all prescriptions waiting to be dispensed
 router.get('/queue', pharmacyStaff, async (req, res) => {
   try {
     const prescriptions = await Prescription.find({
@@ -103,14 +97,11 @@ router.get('/queue', pharmacyStaff, async (req, res) => {
     res.json({ success: true, data: { prescriptions } });
   } catch (err) {
     console.error('Dispensary queue error:', err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SEND TO DISPENSARY  —  doctor/staff marks a prescription ready to collect
-// PATCH /api/dispensary/prescriptions/:id/send
-// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/dispensary/prescriptions/:id/send - mark a prescription ready to collect
 router.patch('/prescriptions/:id/send',
   authorize('pharmacist', 'admin', 'staff', 'doctor', 'receptionist'),
   async (req, res) => {
@@ -141,16 +132,12 @@ router.patch('/prescriptions/:id/send',
       });
     } catch (err) {
       console.error('Send to dispensary error:', err);
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DISPENSE  —  pharmacist issues medicines and records the event
-// POST /api/dispensary/prescriptions/:id/dispense
-// Body: { itemsDispensed: [{ drugName, strength, dosageForm, quantity, batchNumber, notes }], notes }
-// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/dispensary/prescriptions/:id/dispense - pharmacist issues the medicines
 router.post('/prescriptions/:id/dispense',
   pharmacyStaff,
   [
@@ -207,15 +194,12 @@ router.post('/prescriptions/:id/dispense',
       });
     } catch (err) {
       console.error('Dispense error:', err);
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DISPENSE HISTORY  —  recent dispense records (pharmacist view)
-// GET /api/dispensary/history?limit=50&patientId=xxx
-// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/dispensary/history - recent dispense records
 router.get('/history', pharmacyStaff, async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
@@ -232,18 +216,15 @@ router.get('/history', pharmacyStaff, async (req, res) => {
     res.json({ success: true, data: { history } });
   } catch (err) {
     console.error('Dispense history error:', err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET single prescription detail (for dispensary view)
-// GET /api/dispensary/prescriptions/:id
-// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/dispensary/prescriptions/:id - single prescription detail
 router.get('/prescriptions/:id', pharmacyStaff, async (req, res) => {
   try {
     const prescription = await Prescription.findById(req.params.id)
-      .populate('patient', 'firstName lastName phone dateOfBirth gender digitalHealthCardId')
+      .populate('patient', 'firstName lastName phone digitalHealthCardId')
       .populate('doctor', 'firstName lastName specialization');
 
     if (!prescription) {
@@ -253,7 +234,7 @@ router.get('/prescriptions/:id', pharmacyStaff, async (req, res) => {
     res.json({ success: true, data: { prescription } });
   } catch (err) {
     console.error('Get prescription error:', err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
   }
 });
 

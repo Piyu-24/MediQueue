@@ -15,16 +15,8 @@ const handleValidation = (req, res, next) => {
   next();
 };
 
-// ── GET /api/time-blocks ──────────────────────────────────────────────────────
-// Get available time blocks for booking.
-// Public-readable (auth required); shows only appointment-available slots to patients.
-// Admin/receptionist/staff get full data including walk-in counts.
-//
-// Query params:
-//   date           YYYY-MM-DD  (required)
-//   departmentId   ObjectId    (required for General OPD)
-//   doctorId       ObjectId    (optional; if provided, returns specialist blocks)
-//   includeAll     boolean     (admin/staff only — include closed/full blocks)
+// GET /api/time-blocks - available time blocks for booking.
+// Patients see only bookable slots; staff get the full capacity numbers.
 router.get(
   '/',
   auth,
@@ -109,12 +101,12 @@ router.get(
 
       res.json({ success: true, data: responseBlocks, count: responseBlocks.length });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ── GET /api/time-blocks/:id ──────────────────────────────────────────────────
+// GET /api/time-blocks/:id
 router.get(
   '/:id',
   auth,
@@ -131,13 +123,12 @@ router.get(
 
       res.json({ success: true, data: block });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ── POST /api/time-blocks ─────────────────────────────────────────────────────
-// Admin/staff — create a single time block
+// POST /api/time-blocks - create a single time block (admin/staff)
 router.post(
   '/',
   auth,
@@ -167,13 +158,12 @@ router.post(
           message: 'A time block already exists for this department/doctor/date/startTime'
         });
       }
-      res.status(err.statusCode || 500).json({ success: false, message: err.message });
+      res.status(err.statusCode || 500).json({ success: false, message: err.statusCode ? err.message : 'Server error' });
     }
   }
 );
 
-// ── POST /api/time-blocks/generate ───────────────────────────────────────────
-// Admin — bulk generate blocks for a date range from a template
+// POST /api/time-blocks/generate - bulk create blocks for a date range (admin)
 router.post(
   '/generate',
   auth,
@@ -209,13 +199,12 @@ router.post(
         skipped: result.skipped
       });
     } catch (err) {
-      res.status(err.statusCode || 500).json({ success: false, message: err.message });
+      res.status(err.statusCode || 500).json({ success: false, message: err.statusCode ? err.message : 'Server error' });
     }
   }
 );
 
-// ── PATCH /api/time-blocks/:id ────────────────────────────────────────────────
-// Admin/staff — update a block's capacity or status
+// PATCH /api/time-blocks/:id - update a block's capacity or status (admin/staff)
 router.patch(
   '/:id',
   auth,
@@ -249,13 +238,12 @@ router.patch(
       const block = await updateBlock(req.params.id, updates);
       res.json({ success: true, data: block, message: 'Time block updated successfully' });
     } catch (err) {
-      res.status(err.statusCode || 500).json({ success: false, message: err.message });
+      res.status(err.statusCode || 500).json({ success: false, message: err.statusCode ? err.message : 'Server error' });
     }
   }
 );
 
-// ── DELETE /api/time-blocks/:id ───────────────────────────────────────────────
-// Admin — cancel a block (if no appointments booked yet)
+// DELETE /api/time-blocks/:id - delete a block if nothing is booked yet (admin)
 router.delete(
   '/:id',
   auth,
@@ -277,7 +265,7 @@ router.delete(
       await block.deleteOne();
       res.json({ success: true, message: 'Time block deleted successfully' });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );

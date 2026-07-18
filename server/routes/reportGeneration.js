@@ -7,7 +7,7 @@ const { body, validationResult } = require('express-validator');
 
 // @desc    Generate Patient Visit Report
 // @route   POST /api/report-generation/patient-visits
-// @access  Private (Manager, Staff)
+// @access  Private (Admin, Staff)
 router.post('/patient-visits', [
   auth,
   authorize('staff', 'admin'),
@@ -40,7 +40,7 @@ router.post('/patient-visits', [
 
 // @desc    Generate Staff Utilization Report
 // @route   POST /api/report-generation/staff-utilization
-// @access  Private (Manager, Staff)
+// @access  Private (Admin, Staff)
 router.post('/staff-utilization', [
   auth,
   authorize('staff', 'admin'),
@@ -71,7 +71,7 @@ router.post('/staff-utilization', [
 
 // @desc    Generate Comprehensive Report
 // @route   POST /api/report-generation/comprehensive
-// @access  Private (Manager)
+// @access  Private (Admin)
 router.post('/comprehensive', [
   auth,
   authorize('admin'),
@@ -101,7 +101,7 @@ router.post('/comprehensive', [
 
 // @desc    Generate and Save Report
 // @route   POST /api/report-generation/generate-and-save
-// @access  Private (Manager, Staff)
+// @access  Private (Admin, Staff)
 router.post('/generate-and-save', [
   auth,
   authorize('staff', 'admin'),
@@ -198,7 +198,7 @@ router.post('/generate-and-save', [
 
 // @desc    Test endpoint
 // @route   GET /api/report-generation/test
-// @access  Private (Manager, Staff)
+// @access  Private (Admin, Staff)
 router.get('/test', auth, authorize('staff', 'admin'), (req, res) => {
   res.json({
     success: true,
@@ -210,7 +210,7 @@ router.get('/test', auth, authorize('staff', 'admin'), (req, res) => {
 
 // @desc    Get Available Report Types
 // @route   GET /api/report-generation/types
-// @access  Private (Manager, Staff)
+// @access  Private (Admin, Staff)
 router.get('/types', auth, authorize('staff', 'admin'), (req, res) => {
   const reportTypes = [
     {

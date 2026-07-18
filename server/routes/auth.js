@@ -1,6 +1,5 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
@@ -9,13 +8,23 @@ const AuditLog = require('../models/AuditLog');
 const auth = require('../middleware/auth');
 const sendEmail = require('../utils/sendEmail');
 
-// Tight rate limiter for registration and password-reset — 10 attempts per IP per hour
+// Limit registration and password-reset to 10 attempts per IP per hour
 const authStrictLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many attempts from this IP. Please try again in an hour.' },
+});
+
+// Limit failed logins per IP. Per-account brute force is handled by lockout logic.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // successful logins don't count toward the limit
+  message: { success: false, message: 'Too many login attempts from this IP. Please try again in a few minutes.' },
 });
 
 const router = express.Router();
@@ -103,9 +112,7 @@ router.post('/register', authStrictLimiter, [
       yearsOfExperience, qualification
     } = req.body;
 
-    // ── Self-registration is for patients only ─────────────────────────────
-    // Doctor, receptionist, pharmacist, and staff accounts must be created
-    // by an administrator via the admin dashboard.
+    // Only patients can self-register; staff accounts are created by an admin
     if (role && role !== 'patient') {
       return res.status(403).json({
         success: false,
@@ -121,8 +128,7 @@ router.post('/register', authStrictLimiter, [
       });
     }
 
-    // Email is trusted at registration — no verification step required.
-    // Verification is only triggered when a user later changes their email address.
+    // Trust the email at signup; we only verify it later if the user changes it
     const userData = { firstName, lastName, email, password, phone, role: 'patient', address, isEmailVerified: true };
 
     if (dateOfBirth) userData.dateOfBirth = dateOfBirth;
@@ -164,7 +170,7 @@ router.post('/register', authStrictLimiter, [
     });
 
   } catch (error) {
-    // MongoDB unique constraint violation — email already taken (race condition safety net)
+    // Duplicate key error means the email was just taken
     if (error.code === 11000 && error.keyPattern?.email) {
       return res.status(400).json({
         success: false,
@@ -182,7 +188,7 @@ router.post('/register', authStrictLimiter, [
 // @desc    Login user
 // @route   POST /api/auth/login
 // @access  Public
-router.post('/login', [
+router.post('/login', loginLimiter, [
   body('email')
     .trim()
     .isEmail()
@@ -440,8 +446,8 @@ router.post('/forgot-password', authStrictLimiter, [
     const { email } = req.body;
     const user = await User.findOne({ email });
 
-    // Always return the same response to prevent user enumeration.
-    // Only perform the reset actions if the user actually exists.
+    // Always send the same response so people can't tell if an email exists.
+    // Only do the reset work if the user is real.
     if (user) {
       const resetToken = crypto.randomBytes(32).toString('hex');
       user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');

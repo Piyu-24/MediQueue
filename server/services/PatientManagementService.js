@@ -20,6 +20,13 @@ class PatientManagementService {
    */
   async getPatientDashboard(doctorId, requestInfo) {
     try {
+      if (!doctorId) {
+        return {
+          success: false,
+          message: 'Doctor ID is required'
+        };
+      }
+
       // Get recent patients (last 30 days)
       const recentPatients = await this._getRecentPatients(doctorId, 10);
       
@@ -119,10 +126,16 @@ class PatientManagementService {
       .sort({ appointmentDate: 1 })
       .lean();
 
-      // Get formal prescription documents
+      // Get formal prescription documents.
+      // Include every stage a prescription passes through after it's written
+      // (draft → awaiting_dispensing → dispensed → completed/expired). The old
+      // filter only kept ['active','completed','expired'], which hid brand-new
+      // consultation prescriptions (created as 'draft') and any sent to the
+      // dispensary ('awaiting_dispensing'/'dispensed') — so the tab looked empty.
+      // Only 'cancelled' prescriptions are excluded from the history.
       const prescriptions = await Prescription.find({
         patient: patientId,
-        status: { $in: ['active', 'completed', 'expired'] }
+        status: { $ne: 'cancelled' }
       })
       .populate('doctor', 'firstName lastName specialization department')
       .sort({ prescribedDate: -1 })

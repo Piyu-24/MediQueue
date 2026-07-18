@@ -25,12 +25,9 @@ const checkinLimiter = rateLimit({
   legacyHeaders: false
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RECEPTIONIST — Legacy direct check-in (kept for backward compatibility with
-//   existing receptionist dashboard QR flow). New check-ins should use
-//   POST /api/check-in/appointment or /api/check-in/walk-in instead.
 // POST /api/queue/checkin
-// ─────────────────────────────────────────────────────────────────────────────
+// Old direct check-in, kept for the receptionist QR flow.
+// New check-ins should use /api/check-in/appointment or /api/check-in/walk-in.
 router.post(
   '/checkin',
   checkinLimiter,
@@ -67,9 +64,7 @@ router.post(
         return res.status(404).json({ success: false, message: 'Doctor not found' });
       }
 
-      // ── Session-closed guard ─────────────────────────────────────────────────
-      // Applies to both walk-ins and appointment patients. Emergencies are flagged
-      // via the isEmergency field in the new walk-in flow, not here.
+      // Don't allow check-in if the doctor's session has already ended for the day
       const legacySession = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate }).lean();
       if (legacySession?.status === 'ended') {
         return res.status(409).json({
@@ -181,10 +176,7 @@ router.post(
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RECEPTIONIST / ADMIN — Validate QR code
-// POST /api/queue/validate-qr
-// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/queue/validate-qr - validate a patient's health card QR
 router.post('/validate-qr', auth, authorize('receptionist', 'staff', 'admin'), async (req, res) => {
   try {
     const { qrData, cardNumber } = req.body;
@@ -205,7 +197,7 @@ router.post('/validate-qr', auth, authorize('receptionist', 'staff', 'admin'), a
 
     const healthCard = await HealthCard.findOne({
       cardNumber: searchCardNumber.trim().toUpperCase()
-    }).populate('patient', 'firstName lastName phone email dateOfBirth gender digitalHealthCardId nicNumber identityVerificationStatus');
+    }).populate('patient', 'firstName lastName phone dateOfBirth gender digitalHealthCardId nicNumber identityVerificationStatus');
 
     if (!healthCard) {
       return res.status(404).json({ success: false, message: 'Health card not found' });
@@ -224,7 +216,8 @@ router.post('/validate-qr', auth, authorize('receptionist', 'staff', 'admin'), a
     const endOfDay = new Date(queueDate);
     endOfDay.setDate(endOfDay.getDate() + 1);
 
-    const [todaysAppointments, existingQueueEntries, allAppointments] = await Promise.all([
+    // Only need today's appointments and the current queue for check-in
+    const [todaysAppointments, existingQueueEntries] = await Promise.all([
       Appointment.find({
         patient: patient._id,
         appointmentDate: { $gte: startOfDay, $lt: endOfDay },
@@ -234,11 +227,7 @@ router.post('/validate-qr', auth, authorize('receptionist', 'staff', 'admin'), a
         patient: patient._id,
         queueDate,
         status: { $in: ['waiting', 'ready', 'called', 'in_consultation', 'emergency_waiting'] }
-      }).populate('doctor', 'firstName lastName'),
-      Appointment.find({ patient: patient._id })
-        .populate('doctor', 'firstName lastName specialization department')
-        .sort({ appointmentDate: 1, appointmentTime: 1 })
-        .limit(50)
+      }).populate('doctor', 'firstName lastName')
     ]);
 
     res.json({
@@ -253,7 +242,6 @@ router.post('/validate-qr', auth, authorize('receptionist', 'staff', 'admin'), a
           expiryDate: healthCard.expiryDate
         },
         todaysAppointments,
-        allAppointments,
         existingQueueEntries,
         alreadyCheckedIn: existingQueueEntries.length > 0
       }
@@ -264,10 +252,7 @@ router.post('/validate-qr', auth, authorize('receptionist', 'staff', 'admin'), a
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ALL STAFF — Get queue list with filters
-// GET /api/queue
-// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/queue - queue list with filters
 router.get('/', auth, authorize('receptionist', 'staff', 'doctor', 'admin'), async (req, res) => {
   try {
     const { date = localDateStr(), room, department, status, doctorId } = req.query;
@@ -297,10 +282,7 @@ router.get('/', auth, authorize('receptionist', 'staff', 'doctor', 'admin'), asy
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ALL STAFF — Get zone-aware queue view for a doctor
-// GET /api/queue/doctors/:doctorId/active
-// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/queue/doctors/:doctorId/active - zone-aware queue view for a doctor
 router.get('/doctors/:doctorId/active', auth, authorize('receptionist', 'staff', 'doctor', 'admin'), async (req, res) => {
   try {
     const { doctorId } = req.params;
@@ -318,10 +300,7 @@ router.get('/doctors/:doctorId/active', auth, authorize('receptionist', 'staff',
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PUBLIC — Display screen data (anonymized)
-// GET /api/queue/display
-// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/queue/display - public display board data (names hidden)
 router.get('/display', async (req, res) => {
   try {
     const date = req.query.date || localDateStr();
@@ -405,10 +384,7 @@ router.get('/display', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PATIENT — Own queue status
-// GET /api/queue/my-status
-// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/queue/my-status - patient's own queue status
 router.get('/my-status', auth, authorize('patient'), async (req, res) => {
   try {
     const queueDate = localDateStr();
@@ -420,6 +396,7 @@ router.get('/my-status', auth, authorize('patient'), async (req, res) => {
     })
       .populate('doctor', 'firstName lastName specialization')
       .populate('appointment', 'appointmentReference appointmentTime')
+      .populate('timeBlockId', 'startTime endTime sessionName')
       .lean();
 
     if (!entry) {
@@ -439,6 +416,10 @@ router.get('/my-status', auth, authorize('patient'), async (req, res) => {
         room: entry.room,
         department: entry.department,
         doctor: entry.doctor,
+        // Time block context — disambiguates identical tokens across blocks (e.g. A001 in Block 1 vs Block 6)
+        timeBlock: entry.timeBlockId
+          ? { startTime: entry.timeBlockId.startTime, endTime: entry.timeBlockId.endTime, sessionName: entry.timeBlockId.sessionName }
+          : null,
         position: entry.patientsAheadCount + 1,
         estimatedWaitMinutes: entry.estimatedWaitMinutes,
         checkInTime: entry.checkInTime,
@@ -454,10 +435,7 @@ router.get('/my-status', auth, authorize('patient'), async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ADMIN / MANAGER — Queue stats
-// GET /api/queue/stats
-// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/queue/stats - queue stats for the day
 router.get('/stats', auth, authorize('admin', 'staff', 'receptionist'), async (req, res) => {
   try {
     const date = req.query.date || localDateStr();
@@ -517,10 +495,7 @@ router.get('/stats', auth, authorize('admin', 'staff', 'receptionist'), async (r
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DOCTOR — Call next patient  (waiting/ready → called)
-// PATCH /api/queue/:id/call
-// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/queue/:id/call - call next patient (waiting/ready -> called)
 router.patch('/:id/call', auth, authorize('doctor'), async (req, res) => {
   try {
     const entry = await QueueEntry.findById(req.params.id);
@@ -572,10 +547,7 @@ router.patch('/:id/call', auth, authorize('doctor'), async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DOCTOR — Start consultation  (called/ready/waiting → in_consultation)
-// PATCH /api/queue/:id/start
-// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/queue/:id/start - start consultation
 router.patch('/:id/start', auth, authorize('doctor', 'admin'), async (req, res) => {
   try {
     const entry = await QueueEntry.findById(req.params.id);
@@ -665,10 +637,7 @@ router.patch('/:id/start', auth, authorize('doctor', 'admin'), async (req, res) 
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DOCTOR — Complete consultation  (in_consultation → completed)
-// PATCH /api/queue/:id/complete
-// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/queue/:id/complete - complete consultation
 router.patch('/:id/complete', auth, authorize('doctor', 'admin'), auditLog('QUEUE_COMPLETE', 'QueueEntry'), async (req, res) => {
   try {
     const entry = await QueueEntry.findById(req.params.id);
@@ -744,10 +713,7 @@ router.patch('/:id/complete', auth, authorize('doctor', 'admin'), auditLog('QUEU
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DOCTOR — Skip patient (does not permanently close the entry)
-// PATCH /api/queue/:id/skip
-// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/queue/:id/skip - skip patient (entry stays open)
 router.patch('/:id/skip', auth, authorize('doctor', 'receptionist', 'staff', 'admin'), auditLog('QUEUE_SKIP', 'QueueEntry'), async (req, res) => {
   try {
     const entry = await QueueEntry.findById(req.params.id);
@@ -799,10 +765,7 @@ router.patch('/:id/skip', auth, authorize('doctor', 'receptionist', 'staff', 'ad
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DOCTOR / RECEPTIONIST — Mark no-show
-// PATCH /api/queue/:id/no-show
-// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/queue/:id/no-show - mark no-show
 router.patch('/:id/no-show', auth, authorize('doctor', 'receptionist', 'staff', 'admin'), auditLog('QUEUE_NO_SHOW', 'QueueEntry'), async (req, res) => {
   try {
     const entry = await QueueEntry.findById(req.params.id);
@@ -849,10 +812,7 @@ router.patch('/:id/no-show', auth, authorize('doctor', 'receptionist', 'staff', 
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RECEPTIONIST / DOCTOR — Mark temporarily away (patient stepped out)
-// PATCH /api/queue/:id/temporarily-away
-// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/queue/:id/temporarily-away - patient stepped out
 router.patch('/:id/temporarily-away', auth, authorize('doctor', 'receptionist', 'staff', 'admin'), async (req, res) => {
   try {
     const entry = await QueueEntry.findById(req.params.id);
@@ -895,10 +855,7 @@ router.patch('/:id/temporarily-away', auth, authorize('doctor', 'receptionist', 
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RECEPTIONIST / DOCTOR — Mark patient as returned
-// PATCH /api/queue/:id/returned
-// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/queue/:id/returned - patient came back to the queue
 router.patch('/:id/returned', auth, authorize('doctor', 'receptionist', 'staff', 'admin'), async (req, res) => {
   try {
     const entry = await QueueEntry.findById(req.params.id);
@@ -913,7 +870,7 @@ router.patch('/:id/returned', auth, authorize('doctor', 'receptionist', 'staff',
     entry.zone = 'WAITING_POOL';
     entry.isLocked = false;
     entry.returnedAt = new Date();
-    // Penalize slightly so returned patient doesn't jump back to original spot
+    // Add a small penalty so they don't jump straight back to their old spot
     entry.priorityScore = (entry.priorityScore || 100) + 50;
     entry.sortOrder = entry.priorityScore;
     await entry.save();
@@ -946,10 +903,7 @@ router.patch('/:id/returned', auth, authorize('doctor', 'receptionist', 'staff',
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DOCTOR — Pause queue session
-// PATCH /api/queue/session/:doctorId/pause
-// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/queue/session/:doctorId/pause - pause the queue session
 router.patch('/session/:doctorId/pause', auth, authorize('doctor', 'admin'), async (req, res) => {
   try {
     const { doctorId } = req.params;
@@ -988,10 +942,7 @@ router.patch('/session/:doctorId/pause', auth, authorize('doctor', 'admin'), asy
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DOCTOR — Resume queue session
-// PATCH /api/queue/session/:doctorId/resume
-// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/queue/session/:doctorId/resume - resume the queue session
 router.patch('/session/:doctorId/resume', auth, authorize('doctor', 'admin'), async (req, res) => {
   try {
     const { doctorId } = req.params;
@@ -1031,16 +982,9 @@ router.patch('/session/:doctorId/resume', auth, authorize('doctor', 'admin'), as
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DOCTOR (own session only) / ADMIN — Close queue session (end of day)
-// PATCH /api/queue/session/:doctorId/end
-//
-// Only the doctor assigned to the session (or admin for system-level ops) may
-// close the session. Receptionists cannot close sessions — they may only VIEW
-// the session status via GET /session/:doctorId/day-end-report.
-// Stops all check-ins, bulk-marks remaining unserved patients, and generates
-// the day-end report. Doctor must complete any active consultation first.
-// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/queue/session/:doctorId/end - close the session at end of day.
+// Only the assigned doctor (or admin) can close it. This stops check-ins,
+// marks any remaining patients as unserved, and builds the day-end report.
 router.patch('/session/:doctorId/end', auth, authorize('doctor', 'admin'), async (req, res) => {
   try {
     const { doctorId } = req.params;
@@ -1062,8 +1006,7 @@ router.patch('/session/:doctorId/end', auth, authorize('doctor', 'admin'), async
       req.user.role
     );
 
-    // Broadcast session close to all connected clients so the display board
-    // and reception dashboards update in real time.
+    // Tell all clients the session closed so the display board updates
     const io = req.app.get('io');
     if (io) {
       io.emit('queue:session:closed', {
@@ -1096,13 +1039,8 @@ router.patch('/session/:doctorId/end', auth, authorize('doctor', 'admin'), async
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ALL STAFF — Fetch day-end report + unserved patient list
 // GET /api/queue/session/:doctorId/day-end-report
-//
-// Returns the report generated at session close plus a per-patient list of
-// everyone who was not seen (for staff manual follow-up).
-// ─────────────────────────────────────────────────────────────────────────────
+// Returns the day-end report plus the list of patients who weren't seen.
 router.get('/session/:doctorId/day-end-report', auth, authorize('doctor', 'admin', 'receptionist', 'staff'), async (req, res) => {
   try {
     const { doctorId } = req.params;
