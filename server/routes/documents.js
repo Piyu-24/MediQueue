@@ -5,30 +5,21 @@ const path = require('path');
 const fs = require('fs');
 const Document = require('../models/Document');
 const auth = require('../middleware/auth');
-const authorize = require('../middleware/authorize');
+const { signFileUrl } = require('../utils/signedFileUrl');
+const { saveUpload, deleteUpload, isCloudinaryRef } = require('../utils/fileStorage');
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadPath = path.join(__dirname, '../uploads/documents');
-    
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    
-    cb(null, uploadPath);
-  },
-  filename: function (req, file, cb) {
-    // Generate unique filename
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const extension = path.extname(file.originalname);
-    cb(null, file.fieldname + '-' + uniqueSuffix + extension);
-  }
-});
+// Swap the document's stored path for a short-lived signed URL before sending it
+function withSignedUrl(document) {
+  if (!document) return document;
+  const obj = typeof document.toObject === 'function' ? document.toObject() : { ...document };
+  if (obj.fileUrl) obj.fileUrl = signFileUrl(obj.fileUrl);
+  return obj;
+}
+
+// Keep uploads in memory; saveUpload() stores them afterwards
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-  // Allowed file types
   const allowedTypes = [
     'image/jpeg',
     'image/jpg', 
@@ -87,10 +78,10 @@ router.post('/upload', auth, upload.single('document'), async (req, res) => {
       });
     }
 
-    // Create file URL
-    const fileUrl = `/uploads/documents/${req.file.filename}`;
+    // Save the file and get a reference to it
+    const saved = await saveUpload(req.file, { folder: 'documents', prefix: 'document' });
 
-    // Create document record
+    // fileUrl/filePath store the stored path; it's signed only when read back
     const document = new Document({
       patient: targetPatientId,
       uploadedBy: req.user.id,
@@ -99,16 +90,21 @@ router.post('/upload', auth, upload.single('document'), async (req, res) => {
       title: title || req.file.originalname,
       description: description || '',
       documentType: documentType || 'other',
-      fileName: req.file.filename,
+      fileName: saved.publicId,
       originalName: req.file.originalname,
-      filePath: req.file.path,
-      fileSize: req.file.size,
-      mimeType: req.file.mimetype,
-      fileUrl: fileUrl,
+      filePath: saved.ref,
+      fileSize: saved.size,
+      mimeType: saved.mimeType,
+      fileUrl: saved.ref,
       tags: tags ? tags.split(',').map(tag => tag.trim()) : []
     });
 
-    await document.save();
+    try {
+      await document.save();
+    } catch (dbErr) {
+      await deleteUpload(saved.ref); // roll back the stored file
+      throw dbErr;
+    }
 
     // Populate references
     await document.populate([
@@ -119,21 +115,16 @@ router.post('/upload', auth, upload.single('document'), async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Document uploaded successfully',
-      data: { document }
+      data: { document: withSignedUrl(document) }
     });
 
   } catch (error) {
     console.error('Upload document error:', error);
-    
-    // Delete uploaded file if database save failed
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-    
+
     res.status(500).json({
       success: false,
       message: error.message || 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -175,7 +166,7 @@ router.get('/patient/:patientId', auth, async (req, res) => {
     res.json({
       success: true,
       data: {
-        documents,
+        documents: documents.map(withSignedUrl),
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),
@@ -190,7 +181,7 @@ router.get('/patient/:patientId', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -226,7 +217,7 @@ router.get('/:id', auth, async (req, res) => {
 
     res.json({
       success: true,
-      data: { document }
+      data: { document: withSignedUrl(document) }
     });
 
   } catch (error) {
@@ -234,7 +225,7 @@ router.get('/:id', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -261,30 +252,25 @@ router.get('/:id/download', auth, async (req, res) => {
       });
     }
 
-    // Check if file exists
-    if (!fs.existsSync(document.filePath)) {
-      return res.status(404).json({
-        success: false,
-        message: 'File not found on server'
-      });
-    }
-
     // Log access
     await document.logAccess(req.user.id, 'download', req.ip);
 
-    // Set headers for download
-    res.setHeader('Content-Disposition', `attachment; filename="${document.originalName}"`);
-    res.setHeader('Content-Type', document.mimeType);
+    // Old records stored a full disk path, so send those directly.
+    // Newer ones redirect to a signed URL.
+    if (!isCloudinaryRef(document.filePath) && path.isAbsolute(document.filePath) && fs.existsSync(document.filePath)) {
+      res.setHeader('Content-Disposition', `attachment; filename="${document.originalName}"`);
+      res.setHeader('Content-Type', document.mimeType);
+      return res.sendFile(path.resolve(document.filePath));
+    }
 
-    // Send file
-    res.sendFile(path.resolve(document.filePath));
+    return res.redirect(signFileUrl(document.fileUrl));
 
   } catch (error) {
     console.error('Download document error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -328,7 +314,7 @@ router.post('/:id/share', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -376,7 +362,7 @@ router.delete('/:id', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });

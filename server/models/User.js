@@ -408,7 +408,8 @@ userSchema.methods.generateAuthToken = function() {
       role: this.role
     },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRE || '7d' }
+    // Short-lived access token by design; refresh token handles longevity.
+    { expiresIn: process.env.JWT_EXPIRE || '15m' }
   );
 };
 

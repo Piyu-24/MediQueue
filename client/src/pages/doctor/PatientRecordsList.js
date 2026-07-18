@@ -130,7 +130,7 @@ const PatientRecordsList = () => {
           <h2 className="text-xl font-semibold text-gray-900 mb-2">Error Loading Patients</h2>
           <p className="text-gray-600 mb-4">{error}</p>
           <button
-            onClick={() => navigate('/doctor')}
+            onClick={() => navigate('/doctor/dashboard')}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             Back to Dashboard

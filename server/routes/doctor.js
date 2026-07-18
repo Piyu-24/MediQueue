@@ -3,6 +3,7 @@ const router = express.Router();
 
 // Import middleware
 const auth = require('../middleware/auth');
+const requireVerifiedCredentials = require('../middleware/requireVerifiedCredentials');
 const {
   validatePatientSearch,
   validatePatientId,
@@ -17,25 +18,18 @@ const {
 // Import controller
 const DoctorController = require('../controllers/DoctorController');
 
-/**
- * Doctor Portal API Routes
- * All routes require authentication and doctor role
- * Follows RESTful conventions and clean URL structure
- */
+// Doctor routes - all require auth + doctor role
 
-// Apply common middleware to all routes
-router.use(auth); // Ensure user is authenticated
-router.use(validateDoctorRole); // Ensure user has doctor role
-router.use(sanitizeInput); // Sanitize all input data
+// Middleware for all doctor routes
+router.use(auth);
+router.use(validateDoctorRole);
+router.use(requireVerifiedCredentials); // block until admin verifies credentials
+router.use(sanitizeInput);
 
-/**
- * Patient Search and Access Routes
- */
+// Patient search and access
 
-// Enhanced patient search with filters
-// GET /api/doctor/patients/search?q=searchQuery&gender=male&bloodType=O+&page=1&limit=20
-// User Story: Search for patients with advanced filters
-router.get('/patients/search', 
+// GET /api/doctor/patients/search - search patients with filters
+router.get('/patients/search',
   validatePatientSearch,
   DoctorController.searchPatients
 );
@@ -65,58 +59,42 @@ router.get('/patients/:patientId/profile',
   DoctorController.getPatientProfile
 );
 
-// Get patient's complete medical history (legacy endpoint)
-// GET /api/doctor/patients/:patientId/medical-history
-// User Story 3: View patient's complete medical history
+// GET /api/doctor/patients/:patientId/medical-history - full history (old endpoint)
 router.get('/patients/:patientId/medical-history',
   validatePatientId,
   DoctorController.getPatientMedicalHistory
 );
 
-/**
- * Treatment Notes Management Routes
- */
+// Treatment notes
 
-// Add new treatment note to patient record
-// POST /api/doctor/patients/:patientId/treatment-notes
-// User Story 4: Add new treatment notes during/after consultation
+// POST /api/doctor/patients/:patientId/treatment-notes - add a note
 router.post('/patients/:patientId/treatment-notes',
   validatePatientId,
   validateTreatmentNote,
   DoctorController.addTreatmentNote
 );
 
-// Update existing treatment note
-// PUT /api/doctor/treatment-notes/:recordId
-// User Story 5: Update patient records with secure logging
+// PUT /api/doctor/treatment-notes/:recordId - update a note
 router.put('/treatment-notes/:recordId',
   validateRecordId,
   validateTreatmentNoteUpdate,
   DoctorController.updateTreatmentNote
 );
 
-/**
- * Schedule Management Routes
- */
+// Schedule
 
-// Get doctor's schedule and upcoming appointments
-// GET /api/doctor/schedule
-// User Story 6 & 7: View schedule and available slots
+// GET /api/doctor/schedule - schedule and upcoming appointments
 router.get('/schedule',
   DoctorController.getSchedule
 );
 
-// Update doctor's availability
-// PUT /api/doctor/availability
-// User Story 6: Manage schedule and block specific times
+// PUT /api/doctor/availability - update availability
 router.put('/availability',
   validateAvailability,
   DoctorController.updateAvailability
 );
 
-/**
- * Slot Management Routes
- */
+// Slots
 
 // Get doctor's slots for specific date(s)
 // GET /api/doctor/slots?startDate=2024-01-15&endDate=2024-01-15
@@ -160,9 +138,7 @@ router.get('/slots/available',
   DoctorController.getAvailableSlots
 );
 
-/**
- * Dashboard Route
- */
+// Dashboard
 
 // Get doctor's dashboard summary
 // GET /api/doctor/dashboard
@@ -170,13 +146,10 @@ router.get('/dashboard',
   DoctorController.getDashboard
 );
 
-/**
- * Error handling middleware for this router
- */
+// Error handling for this router
 router.use((error, req, res, next) => {
   console.error('Doctor router error:', error);
-  
-  // Handle specific error types
+
   if (error.name === 'ValidationError') {
     return res.status(400).json({
       success: false,

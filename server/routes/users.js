@@ -9,6 +9,8 @@ const AuditLog   = require('../models/AuditLog');
 const auth       = require('../middleware/auth');
 const authorize  = require('../middleware/authorize');
 const sendEmail  = require('../utils/sendEmail');
+const { signFileUrl } = require('../utils/signedFileUrl');
+const { saveUpload, deleteUpload, isCloudinaryRef } = require('../utils/fileStorage');
 
 async function writeAuditLog({ userId, userRole, action, resourceId, ipAddress, userAgent, status = 'SUCCESS', description, metadata }) {
   try {
@@ -27,24 +29,8 @@ async function writeAuditLog({ userId, userRole, action, resourceId, ipAddress, 
 
 const router = express.Router();
 
-// Configure multer for NIC uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadPath = path.join(__dirname, '../uploads/nic-documents');
-    
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    
-    cb(null, uploadPath);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const extension = path.extname(file.originalname);
-    cb(null, 'nic-' + req.user.id + '-' + uniqueSuffix + extension);
-  }
-});
+// Keep the uploaded NIC file in memory; saveUpload() stores it afterwards
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
@@ -190,11 +176,10 @@ router.put('/profile', auth, [
 // @route   POST /api/users/upload-nic
 // @access  Private (Patient)
 router.post('/upload-nic', auth, upload.single('nicDocument'), async (req, res) => {
+  let savedRef = null;
   try {
     console.log('NIC upload request from user:', req.user?.id, 'role:', req.user?.role);
-    console.log('File received:', req.file?.filename);
-    console.log('NIC Number:', req.body?.nicNumber);
-    
+
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -205,34 +190,31 @@ router.post('/upload-nic', auth, upload.single('nicDocument'), async (req, res) 
     const { nicNumber } = req.body;
 
     if (!nicNumber) {
-      // Delete uploaded file if NIC number is missing
-      if (fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
-      }
       return res.status(400).json({
         success: false,
         message: 'NIC number is required'
       });
     }
 
-    // Delete old NIC document if exists
+    // Save the file (Cloudinary or local disk) and get a reference to it
+    const saved = await saveUpload(req.file, { folder: 'nic-documents', prefix: `nic-${req.user.id}` });
+    savedRef = saved.ref;
+
+    // Delete old NIC document if one exists
     const oldUser = await User.findById(req.user.id);
-    if (oldUser.nicDocument && oldUser.nicDocument.path) {
-      const oldPath = path.join(__dirname, '..', oldUser.nicDocument.path);
-      if (fs.existsSync(oldPath)) {
-        fs.unlinkSync(oldPath);
-      }
+    if (oldUser?.nicDocument?.path) {
+      await deleteUpload(oldUser.nicDocument.path);
     }
 
-    // Update user with NIC document info
+    // Save the NIC document info on the user
     const user = await User.findByIdAndUpdate(
       req.user.id,
       {
         nicDocument: {
-          filename: req.file.filename,
-          path: req.file.path,
+          filename: saved.publicId,
+          path: saved.ref,
           uploadedAt: new Date(),
-          mimetype: req.file.mimetype
+          mimetype: saved.mimeType
         },
         nicNumber: nicNumber,
         identityVerificationStatus: 'pending',
@@ -253,16 +235,16 @@ router.post('/upload-nic', auth, upload.single('nicDocument'), async (req, res) 
     });
   } catch (error) {
     console.error('Upload NIC error:', error);
-    
-    // Delete uploaded file on error
-    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+
+    // Roll back the stored file if the DB update failed
+    if (savedRef) {
+      await deleteUpload(savedRef);
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -297,14 +279,14 @@ router.get('/nic-status', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 // @desc    Get NIC document image
 // @route   GET /api/users/nic-document/:patientId
-// @access  Private (Manager, Staff, Receptionist)
+// @access  Private (Admin, Staff, Receptionist)
 router.get('/nic-document/:patientId', auth, authorize('staff', 'receptionist', 'admin'), async (req, res) => {
   try {
     console.log('Fetching NIC document for patient:', req.params.patientId);
@@ -320,35 +302,28 @@ router.get('/nic-document/:patientId', auth, authorize('staff', 'receptionist', 
     }
     
     if (!patient.nicDocument || !patient.nicDocument.path) {
-      console.log('NIC document not found for patient');
       return res.status(404).json({
         success: false,
         message: 'NIC document not found'
       });
     }
 
-    console.log('Serving NIC document:', patient.nicDocument.path);
-    
-    // Check if file exists
-    if (!fs.existsSync(patient.nicDocument.path)) {
-      console.log('File does not exist at path:', patient.nicDocument.path);
-      return res.status(404).json({
-        success: false,
-        message: 'NIC document file not found'
-      });
+    const ref = patient.nicDocument.path;
+
+    // Old records stored a full disk path, so send those directly.
+    // Newer ones redirect to a signed URL.
+    if (!isCloudinaryRef(ref) && path.isAbsolute(ref) && fs.existsSync(ref)) {
+      res.setHeader('Content-Type', patient.nicDocument.mimetype || 'image/jpeg');
+      return res.sendFile(path.resolve(ref));
     }
 
-    // Set appropriate content type
-    res.setHeader('Content-Type', patient.nicDocument.mimetype || 'image/jpeg');
-    
-    // Send the file using absolute path
-    res.sendFile(path.resolve(patient.nicDocument.path));
+    return res.redirect(signFileUrl(ref));
   } catch (error) {
     console.error('Get NIC document error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -432,7 +407,7 @@ router.get('/doctors/:id', async (req, res) => {
 // @access  Private
 router.get('/:id/profile', auth, async (req, res) => {
   try {
-    // Check if user is accessing their own profile or is admin/manager
+    // Check if user is accessing their own profile or is admin
     if (req.user.id !== req.params.id && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -475,7 +450,7 @@ router.put('/:id/profile', auth, [
   body('email').optional().isEmail().normalizeEmail({ gmail_remove_dots: false }).withMessage('Invalid email address')
 ], async (req, res) => {
   try {
-    // Check if user is updating their own profile or is admin/manager
+    // Check if user is updating their own profile or is admin
     if (req.user.id !== req.params.id && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -591,9 +566,9 @@ router.put('/:id/profile', auth, [
   }
 });
 
-// @desc    Search users (Admin/Manager/Receptionist)
+// @desc    Search users (Admin/Receptionist)
 // @route   GET /api/users/search
-// @access  Private (Admin/Manager/Staff/Receptionist)
+// @access  Private (Admin/Staff/Receptionist)
 router.get('/search', auth, authorize('admin', 'staff', 'receptionist'), async (req, res) => {
   try {
     // Support both 'q' and 'query' parameters for backwards compatibility
@@ -622,8 +597,9 @@ router.get('/search', auth, authorize('admin', 'staff', 'receptionist'), async (
       searchFilter.isActive = isActive === 'true';
     }
 
+    // Search is just an identity lookup, so leave out medical and address data
     const users = await User.find(searchFilter)
-      .select('-password -resetPasswordToken -resetPasswordExpire')
+      .select('-password -resetPasswordToken -resetPasswordExpire -medicalInfo -allergies -chronicConditions -address -emergencyContact')
       .sort({ createdAt: -1 })
       .limit(50);
 
@@ -637,14 +613,14 @@ router.get('/search', auth, authorize('admin', 'staff', 'receptionist'), async (
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 // @desc    Get patients for identity verification
 // @route   GET /api/users/patients/verification
-// @access  Private (Manager, Staff, Receptionist)
+// @access  Private (Admin, Staff, Receptionist)
 router.get('/patients/verification', auth, authorize('staff', 'receptionist', 'admin'), async (req, res) => {
   try {
     const { status } = req.query;
@@ -671,7 +647,7 @@ router.get('/patients/verification', auth, authorize('staff', 'receptionist', 'a
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -742,14 +718,14 @@ router.put('/patients/:id/verify-identity', auth, authorize('staff', 'receptioni
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 // @desc    Verify patient by Health Card ID
 // @route   GET /api/users/verify-health-card/:healthCardId
-// @access  Private (Staff, Manager, Receptionist)
+// @access  Private (Staff, Admin, Receptionist)
 router.get('/verify-health-card/:healthCardId', auth, authorize('staff', 'receptionist', 'admin'), async (req, res) => {
   try {
     const { healthCardId } = req.params;
@@ -793,10 +769,28 @@ router.get('/verify-health-card/:healthCardId', auth, authorize('staff', 'recept
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
+
+// Role-based prefixes for auto-generated employee IDs.
+const EMPLOYEE_ID_PREFIX = {
+  doctor: 'DOC', pharmacist: 'PHM', receptionist: 'REC', staff: 'STF', admin: 'ADM',
+};
+
+// Make a unique employee ID like DOC-2026-0007, checking it isn't already taken
+async function generateEmployeeId(role) {
+  const prefix = EMPLOYEE_ID_PREFIX[role] || 'EMP';
+  const year = new Date().getFullYear();
+  const base = await User.countDocuments({ employeeId: new RegExp(`^${prefix}-`) });
+  for (let i = 1; i <= 50; i++) {
+    const candidate = `${prefix}-${year}-${String(base + i).padStart(4, '0')}`;
+    const exists = await User.exists({ employeeId: candidate });
+    if (!exists) return candidate;
+  }
+  return `${prefix}-${year}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
 
 // @desc    Create a staff/doctor/pharmacist user account (admin only)
 // @route   POST /api/users/staff
@@ -809,10 +803,10 @@ router.post('/staff', auth, authorize('admin'), [
   body('role').isIn(['doctor', 'staff', 'receptionist', 'pharmacist', 'admin']).withMessage('Invalid role'),
   body('department').optional({ checkFalsy: true }).trim(),
   body('specialization').optional({ checkFalsy: true }).trim(),
-  // Doctor & pharmacist: license required
+  // Doctor: SLMC license required. Pharmacists no longer provide a license.
   body('licenseNumber')
-    .if(body('role').isIn(['doctor', 'pharmacist']))
-    .notEmpty().withMessage('License number is required for doctors and pharmacists')
+    .if(body('role').equals('doctor'))
+    .notEmpty().withMessage('SLMC license number is required for doctors')
     .matches(/^[A-Z0-9\/\-]+$/i).withMessage('License number may only contain letters, numbers, hyphens and slashes'),
   // Doctor-only fields
   body('qualification').optional({ checkFalsy: true }).trim().isLength({ max: 100 }),
@@ -859,27 +853,32 @@ router.post('/staff', auth, authorize('admin'), [
       rand(specials)
     );
 
-    const bcrypt = require('bcryptjs');
-    const hashed = await bcrypt.hash(autoPassword, 10);
-
+    // Don't hash here - the User model hashes the password on save.
+    // Hashing twice would break login.
     const userData = {
       firstName: firstName.trim(),
       lastName:  lastName.trim(),
       email,
-      password:  hashed,
+      password:  autoPassword,
       role,
       isActive:        true,
       isEmailVerified: true,
       identityVerificationStatus: 'verified',
-      // Professional credentials start as pending — admin must verify externally
+      // Doctors/pharmacists start pending until admin verifies their credentials
       credentialVerificationStatus: (role === 'doctor' || role === 'pharmacist') ? 'pending' : 'verified',
     };
 
     // Common optional fields
     if (phone)      userData.phone      = phone.trim();
     if (department) userData.department = department.trim();
-    if (employeeId) userData.employeeId = employeeId.trim();
     if (joiningDate) userData.joiningDate = joiningDate;
+
+    // Use the given employee ID, otherwise auto-generate one (except for admins)
+    if (employeeId && employeeId.trim()) {
+      userData.employeeId = employeeId.trim();
+    } else if (role !== 'admin') {
+      userData.employeeId = await generateEmployeeId(role);
+    }
 
     // Doctor-specific fields
     if (role === 'doctor') {
@@ -895,9 +894,8 @@ router.post('/staff', auth, authorize('admin'), [
       if (bio) userData.bio = bio.trim();
     }
 
-    // Pharmacist fields
+    // Pharmacists don't need a license; default their department to Pharmacy
     if (role === 'pharmacist') {
-      if (licenseNumber) userData.licenseNumber = licenseNumber.trim().toUpperCase();
       userData.department = department?.trim() || 'Pharmacy';
     }
 
@@ -927,6 +925,7 @@ router.post('/staff', auth, authorize('admin'), [
           role:      user.role,
           isActive:  user.isActive,
           createdAt: user.createdAt,
+          employeeId: user.employeeId,
           credentialVerificationStatus: user.credentialVerificationStatus,
         },
         temporaryPassword: password ? null : autoPassword,
@@ -937,7 +936,65 @@ router.post('/staff', auth, authorize('admin'), [
     if (err.code === 11000) {
       return res.status(409).json({ success: false, message: 'An account with this email already exists.' });
     }
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
+  }
+});
+
+// @desc    Verify (or reject) a clinical staff member's professional credentials
+// @route   PUT /api/users/staff/:id/verify-credentials
+// @access  Private (Admin only)
+router.put('/staff/:id/verify-credentials', auth, authorize('admin'), [
+  body('status').isIn(['verified', 'rejected', 'pending']).withMessage('Invalid credential status'),
+  body('note').optional({ checkFalsy: true }).trim().isLength({ max: 500 }),
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, message: errors.array()[0].msg });
+  }
+
+  try {
+    const { status, note } = req.body;
+    const CLINICAL_ROLES = ['doctor', 'pharmacist', 'receptionist', 'staff'];
+
+    const staff = await User.findOne({ _id: req.params.id, role: { $in: CLINICAL_ROLES } })
+      .select('firstName lastName email role credentialVerificationStatus');
+
+    if (!staff) {
+      return res.status(404).json({ success: false, message: 'Clinical staff account not found' });
+    }
+
+    staff.credentialVerificationStatus = status;
+    if (note !== undefined) staff.verificationNote = note || '';
+    if (status === 'verified') {
+      staff.verifiedBy = req.user.id;
+      staff.verifiedAt = new Date();
+    }
+    await staff.save();
+
+    await writeAuditLog({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: status === 'verified' ? 'VERIFY_CREDENTIALS' : 'REJECT_CREDENTIALS',
+      resourceId: staff._id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      status: 'SUCCESS',
+      description: `Credentials ${status} for ${staff.role} ${staff.firstName} ${staff.lastName}`,
+      metadata: { staffId: staff._id.toString(), role: staff.role, status },
+    });
+
+    res.json({
+      success: true,
+      message: `Credentials ${status} for ${staff.firstName} ${staff.lastName}.`,
+      data: {
+        _id: staff._id,
+        role: staff.role,
+        credentialVerificationStatus: staff.credentialVerificationStatus,
+      },
+    });
+  } catch (err) {
+    console.error('Verify credentials error:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
@@ -967,7 +1024,7 @@ router.patch('/:id/toggle-status', auth, authorize('admin'), async (req, res) =>
     });
   } catch (error) {
     console.error('Toggle user status error:', error);
-    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
   }
 });
 

@@ -149,7 +149,7 @@ const NICVerification = () => {
           border: 'border-yellow-500',
           text: 'text-yellow-700',
           title: 'Verification Pending',
-          message: 'Your NIC document is under review by our healthcare manager.'
+          message: 'Your NIC document is under review by our healthcare team.'
         };
       case 'rejected':
         return {
@@ -315,7 +315,7 @@ const NICVerification = () => {
               <ClockIcon className="w-16 h-16 text-yellow-500 mx-auto mb-3" />
               <p className="text-lg font-medium mb-2">Verification in Progress</p>
               <p className="text-sm">
-                Our healthcare manager is reviewing your document. This usually takes 1-2 business days.
+                Our healthcare team is reviewing your document. This usually takes 1-2 business days.
               </p>
             </div>
           </div>

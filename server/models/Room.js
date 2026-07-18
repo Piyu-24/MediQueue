@@ -25,6 +25,13 @@ const roomSchema = new mongoose.Schema({
     enum: ['available', 'unavailable'],
     default: 'available'
   },
+  // Doctors currently assigned to this room. Used by reception to filter the
+  // doctor list once a room is picked (room-first selection for OPD multi-room).
+  // Static config managed by admin; empty for auto-managed single rooms.
+  assignedDoctors: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
   // true  = room availability mirrors parent department status (non-OPD single rooms)
   // false = admin controls room status independently (OPD multi-room)
   isAutoManaged: {

@@ -15,6 +15,10 @@ module.exports = {
     '**/tests/**/*.test.js',
     '**/tests/**/*.spec.js'
   ],
+
+  testPathIgnorePatterns: [
+    '/node_modules/'
+  ],
   
   // Setup files
   setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],

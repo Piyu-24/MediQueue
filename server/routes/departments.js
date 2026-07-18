@@ -1,5 +1,5 @@
 const express = require('express');
-const { body, query, param, validationResult } = require('express-validator');
+const { body, param, validationResult } = require('express-validator');
 const Department = require('../models/Department');
 const Room       = require('../models/Room');
 const auth = require('../middleware/auth');
@@ -15,8 +15,7 @@ const handleValidation = (req, res, next) => {
   next();
 };
 
-// ── GET /api/departments ──────────────────────────────────────────────────────
-// List all departments. Public (auth required only to avoid scraping).
+// GET /api/departments - list all departments
 router.get(
   '/',
   auth,
@@ -34,12 +33,12 @@ router.get(
 
       res.json({ success: true, data: departments });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ── GET /api/departments/:id ──────────────────────────────────────────────────
+// GET /api/departments/:id
 router.get(
   '/:id',
   auth,
@@ -51,13 +50,12 @@ router.get(
       if (!dept) return res.status(404).json({ success: false, message: 'Department not found' });
       res.json({ success: true, data: dept });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ── POST /api/departments ─────────────────────────────────────────────────────
-// Admin only — create department
+// POST /api/departments - create department (admin only)
 router.post(
   '/',
   auth,
@@ -110,13 +108,12 @@ router.post(
       if (err.code === 11000) {
         return res.status(409).json({ success: false, message: 'A department with this code already exists' });
       }
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ── PATCH /api/departments/:id ────────────────────────────────────────────────
-// Admin only — update department
+// PATCH /api/departments/:id - update department (admin only)
 router.patch(
   '/:id',
   auth,
@@ -152,13 +149,12 @@ router.patch(
       if (err.code === 11000) {
         return res.status(409).json({ success: false, message: 'A department with this code already exists' });
       }
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ── DELETE /api/departments/:id ───────────────────────────────────────────────
-// Admin only — soft delete (set status to inactive)
+// DELETE /api/departments/:id - soft delete, sets status to inactive (admin only)
 router.delete(
   '/:id',
   auth,
@@ -176,7 +172,7 @@ router.delete(
 
       res.json({ success: true, message: 'Department deactivated successfully', data: dept });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );

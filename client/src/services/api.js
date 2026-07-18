@@ -97,13 +97,12 @@ export const userAPI = {
 export const adminAPI = {
   toggleUserStatus: (userId) => api.patch(`/users/${userId}/toggle-status`),
   createStaffUser:  (data)   => api.post('/users/staff', data),
-};
-
-// Manager/Health-monitoring API endpoints (now accessible to admin too)
-export const managerAPI = {
-  getDashboardOverview: () => api.get('/manager/dashboard/overview'),
-  getPatientVisitReport: (params) => api.get('/manager/reports/patient-visits', { params }),
-  getStaffUtilizationReport: (params) => api.get('/manager/reports/staff-utilization', { params }),
+  verifyStaffCredentials: (userId, status, note) =>
+    api.put(`/users/staff/${userId}/verify-credentials`, { status, note }),
+  // Dashboard overview + health-monitoring reports
+  getDashboardOverview: () => api.get('/admin/dashboard/overview'),
+  getPatientVisitReport: (params) => api.get('/admin/reports/patient-visits', { params }),
+  getStaffUtilizationReport: (params) => api.get('/admin/reports/staff-utilization', { params }),
 };
 
 // Doctor API endpoints
@@ -118,23 +117,17 @@ export const appointmentAPI = {
   createAppointment: (appointmentData) => api.post('/appointments', appointmentData),
   updateAppointment: (id, appointmentData) => api.put(`/appointments/${id}`, appointmentData),
   cancelAppointment: (id, reason) => api.delete(`/appointments/${id}`, { data: { reason } }),
-  checkAvailability: (doctorId, date) => api.get(`/appointments/availability/${doctorId}`, { params: { date } }),
-  // Slot-based availability (specialist booking)
-  getSlotAvailability: (doctorId, date, patientId) =>
-    api.get('/appointments/availability', { params: { doctorId, date, patientId } }),
-  // Block-based availability (General OPD booking)
-  getBlockAvailability: (departmentId, date, doctorId, patientId) =>
+  // Block-based availability (General OPD booking): patient picks a department + date,
+  // the response lists bookable session blocks. Doctor is assigned later at reception.
+  getBlockAvailability: (departmentId, date, patientId) =>
     api.get('/appointments/availability', {
       params: {
         departmentId,
         date,
-        doctorId,
         patientId,
         blockBased: 'true'
       }
     }),
-  getAvailableDoctors: (date, departmentId, patientId) =>
-    api.get('/appointments/doctors/available', { params: { date, departmentId, patientId } }),
   updateStatus: (id, status) => api.patch(`/appointments/${id}/status`, { status }),
   checkIn: (id, method) => api.post(`/appointments/${id}/checkin`, { method }),
   getDoctorAppointments: (doctorId, params) => api.get(`/appointments/doctor/${doctorId}`, { params }),

@@ -317,7 +317,7 @@ const AppointmentBooking = () => {
     setTimeBlocks([]);
     setSelectedBlock(null);
     try {
-      const res = await appointmentAPI.getBlockAvailability(selectedDepartment._id, selectedDate, null, user?._id || null);
+      const res = await appointmentAPI.getBlockAvailability(selectedDepartment._id, selectedDate, user?._id || null);
       if (res.data.success) {
         setTimeBlocks(res.data.data || []);
         if ((res.data.data || []).length === 0) setBlockError('No sessions available for this date.');

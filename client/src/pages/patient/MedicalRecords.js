@@ -17,14 +17,11 @@ import {
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
 import { medicalRecordsAPI, documentAPI } from '../../services/api';
+import { resolveFileUrl } from '../../utils/fileUrl';
 import toast from 'react-hot-toast';
 
 const MedicalRecords = () => {
   const { user } = useAuth();
-
-  const SERVER_BASE = process.env.REACT_APP_API_URL
-    ? process.env.REACT_APP_API_URL.replace('/api', '')
-    : 'http://localhost:5000';
 
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState([]);
@@ -370,7 +367,7 @@ const MedicalRecords = () => {
                       </div>
                       {doc.fileUrl && (
                         <a
-                          href={`${SERVER_BASE}${doc.fileUrl}`}
+                          href={resolveFileUrl(doc.fileUrl)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -742,7 +739,7 @@ const MedicalRecords = () => {
                     {selectedRecord.documents.map((doc, index) => (
                       <a
                         key={index}
-                        href={`${SERVER_BASE}${doc.fileUrl}`}
+                        href={resolveFileUrl(doc.fileUrl)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center justify-between p-3 bg-white border border-green-200 rounded-lg hover:bg-green-50 hover:shadow-md transition-all group"
@@ -987,7 +984,7 @@ const MedicalRecords = () => {
                       </div>
                       {doc.fileUrl && (
                         <a
-                          href={`${SERVER_BASE}${doc.fileUrl}`}
+                          href={resolveFileUrl(doc.fileUrl)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"

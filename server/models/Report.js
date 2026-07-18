@@ -177,7 +177,7 @@ reportSchema.methods.hasAccess = function(userId, userRole) {
     return true;
   }
   
-  // Admin and manager have access to all reports
+  // Admin has access to all reports
   if (userRole === 'admin') {
     return true;
   }

@@ -3,51 +3,23 @@ const QueueEventLog      = require('../models/QueueEventLog');
 const QueuePolicy        = require('../models/QueuePolicy');
 const DoctorQueueSession = require('../models/DoctorQueueSession');
 
-/**
- * QueueEngine — zone-aware, policy-driven queue recalculation service.
- *
- * Called after every queue-state-changing action:
- *   check-in, consultation start/complete, skip, return, no-show,
- *   pause/resume, emergency insertion.
- *
- * Final queue zone order (lower sortOrder = served sooner):
- *   Zone 0 — CURRENT        : in_consultation patient (locked, never reordered)
- *   Zone 1 — EMERGENCY      : emergency_waiting patients (next-to-call)
- *   Zone 2 — READY          : already-locked ready-zone patients (shifted below emergency)
- *   Zone 3 — WAITING_POOL   : appointment + walk-in patients mixed by fairness ratio
- *
- * Emergency placement rule:
- *   - If no current consultation: emergency becomes the first to call.
- *   - If current consultation exists: emergency becomes the very next patient.
- *   - Emergency patients are NEVER mixed into appointment/walk-in fairness ratio.
- *   - Multiple emergencies are sorted by checkInTime → sequenceNumber → createdAt.
- *
- * Appointment / walk-in fairness (default 2A : 1W):
- *   - On-time appointments and late-within-grace appointments both get appointment priority.
- *   - Appointments arrive late outside grace → treated as walk-ins for ordering.
- *   - Walk-ins are never starved: the ratio ensures regular interleaving.
- */
-
-// ── Constants ─────────────────────────────────────────────────────────────────
+// QueueEngine works out the order patients are called in.
+// It runs after any queue change (check-in, consultation start/finish, skip, no-show...).
+//
+// Order of the queue:
+//   1. CURRENT      - patient currently with the doctor (never moved)
+//   2. EMERGENCY    - emergency patients, called next
+//   3. READY        - patients already locked into the ready zone
+//   4. WAITING_POOL - appointments and walk-ins mixed by a ratio (default 2 appts : 1 walk-in)
+//
+// Emergencies are never mixed into that ratio - they jump ahead of the waiting patients.
+// Appointments that arrive very late get treated like walk-ins for ordering.
 
 const ACTIVE_STATUSES = ['waiting', 'ready', 'called', 'in_consultation', 'emergency_waiting'];
 
-// ── Pure Helper Functions ─────────────────────────────────────────────────────
-
-/**
- * Classify how an entry should be treated in the movable waiting pool.
- * Reads the pre-computed `arrivalStatus` field set at check-in time.
- *
- * Returns one of:
- *   'emergency'           — emergency patient
- *   'appointment_on_time' — on-time or early appointment (gets appointment priority)
- *   'appointment_grace'   — late-within-grace appointment (still gets appointment priority)
- *   'walk_in'             — genuine walk-in patient
- *   'late_outside_grace'  — appointment who arrived too late (demoted to walk-in pool)
- *
- * @param {object} entry — lean QueueEntry document
- * @returns {string}
- */
+// Decide how a waiting patient should be treated, based on when they arrived.
+// Returns: 'emergency', 'appointment_on_time', 'appointment_grace',
+// 'walk_in', or 'late_outside_grace' (too late, treated as a walk-in).
 const classifyPoolEntry = (entry) => {
   if (entry.isEmergency || entry.status === 'emergency_waiting') return 'emergency';
   if (entry.isWalkIn) return 'walk_in';
@@ -60,13 +32,7 @@ const classifyPoolEntry = (entry) => {
   return 'appointment_on_time';
 };
 
-/**
- * Sort emergency patients:
- *   checkInTime ASC → sequenceNumber ASC → createdAt ASC
- *
- * @param {object[]} entries
- * @returns {object[]} sorted copy
- */
+// Sort emergency patients by check-in time, then token number, then created time
 const sortEmergencyGroup = (entries) =>
   [...entries].sort((a, b) => {
     const tDiff = new Date(a.checkInTime) - new Date(b.checkInTime);
@@ -76,16 +42,8 @@ const sortEmergencyGroup = (entries) =>
     return new Date(a.createdAt) - new Date(b.createdAt);
   });
 
-/**
- * Sort appointment patients (on-time or late-within-grace):
- *   appointmentTime ASC → checkInTime ASC → sequenceNumber ASC → createdAt ASC
- *
- * appointmentTime is stored as 'HH:MM' string; we compare lexicographically
- * which is correct for zero-padded 24-hour time strings.
- *
- * @param {object[]} entries
- * @returns {object[]} sorted copy
- */
+// Sort appointment patients by appointment time, then arrival, then token number.
+// appointmentTime is a 'HH:MM' string, which sorts correctly as text.
 const sortAppointmentGroup = (entries) =>
   [...entries].sort((a, b) => {
     // Primary: scheduled appointment time (earlier appointments go first)
@@ -102,13 +60,7 @@ const sortAppointmentGroup = (entries) =>
     return new Date(a.createdAt) - new Date(b.createdAt);
   });
 
-/**
- * Sort walk-in patients (and late-outside-grace appointments treated as walk-ins):
- *   checkInTime ASC → sequenceNumber ASC → createdAt ASC
- *
- * @param {object[]} entries
- * @returns {object[]} sorted copy
- */
+// Sort walk-in patients (and very-late appointments) by check-in time, then token number
 const sortWalkInGroup = (entries) =>
   [...entries].sort((a, b) => {
     const tDiff = new Date(a.checkInTime) - new Date(b.checkInTime);
@@ -118,36 +70,18 @@ const sortWalkInGroup = (entries) =>
     return new Date(a.createdAt) - new Date(b.createdAt);
   });
 
-/**
- * Mix appointment patients and walk-in patients using a configurable ratio.
- *
- * Algorithm:
- *   Repeat until both arrays are exhausted:
- *     Take up to `apptRatio` appointments, then up to `walkInRatio` walk-ins.
- *
- * Examples (ratio 2A:1W):
- *   [A3,A4,A5,A6] + [W2,W3]   → [A3,A4,W2,A5,A6,W3]
- *   [A3]          + [W1,W2,W3] → [A3,W1,W2,W3]
- *   [A3,A4,A5]    + []         → [A3,A4,A5]
- *   []            + [W1,W2]    → [W1,W2]
- *
- * @param {object[]} appointments — sorted appointment entries
- * @param {object[]} walkIns      — sorted walk-in entries
- * @param {number}   apptRatio    — appointments per cycle (default 2)
- * @param {number}   walkInRatio  — walk-ins per cycle (default 1)
- * @returns {object[]} mixed ordered list
- */
+// Mix appointments and walk-ins by a ratio (default 2 appointments per 1 walk-in).
+// Keep taking apptRatio appointments then walkInRatio walk-ins until both run out.
+// e.g. [A3,A4,A5,A6] + [W2,W3] -> [A3,A4,W2,A5,A6,W3]
 const mixAppointmentsAndWalkIns = (appointments, walkIns, apptRatio = 2, walkInRatio = 1) => {
   const result = [];
-  let ai = 0; // appointment pointer
-  let wi = 0; // walk-in pointer
+  let ai = 0;
+  let wi = 0;
 
   while (ai < appointments.length || wi < walkIns.length) {
-    // Take up to apptRatio appointments
     for (let i = 0; i < apptRatio && ai < appointments.length; i++) {
       result.push(appointments[ai++]);
     }
-    // Take up to walkInRatio walk-ins
     for (let i = 0; i < walkInRatio && wi < walkIns.length; i++) {
       result.push(walkIns[wi++]);
     }
@@ -156,26 +90,7 @@ const mixAppointmentsAndWalkIns = (appointments, walkIns, apptRatio = 2, walkInR
   return result;
 };
 
-/**
- * Build the final ordered list from the four zones.
- *
- * Zone order:
- *   [current] + [emergency] + [readyZone] + [mixed waiting]
- *
- * Note: if there is no current consultation, emergency patients become
- * the first to be called (they occupy position 0).
- *
- * @param {object}   opts
- * @param {object[]} opts.current        — in_consultation entries (0 or 1)
- * @param {object[]} opts.emergency      — sorted emergency entries
- * @param {object[]} opts.readyZone      — existing locked ready-zone entries
- * @param {object[]} opts.appointments   — sorted on-time + grace appointment entries
- * @param {object[]} opts.walkIns        — sorted walk-in + late-outside-grace entries
- * @param {number}   opts.apptRatio
- * @param {number}   opts.walkInRatio
- * @param {boolean}  opts.fairnessEnabled
- * @returns {object[]} final ordered list
- */
+// Build the final order: current, then emergency, then ready zone, then the mixed waiting list
 const buildFinalOrderedList = ({
   current,
   emergency,
@@ -188,7 +103,7 @@ const buildFinalOrderedList = ({
 }) => {
   const mixedWaiting = fairnessEnabled
     ? mixAppointmentsAndWalkIns(appointments, walkIns, apptRatio, walkInRatio)
-    : [...appointments, ...walkIns]; // fallback: appointments first, then walk-ins
+    : [...appointments, ...walkIns]; // if fairness is off, appointments first then walk-ins
 
   return [
     ...current,
@@ -198,21 +113,10 @@ const buildFinalOrderedList = ({
   ];
 };
 
-// ── Recalculate ───────────────────────────────────────────────────────────────
-
-/**
- * Recalculate the full queue for a doctor on a given date.
- *
- * This is the authoritative queue ordering function. It is called after
- * every check-in, consultation state change, skip, return, or no-show.
- *
- * @param {string} doctorId   MongoDB ObjectId string
- * @param {string} queueDate  YYYY-MM-DD
- * @param {object} [io]       Socket.io server instance (optional, for real-time push)
- */
+// Recalculate the whole queue order for a doctor on a given date.
+// This is the main function; it runs after every queue change.
 const recalculate = async (doctorId, queueDate, io = null) => {
   try {
-    // ── Load policy and session ────────────────────────────────────────────────
     const [session, policy] = await Promise.all([
       DoctorQueueSession.findOne({ doctor: doctorId, queueDate }),
       QueuePolicy.resolveFor(doctorId, null)
@@ -227,7 +131,7 @@ const recalculate = async (doctorId, queueDate, io = null) => {
     const apptRatio          = policy.appointmentRatio  ?? 2;
     const walkInRatio        = policy.walkInRatio        ?? 1;
 
-    // ── Load all active entries ────────────────────────────────────────────────
+    // Load all active queue entries for this doctor/day
     const allActive = await QueueEntry.find({
       doctor:   doctorId,
       queueDate,

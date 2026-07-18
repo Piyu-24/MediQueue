@@ -475,6 +475,12 @@ const PatientDashboardEnhanced = () => {
                         </div>
                         <div className="min-w-0">
                           <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-1">Your Queue Token</p>
+                          {queueStatus.timeBlock?.startTime && (
+                            <p className="text-sm font-bold text-gray-800 mb-1">
+                              {fmt12(queueStatus.timeBlock.startTime)} - {fmt12(queueStatus.timeBlock.endTime)}
+                              {queueStatus.timeBlock.sessionName ? ` ${queueStatus.timeBlock.sessionName}` : ''}
+                            </p>
+                          )}
                           <p className={`text-xl font-bold ${
                             queueStatus.status === 'in_consultation' || queueStatus.status === 'in-consultation' ? 'text-purple-800' :
                             queueStatus.status === 'called' ? 'text-orange-800' :

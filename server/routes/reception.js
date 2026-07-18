@@ -9,7 +9,6 @@ const QueueEntry = require('../models/QueueEntry');
 const QueueEventLog = require('../models/QueueEventLog');
 const HealthCard = require('../models/HealthCard');
 const Department = require('../models/Department');
-const TimeBlock  = require('../models/TimeBlock');
 const DoctorQueueSession = require('../models/DoctorQueueSession');
 const Room       = require('../models/Room');
 const auth       = require('../middleware/auth');
@@ -18,11 +17,15 @@ const { checkInAppointment, checkInWalkIn } = require('../services/CheckInServic
 const QueueEngine = require('../services/QueueEngine');
 const { localDateStr } = require('../services/TokenGenerator');
 
+const requireVerifiedCredentials = require('../middleware/requireVerifiedCredentials');
+
 const router = express.Router();
 
-// All reception routes require auth + receptionist/staff/admin role
+// All reception routes require auth + receptionist/staff/admin role, and
+// clinical staff must have admin-verified credentials.
 router.use(auth);
 router.use(authorize('receptionist', 'staff', 'admin'));
+router.use(requireVerifiedCredentials);
 
 const handleValidation = (req, res, next) => {
   const errors = validationResult(req);
@@ -32,18 +35,9 @@ const handleValidation = (req, res, next) => {
   next();
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PATIENT SEARCH
 // GET /api/reception/patients/search
-//
-// Search patients by NIC, phone, name, hospital (health card) number, or email.
-// Returns patient profile + health card status + today's appointment if any.
-//
-// Query params:
-//   q    — search term
-//   by   — 'nic' | 'phone' | 'name' | 'card' | 'email' | 'all' (default 'all')
-//   date — YYYY-MM-DD for appointment context (default: today)
-// ─────────────────────────────────────────────────────────────────────────────
+// Search patients by NIC, phone, name, card number or email.
+// Returns the patient plus health card status and today's appointment.
 router.get('/patients/search',
   [qv('q').notEmpty().withMessage('Search query is required')],
   handleValidation,
@@ -153,19 +147,13 @@ router.get('/patients/search',
       res.json({ success: true, data: enriched, count: enriched.length });
     } catch (err) {
       console.error('Reception patient search error:', err);
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// QUICK PATIENT REGISTRATION
-// POST /api/reception/patients
-//
-// Reception registers a new patient who doesn't have an account.
-// Creates User + HealthCard + generates QR code automatically.
-// Email verification skipped (staff-verified registration).
-// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/reception/patients - quick register a patient with no account.
+// Creates the user + health card + QR code. No email verification needed.
 router.post('/patients',
   [
     body('firstName').trim().notEmpty().withMessage('First name is required').isLength({ max: 50 }),
@@ -222,8 +210,7 @@ router.post('/patients',
         });
       }
 
-      // If reception didn't capture an email, generate a placeholder so the
-      // unique email index is satisfied; the patient can update it later.
+      // If no email was given, make a placeholder one so the unique index is happy
       const resolvedEmail = email?.trim()
         || `reception.${Date.now()}.${Math.random().toString(36).slice(2, 6)}@mediqueue.lk`;
 
@@ -240,7 +227,7 @@ router.post('/patients',
 
       const tempPassword = await bcrypt.hash(Math.random().toString(36), 10);
 
-      // Determine verification fields based on whether receptionist confirmed NIC
+      // Mark identity verified only if the receptionist confirmed the NIC
       const now = new Date();
       const verificationFields = nicSeenAndVerified && nicNumber?.trim()
         ? {
@@ -349,18 +336,13 @@ router.post('/patients',
       if (err.code === 11000) {
         return res.status(409).json({ success: false, message: 'Duplicate entry — patient may already exist.' });
       }
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// APPOINTMENT SEARCH (for check-in lookup)
 // GET /api/reception/appointments/search
-//
-// Search today's appointments by token, reference, patient name or phone.
-// Used by reception to find and verify an appointment before check-in.
-// ─────────────────────────────────────────────────────────────────────────────
+// Find today's appointments by token, reference, name or phone before check-in.
 router.get('/appointments/search', async (req, res) => {
   try {
     const { token, reference, name, phone, date } = req.query;
@@ -385,7 +367,7 @@ router.get('/appointments/search', async (req, res) => {
     if (reference) filter.appointmentReference = reference.trim().toUpperCase();
 
     let appointments = await Appointment.find(filter)
-      .populate('patient', 'firstName lastName phone email nicNumber digitalHealthCardId')
+      .populate('patient', 'firstName lastName phone email digitalHealthCardId')
       .populate('doctor',  'firstName lastName specialization department')
       .populate('timeBlockId', 'startTime endTime sessionName')
       .populate('departmentId', 'name code')
@@ -409,17 +391,12 @@ router.get('/appointments/search', async (req, res) => {
     res.json({ success: true, data: appointments, count: appointments.length });
   } catch (err) {
     console.error('Reception appointment search error:', err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// APPOINTMENT CHECK-IN
-// POST /api/reception/check-in/:appointmentId
-//
-// Delegates to CheckInService. Activates existing A token for new-flow appointments,
-// generates A token for legacy appointments.
-// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/reception/check-in/:appointmentId - check in an appointment.
+// Uses CheckInService to activate/assign the A token.
 router.post('/check-in/:appointmentId',
   [
     param('appointmentId').isMongoId().withMessage('Invalid appointment ID'),
@@ -450,9 +427,7 @@ router.post('/check-in/:appointmentId',
         if (roomDoc) resolvedRoom = roomDoc.roomNumber;
       }
 
-      // ── Session-closed guard ───────────────────────────────────────────────
-      // Once a doctor's session is ended, no further check-ins are accepted.
-      // Receptionists should inform arriving patients that the clinic is closed.
+      // No check-ins once the doctor's session has ended
       const sessionForClose = await DoctorQueueSession.findOne({
         doctor: doctorId, queueDate: localDateStr()
       }).lean();
@@ -505,18 +480,13 @@ router.post('/check-in/:appointmentId',
       });
     } catch (err) {
       console.error('Reception check-in error:', err);
-      res.status(err.statusCode || 500).json({ success: false, message: err.message, data: err.data });
+      res.status(err.statusCode || 500).json({ success: false, message: err.statusCode ? err.message : 'Server error', data: err.data });
     }
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// WALK-IN CHECK-IN
-// POST /api/reception/walk-in
-//
-// Delegates to CheckInService. Issues W token from shared A/W sequence.
-// Emergency flag issues E token from separate emergency sequence.
-// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/reception/walk-in - check in a walk-in patient.
+// Issues a W token, or an E token if it's an emergency.
 router.post('/walk-in',
   [
     body('patientId').isMongoId().withMessage('Valid patient ID required'),
@@ -532,8 +502,7 @@ router.post('/walk-in',
     try {
       const { patientId, doctorId, room, department, departmentId, roomId, notes, isEmergency, priority } = req.body;
 
-      // ── Session-closed guard ───────────────────────────────────────────
-      // Emergency walk-ins always bypass this check.
+      // Block walk-ins if the session ended (emergencies always go through)
       if (!isEmergency) {
         const existingSession = await DoctorQueueSession.findOne({
           doctor: doctorId, queueDate: localDateStr()
@@ -585,18 +554,13 @@ router.post('/walk-in',
       });
     } catch (err) {
       console.error('Reception walk-in error:', err);
-      res.status(err.statusCode || 500).json({ success: false, message: err.message, data: err.data });
+      res.status(err.statusCode || 500).json({ success: false, message: err.statusCode ? err.message : 'Server error', data: err.data });
     }
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DOCTOR ASSIGNMENT
-// POST /api/reception/assign-doctor
-//
-// Assign or reassign a doctor to a QueueEntry. Used when reception needs to
-// balance load or correct an assignment. Also updates the linked Appointment.
-// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/reception/assign-doctor - assign or reassign a doctor to a queue entry.
+// Also updates the linked appointment.
 router.post('/assign-doctor',
   [
     body('queueEntryId').isMongoId().withMessage('Valid queueEntryId required'),
@@ -666,19 +630,13 @@ router.post('/assign-doctor',
       });
     } catch (err) {
       console.error('Assign doctor error:', err);
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// QUEUE STATUS OVERRIDES
-// PATCH /api/reception/queue/:id/no-show
-// PATCH /api/reception/queue/:id/temporarily-away
-// PATCH /api/reception/queue/:id/returned
-// PATCH /api/reception/queue/:id/late
-// ─────────────────────────────────────────────────────────────────────────────
-
+// Reception queue status overrides: no-show, temporarily-away, returned, late.
+// queueStatusOp builds the handler for the first three since they share logic.
 const queueStatusOp = (eventType, targetStatus, allowedFromStatuses, timestampField) =>
   async (req, res) => {
     try {
@@ -731,7 +689,7 @@ const queueStatusOp = (eventType, targetStatus, allowedFromStatuses, timestampFi
       });
     } catch (err) {
       console.error(`Queue status op (${targetStatus}) error:`, err);
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   };
 
@@ -750,8 +708,7 @@ router.patch('/queue/:id/returned',
   queueStatusOp('RETURNED', 'waiting', ['temporarily_away'], 'returnedAt')
 );
 
-// Mark a patient as late (sets isLate flag on existing QueueEntry; for cases
-// where reception needs to manually flag a patient after they arrived past time).
+// Manually flag a patient as late (sets isLate on the queue entry)
 router.patch('/queue/:id/late',
   [param('id').isMongoId()], handleValidation,
   async (req, res) => {
@@ -767,7 +724,7 @@ router.patch('/queue/:id/late',
       }
 
       queueEntry.isLate = true;
-      // Move out of READY zone so QueueEngine can reposition
+      // Move out of READY zone so the queue can reorder them
       if (queueEntry.zone === 'READY') {
         queueEntry.zone     = 'WAITING_POOL';
         queueEntry.status   = 'waiting';
@@ -799,18 +756,13 @@ router.patch('/queue/:id/late',
       });
     } catch (err) {
       console.error('Mark late error:', err);
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HEALTH CARD — GET OR GENERATE
 // POST /api/reception/health-card/:patientId/generate
-//
-// Returns existing health card or creates one if missing.
-// Returns the card data including QR code for display/printing.
-// ─────────────────────────────────────────────────────────────────────────────
+// Returns the patient's health card, creating one (with QR) if it doesn't exist.
 router.post('/health-card/:patientId/generate',
   [param('patientId').isMongoId()], handleValidation,
   async (req, res) => {
@@ -869,18 +821,13 @@ router.post('/health-card/:patientId/generate',
       });
     } catch (err) {
       console.error('Health card generate error:', err);
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HEALTH CARD PRINT EVENT
 // POST /api/reception/health-card/:patientId/print
-//
-// Records a print event and returns full card data for rendering.
-// The actual printing is handled client-side using the returned data.
-// ─────────────────────────────────────────────────────────────────────────────
+// Logs a print event and returns the card data. Printing happens on the client.
 router.post('/health-card/:patientId/print',
   [param('patientId').isMongoId()], handleValidation,
   async (req, res) => {
@@ -934,18 +881,13 @@ router.post('/health-card/:patientId/print',
       });
     } catch (err) {
       console.error('Health card print error:', err);
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
     }
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TODAY'S QUEUE OVERVIEW
-// GET /api/reception/queue/today
-//
-// Unified view of today's activity for a department or specific doctor.
-// Shows booked (not yet arrived), active queue, completed, and no-shows.
-// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/reception/queue/today - today's activity for a department or doctor.
+// Shows booked, active queue, completed and no-shows.
 router.get('/queue/today', async (req, res) => {
   try {
     const { departmentId, doctorId, date } = req.query;
@@ -971,7 +913,7 @@ router.get('/queue/today', async (req, res) => {
 
     const [appointments, queueEntries, sessions] = await Promise.all([
       Appointment.find(apptFilter)
-        .populate('patient', 'firstName lastName phone digitalHealthCardId nicNumber')
+        .populate('patient', 'firstName lastName phone digitalHealthCardId')
         .populate('doctor',  'firstName lastName specialization')
         .populate('timeBlockId', 'startTime endTime sessionName')
         .populate('departmentId', 'name code')
@@ -1029,17 +971,12 @@ router.get('/queue/today', async (req, res) => {
     });
   } catch (err) {
     console.error('Reception today queue error:', err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DOCTOR AVAILABILITY FOR ASSIGNMENT
 // GET /api/reception/doctors/available
-//
-// Lists active doctors in a department with their current queue load.
-// Used by reception when assigning/balancing doctors at check-in.
-// ─────────────────────────────────────────────────────────────────────────────
+// Active doctors in a department with their current queue load, for assignment.
 router.get('/doctors/available', async (req, res) => {
   try {
     const { departmentId, department, date } = req.query;
@@ -1102,7 +1039,7 @@ router.get('/doctors/available', async (req, res) => {
     res.json({ success: true, data: enriched, count: enriched.length });
   } catch (err) {
     console.error('Reception doctor availability error:', err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
   }
 });
 

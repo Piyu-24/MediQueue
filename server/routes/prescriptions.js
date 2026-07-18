@@ -48,8 +48,7 @@ router.post('/', auth, authorize('doctor', 'admin'), async (req, res) => {
       return res.status(404).json({ success: false, message: 'Patient not found' });
     }
 
-    // Normalize medications — handles both strict form (drugName/strength/dosageForm/dosage)
-    // and simplified consultation form (name/form/frequency/duration).
+    // Normalize medications so both the full form and the simple consultation form work
     const DOSAGE_FORMS = ['tablet', 'capsule', 'syrup', 'injection', 'cream', 'drops', 'inhaler', 'patch'];
     const normalizedMedications = medications.map(med => {
       const formStr = (med.form || med.strength || '').toLowerCase();

@@ -14,13 +14,14 @@ import {
   DocumentDuplicateIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
+import { resolveFileUrl } from '../../utils/fileUrl';
 import toast from 'react-hot-toast';
 
 const PatientRecords = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  
+
   const [loading, setLoading] = useState(true);
   const [patientProfile, setPatientProfile] = useState(null);
   const [activeTab, setActiveTab] = useState('prescriptions');
@@ -144,7 +145,7 @@ const PatientRecords = () => {
           <h2 className="text-xl font-semibold text-gray-900 mb-2">Error Loading Patient</h2>
           <p className="text-gray-600 mb-4">{error}</p>
           <button
-            onClick={() => navigate('/doctor')}
+            onClick={() => navigate('/doctor/dashboard')}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             Back to Dashboard
@@ -158,178 +159,6 @@ const PatientRecords = () => {
   const medicalRecords = patientProfile.medicalRecords;
   const appointments = patientProfile.appointments;
   const alerts = patientProfile.alerts;
-
-  // Mock patient records data for fallback
-  // eslint-disable-next-line no-unused-vars
-  const _patientRecords = [
-    {
-      id: 1,
-      name: 'Sarah Johnson',
-      age: 28,
-      gender: 'Female',
-      bloodType: 'O+',
-      phone: '+1 (555) 123-4567',
-      email: 'sarah.johnson@email.com',
-      address: '123 Main St, City, State 12345',
-      emergencyContact: 'John Johnson - +1 (555) 123-4568',
-      allergies: ['Penicillin', 'Shellfish'],
-      conditions: ['Hypertension', 'Anxiety'],
-      lastVisit: '2025-01-02',
-      nextAppointment: '2025-01-15',
-      status: 'stable',
-      records: [
-        {
-          id: 1,
-          date: '2025-01-02',
-          type: 'Consultation',
-          diagnosis: 'Hypertension follow-up',
-          treatment: 'Continued medication, lifestyle modifications',
-          notes: 'Blood pressure well controlled. Patient reports feeling better.',
-          doctor: 'Dr. Smith'
-        },
-        {
-          id: 2,
-          date: '2024-12-15',
-          type: 'Lab Results',
-          diagnosis: 'Annual blood work',
-          treatment: 'No immediate action required',
-          notes: 'All values within normal range except slightly elevated cholesterol.',
-          doctor: 'Dr. Smith'
-        }
-      ],
-      vitals: {
-        bloodPressure: '120/80',
-        heartRate: '72 bpm',
-        temperature: '98.6°F',
-        weight: '145 lbs',
-        height: '5\'6"'
-      },
-      prescriptions: [
-        {
-          id: 1,
-          date: '2025-01-02',
-          medications: [
-            { name: 'Lisinopril', dosage: '10mg', frequency: 'Once daily', duration: '30 days' },
-            { name: 'Amlodipine', dosage: '5mg', frequency: 'Once daily', duration: '30 days' }
-          ],
-          prescribedBy: 'Dr. Smith',
-          instructions: 'Take with food. Monitor blood pressure daily.'
-        }
-      ],
-      labResults: [
-        {
-          id: 1,
-          date: '2024-12-15',
-          type: 'Comprehensive Metabolic Panel',
-          results: {
-            'Glucose': { value: '95', range: '70-100 mg/dL', status: 'normal' },
-            'Creatinine': { value: '0.9', range: '0.6-1.2 mg/dL', status: 'normal' },
-            'Total Cholesterol': { value: '220', range: '<200 mg/dL', status: 'high' },
-            'HDL': { value: '45', range: '>40 mg/dL', status: 'normal' }
-          },
-          orderedBy: 'Dr. Smith',
-          notes: 'Cholesterol slightly elevated, recommend dietary changes'
-        }
-      ],
-      appointments: [
-        {
-          id: 1,
-          date: '2025-01-15',
-          time: '10:00 AM',
-          type: 'Follow-up',
-          status: 'scheduled',
-          reason: 'Blood pressure check'
-        },
-        {
-          id: 2,
-          date: '2025-02-15',
-          time: '2:00 PM',
-          type: 'Consultation',
-          status: 'scheduled',
-          reason: 'Annual physical'
-        }
-      ]
-    },
-    {
-      id: 2,
-      name: 'Michael Chen',
-      age: 45,
-      gender: 'Male',
-      bloodType: 'A+',
-      phone: '+1 (555) 987-6543',
-      email: 'michael.chen@email.com',
-      address: '456 Oak Ave, City, State 12345',
-      emergencyContact: 'Lisa Chen - +1 (555) 987-6544',
-      allergies: ['None'],
-      conditions: ['Diabetes Type 2', 'High Cholesterol'],
-      lastVisit: '2024-12-20',
-      nextAppointment: '2025-01-08',
-      status: 'needs-attention',
-      records: [
-        {
-          id: 1,
-          date: '2024-12-20',
-          type: 'Follow-up',
-          diagnosis: 'Diabetes management',
-          treatment: 'Adjusted medication dosage, dietary consultation',
-          notes: 'HbA1c levels improved but still above target. Referred to nutritionist.',
-          doctor: 'Dr. Smith'
-        }
-      ],
-      vitals: {
-        bloodPressure: '140/90',
-        heartRate: '80 bpm',
-        temperature: '98.4°F',
-        weight: '180 lbs',
-        height: '5\'10"'
-      }
-    },
-    {
-      id: 3,
-      name: 'Emily Rodriguez',
-      age: 32,
-      gender: 'Female',
-      bloodType: 'B-',
-      phone: '+1 (555) 456-7890',
-      email: 'emily.rodriguez@email.com',
-      address: '789 Pine Rd, City, State 12345',
-      emergencyContact: 'Carlos Rodriguez - +1 (555) 456-7891',
-      allergies: ['Latex', 'Shellfish'],
-      conditions: ['Migraine', 'GERD'],
-      lastVisit: '2024-11-30',
-      nextAppointment: '2025-01-10',
-      status: 'stable',
-      records: [
-        {
-          id: 1,
-          date: '2024-11-30',
-          type: 'Consultation',
-          diagnosis: 'Migraine management',
-          treatment: 'Prescribed preventive medication',
-          notes: 'Patient reports reduced frequency of migraines with new medication.',
-          doctor: 'Dr. Smith'
-        }
-      ],
-      vitals: {
-        bloodPressure: '115/75',
-        heartRate: '68 bpm',
-        temperature: '98.7°F',
-        weight: '135 lbs',
-        height: '5\'4"'
-      }
-    }
-  ];
-
-  // eslint-disable-next-line no-unused-vars
-  const _getStatusColor = (status) => {
-    switch (status) {
-      case 'stable': return 'text-green-600 bg-green-100';
-      case 'needs-attention': return 'text-red-600 bg-red-100';
-      case 'critical': return 'text-red-800 bg-red-200';
-      case 'recovering': return 'text-blue-600 bg-blue-100';
-      default: return 'text-gray-600 bg-gray-100';
-    }
-  };
 
   const getDiagnosisText = (diagnosis) => {
     if (!diagnosis) return 'N/A';
@@ -1101,8 +930,8 @@ const PatientRecords = () => {
                         {/* Image Preview Section */}
                         {doc.mimeType && doc.mimeType.startsWith('image/') ? (
                           <div className="h-48 bg-gray-100 relative">
-                            <img 
-                              src={`http://localhost:5000${doc.fileUrl}`}
+                            <img
+                              src={resolveFileUrl(doc.fileUrl)}
                               alt={doc.title}
                               className="w-full h-full object-cover"
                               onLoad={(e) => {
@@ -1195,17 +1024,9 @@ const PatientRecords = () => {
                                 console.log('File URL:', doc.fileUrl);
                                 
                                 // For images, try direct URL first (should work with CORS fixed)
-                                if (doc.mimeType && doc.mimeType.startsWith('image/')) {
-                                  // Try direct image URL
-                                  const fullUrl = `http://localhost:5000${doc.fileUrl}`;
-                                  console.log('Opening image URL:', fullUrl);
-                                  window.open(fullUrl, '_blank');
-                                } else {
-                                  // For PDFs and other documents, try direct URL
-                                  const fullUrl = `http://localhost:5000${doc.fileUrl}`;
-                                  console.log('Opening document URL:', fullUrl);
-                                  window.open(fullUrl, '_blank');
-                                }
+                                const fullUrl = resolveFileUrl(doc.fileUrl);
+                                console.log('Opening file URL:', fullUrl);
+                                window.open(fullUrl, '_blank');
                               }}
                               className="w-full px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center space-x-1"
                             >

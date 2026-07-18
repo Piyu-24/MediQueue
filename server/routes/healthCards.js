@@ -92,7 +92,7 @@ router.post('/', auth, authorize('receptionist', 'staff', 'admin'), async (req, 
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -188,7 +188,7 @@ router.get('/patient/:patientId', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
@@ -266,7 +266,7 @@ router.post('/validate', auth, authorize('receptionist', 'staff', 'doctor', 'adm
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -324,7 +324,7 @@ router.put('/:id', auth, authorize('receptionist', 'staff', 'admin'), async (req
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -358,7 +358,7 @@ router.get('/:id/access-log', auth, authorize('receptionist', 'staff', 'admin'),
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -417,7 +417,7 @@ router.put('/patient/:patientId', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -461,7 +461,7 @@ router.get('/', auth, authorize('receptionist', 'staff', 'admin'), async (req, r
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });

@@ -32,7 +32,6 @@ const Navbar = () => {
       patient: '/dashboard',
       doctor: '/doctor/dashboard',
       staff: '/staff/dashboard',
-      manager: '/manager/dashboard',
       receptionist: '/receptionist/dashboard',
       admin: '/admin/dashboard',
       pharmacist: '/dispensary/dashboard'
@@ -62,7 +61,6 @@ const Navbar = () => {
   const staffLinks = [
     { name: 'Home', href: '/' },
     { name: 'Dashboard', href: '/staff/dashboard' },
-    { name: 'Patient Check-in', href: '/staff/patient-verification' },
   ];
 
   const receptionistLinks = [

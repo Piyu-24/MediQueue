@@ -7,7 +7,7 @@
 const BaseRepository = require('../core/BaseRepository');
 const User = require('../models/User');
 const Logger = require('../utils/Logger');
-const { ConflictError, NotFoundError } = require('../utils/errors');
+const { ConflictError } = require('../utils/errors');
 
 /**
  * UserRepository class handling User-specific data operations

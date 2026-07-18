@@ -338,11 +338,16 @@ code {
    touch-friendly controls while leaving desktop demonstrations untouched.
    ────────────────────────────────────────────────────────────────────────── */
 
-/* Never allow the page to scroll sideways on any device */
+/* Never allow the page to scroll sideways on any device.
+   Use `clip` (not `hidden`): it blocks horizontal scroll just the same, but
+   unlike `hidden` it does NOT turn html/body into a scroll container — which
+   would break `position: sticky` on the navbar (nav scrolls away instead of
+   staying pinned to the top of the viewport). */
 html,
 body {
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: hidden; /* fallback for browsers that don't support `clip` */
+  overflow-x: clip;
 }
 
 /* Honour notches / rounded corners on modern phones */

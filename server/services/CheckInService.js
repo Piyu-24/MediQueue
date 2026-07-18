@@ -384,9 +384,10 @@ const checkInAppointment = async ({
   });
 
   await queueEntry.populate([
-    { path: 'patient',    select: 'firstName lastName phone digitalHealthCardId' },
-    { path: 'doctor',     select: 'firstName lastName specialization' },
-    { path: 'checkedInBy', select: 'firstName lastName' }
+    { path: 'patient',     select: 'firstName lastName phone digitalHealthCardId' },
+    { path: 'doctor',      select: 'firstName lastName specialization' },
+    { path: 'checkedInBy',  select: 'firstName lastName' },
+    { path: 'timeBlockId',  select: 'startTime endTime sessionName' }
   ]);
 
   return { queueEntry, appointment, token: queueEntry.queueNumber, arrivalStatus, estimatedWaitMinutes, policy };
@@ -544,9 +545,10 @@ const checkInWalkIn = async ({
   });
 
   await queueEntry.populate([
-    { path: 'patient',    select: 'firstName lastName phone digitalHealthCardId' },
-    { path: 'doctor',     select: 'firstName lastName specialization' },
-    { path: 'checkedInBy', select: 'firstName lastName' }
+    { path: 'patient',     select: 'firstName lastName phone digitalHealthCardId' },
+    { path: 'doctor',      select: 'firstName lastName specialization' },
+    { path: 'checkedInBy',  select: 'firstName lastName' },
+    { path: 'timeBlockId',  select: 'startTime endTime sessionName' }
   ]);
 
   return { queueEntry, token: queueEntry.queueNumber, estimatedWaitMinutes, policy };

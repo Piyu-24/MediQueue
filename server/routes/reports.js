@@ -10,7 +10,7 @@ const router = express.Router();
 
 // @desc    Get dashboard statistics
 // @route   GET /api/reports/dashboard
-// @access  Private (Manager)
+// @access  Private (Admin)
 router.get('/dashboard', auth, authorize('admin'), async (req, res) => {
   try {
     // Get total counts
@@ -42,14 +42,14 @@ router.get('/dashboard', auth, authorize('admin'), async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 // @desc    Get appointment reports
 // @route   GET /api/reports/appointments
-// @access  Private (Manager/Admin)
+// @access  Private (Admin)
 router.get('/appointments', auth, authorize('admin'), async (req, res) => {
   try {
     const { startDate, endDate, doctorId, department } = req.query;
@@ -89,23 +89,14 @@ router.get('/appointments', auth, authorize('admin'), async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
-// @desc    Patient Visits Report — real aggregation from Appointment records
-// @route   GET /api/reports/patient-visits
+// @desc    Patient visits report - built from appointment records
+// @route   GET /api/reports/patient-visits?startDate=&endDate=
 // @access  Private (Admin)
-//
-// Query params: startDate (YYYY-MM-DD), endDate (YYYY-MM-DD)
-//
-// Returns:
-//   summary — totalAppointments, byStatus counts, uniquePatients
-//   dailyTrend — total appointments per calendar day in range
-//   byDepartment — count per department string
-//   byType — count per appointmentType
-//   insufficient — true when fewer than 1 record exists
 router.get('/patient-visits', auth, authorize('admin'), async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -114,7 +105,7 @@ router.get('/patient-visits', auth, authorize('admin'), async (req, res) => {
     end.setHours(23, 59, 59, 999);
     start.setHours(0, 0, 0, 0);
 
-    // ── 1. All appointments in range ────────────────────────────────────────
+    // All appointments in the date range
     const appointments = await Appointment.find({
       appointmentDate: { $gte: start, $lte: end }
     }).lean();
@@ -133,16 +124,16 @@ router.get('/patient-visits', auth, authorize('admin'), async (req, res) => {
       });
     }
 
-    // ── 2. Status breakdown ─────────────────────────────────────────────────
+    // Count by status
     const statusCounts = appointments.reduce((acc, a) => {
       acc[a.status] = (acc[a.status] || 0) + 1;
       return acc;
     }, {});
 
-    // ── 3. Unique patients ──────────────────────────────────────────────────
+    // Count unique patients
     const uniquePatients = new Set(appointments.map(a => String(a.patient))).size;
 
-    // ── 4. Daily trend ──────────────────────────────────────────────────────
+    // Appointments per day
     const dailyMap = {};
     for (const a of appointments) {
       const day = new Date(a.appointmentDate).toISOString().split('T')[0];
@@ -152,7 +143,7 @@ router.get('/patient-visits', auth, authorize('admin'), async (req, res) => {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, count]) => ({ date, count }));
 
-    // ── 5. Department breakdown (uses department string on Appointment) ──────
+    // Count by department
     const deptMap = {};
     for (const a of appointments) {
       if (a.department) {
@@ -163,7 +154,7 @@ router.get('/patient-visits', auth, authorize('admin'), async (req, res) => {
       .sort(([, a], [, b]) => b - a)
       .map(([department, count]) => ({ department, count }));
 
-    // ── 6. Appointment type breakdown ───────────────────────────────────────
+    // Count by appointment type
     const typeMap = {};
     for (const a of appointments) {
       if (a.appointmentType) {
@@ -200,19 +191,13 @@ router.get('/patient-visits', auth, authorize('admin'), async (req, res) => {
     });
   } catch (error) {
     console.error('Patient visits report error:', error);
-    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    return res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
   }
 });
 
-// @desc    Doctor Activity Report — real aggregation from Appointment records
-// @route   GET /api/reports/doctor-activity
+// @desc    Doctor activity report - per-doctor appointment counts
+// @route   GET /api/reports/doctor-activity?startDate=&endDate=
 // @access  Private (Admin)
-//
-// Query params: startDate (YYYY-MM-DD), endDate (YYYY-MM-DD)
-//
-// Returns:
-//   doctors — per-doctor: name, total, completed, cancelled, noShow
-//   insufficient — true when no appointments with a doctor exist in range
 router.get('/doctor-activity', auth, authorize('admin'), async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -249,12 +234,16 @@ router.get('/doctor-activity', auth, authorize('admin'), async (req, res) => {
       const id   = String(a.doctor._id);
       const name = `${a.doctor.firstName} ${a.doctor.lastName}`;
       if (!doctorMap[id]) {
-        doctorMap[id] = { name, specialization: a.doctor.specialization || '', total: 0, completed: 0, cancelled: 0, noShow: 0 };
+        doctorMap[id] = { name, specialization: a.doctor.specialization || '', total: 0, completed: 0, cancelled: 0, noShow: 0, other: 0 };
       }
       doctorMap[id].total++;
-      if (a.status === 'completed')  doctorMap[id].completed++;
-      if (a.status === 'cancelled')  doctorMap[id].cancelled++;
-      if (a.status === 'no-show')    doctorMap[id].noShow++;
+      if (a.status === 'completed')       doctorMap[id].completed++;
+      else if (a.status === 'cancelled')  doctorMap[id].cancelled++;
+      else if (a.status === 'no-show')    doctorMap[id].noShow++;
+      // Everything else (booked, scheduled, in_queue, in_consultation,
+      // rescheduled, late, delayed, etc.) is upcoming/active — bucket it so
+      // the row reconciles: total = completed + cancelled + noShow + other.
+      else                                doctorMap[id].other++;
     }
 
     const doctors = Object.values(doctorMap).sort((a, b) => b.total - a.total);
@@ -274,7 +263,7 @@ router.get('/doctor-activity', auth, authorize('admin'), async (req, res) => {
     });
   } catch (error) {
     console.error('Doctor activity report error:', error);
-    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+    return res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
   }
 });
 
@@ -321,14 +310,14 @@ router.get('/users', auth, authorize('admin'), async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 // @desc    Export report
 // @route   GET /api/reports/export/:type
-// @access  Private (Manager/Admin)
+// @access  Private (Admin)
 router.get('/export/:type', auth, authorize('admin'), async (req, res) => {
   try {
     const { type } = req.params;
@@ -358,14 +347,14 @@ router.get('/export/:type', auth, authorize('admin'), async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 // @desc    Generate report preview
 // @route   GET /api/reports/generate/:reportType
-// @access  Private (Manager)
+// @access  Private (Admin)
 router.get('/generate/:reportType', auth, authorize('admin'), async (req, res) => {
   try {
     const { reportType } = req.params;
@@ -483,14 +472,14 @@ router.get('/generate/:reportType', auth, authorize('admin'), async (req, res) =
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
 // @desc    Download report as PDF
 // @route   GET /api/reports/download/:reportType
-// @access  Private (Manager)
+// @access  Private (Admin)
 router.get('/download/:reportType', auth, authorize('admin'), async (req, res) => {
   try {
     const { reportType } = req.params;
@@ -514,29 +503,19 @@ Implement with pdfkit or similar library.`;
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
-// @desc    Peak Hours Analytics — real historical aggregation from QueueEntry
-// @route   GET /api/reports/peak-hours
+// @desc    Peak hours analytics from queue check-in times
+// @route   GET /api/reports/peak-hours?days=30
 // @access  Private (Admin)
-//
-// Query params:
-//   days  (number, default 30) — how many past days to include in the window
-//
-// Returns:
-//   kpis            — total check-ins, busiest hour, avg wait time for the window
-//   hourlyActivity  — one row per hour (0-23) with avg patients + avg wait
-//   dailyTrend      — total check-ins per day for the last N days
-//   today           — live figures for today only (check-ins so far, current hour)
-//   meta            — period, record count, data quality notes
 router.get('/peak-hours', auth, authorize('admin'), async (req, res) => {
   try {
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
 
-    // ── Date window ───────────────────────────────────────────────────────────
+    // Date window
     const now   = new Date();
     const start = new Date(now);
     start.setDate(start.getDate() - days);
@@ -547,15 +526,13 @@ router.get('/peak-hours', auth, authorize('admin'), async (req, res) => {
     const todayEnd = new Date(now);
     todayEnd.setHours(23, 59, 59, 999);
 
-    // ── 1. Hourly activity aggregation (last N days) ───────────────────────────
-    // Groups every QueueEntry by the hour extracted from checkInTime.
-    // Computes the average number of check-ins per hour and the average
-    // wait time (calledTime - checkInTime) for entries that were called.
+    // Group queue entries by hour of check-in, and work out the average
+    // check-ins and average wait time per hour over the last N days
     const hourlyRaw = await QueueEntry.aggregate([
       {
         $match: {
           checkInTime: { $gte: start, $lte: now },
-          // Only count entries that actually entered the queue
+          // Skip cancelled entries
           status: { $nin: ['cancelled'] }
         }
       },
@@ -566,7 +543,7 @@ router.get('/peak-hours', auth, authorize('admin'), async (req, res) => {
             hour: { $hour: '$checkInTime' }
           },
           checkInsThisHour: { $sum: 1 },
-          // Only average wait time for entries that were actually called
+          // Only count wait time for patients who were called
           waitTimes: {
             $push: {
               $cond: [
@@ -578,7 +555,7 @@ router.get('/peak-hours', auth, authorize('admin'), async (req, res) => {
           }
         }
       },
-      // Roll up: for each hour-of-day, average across all matching days
+      // For each hour of day, average across all the days
       {
         $group: {
           _id: '$_id.hour',
@@ -590,7 +567,7 @@ router.get('/peak-hours', auth, authorize('admin'), async (req, res) => {
       { $sort: { _id: 1 } }
     ]);
 
-    // ── 2. Daily trend (total check-ins per calendar day) ─────────────────────
+    // Total check-ins per day
     const dailyRaw = await QueueEntry.aggregate([
       {
         $match: {
@@ -607,7 +584,7 @@ router.get('/peak-hours', auth, authorize('admin'), async (req, res) => {
       { $sort: { _id: 1 } }
     ]);
 
-    // ── 3. Today's live totals ────────────────────────────────────────────────
+    // Today's totals
     const todayTotal = await QueueEntry.countDocuments({
       checkInTime: { $gte: todayStart, $lte: todayEnd },
       status: { $nin: ['cancelled'] }
@@ -639,13 +616,12 @@ router.get('/peak-hours', auth, authorize('admin'), async (req, res) => {
 
     const totalRecords = hourlyRaw.reduce((s, h) => s + h.daysPresent, 0);
 
-    // ── 4. Shape hourly data ──────────────────────────────────────────────────
-    // Build a complete 0-23 array; hours with no data get null.
+    // Build a full 0-23 hour array; hours with no data are null
     const globalAvgCheckIns = hourlyRaw.length > 0
       ? hourlyRaw.reduce((s, h) => s + h.avgCheckIns, 0) / hourlyRaw.length
       : 0;
 
-    // Classify a bucket relative to the global hourly average
+    // Rate an hour's demand against the overall hourly average
     const classifyLevel = (avg, globalAvg) => {
       if (!globalAvg) return 'Low';
       const ratio = avg / globalAvg;
@@ -655,7 +631,7 @@ router.get('/peak-hours', auth, authorize('admin'), async (req, res) => {
       return 'Low';
     };
 
-    // Flatten nested wait-time arrays and compute per-hour average
+    // Average the wait times for an hour
     const flatAvgWait = (nestedArrays) => {
       const valid = nestedArrays.flat().filter(v => v !== null && v >= 0);
       return valid.length > 0 ? Math.round(valid.reduce((s, v) => s + v, 0) / valid.length) : null;
@@ -675,7 +651,7 @@ router.get('/peak-hours', auth, authorize('admin'), async (req, res) => {
       };
     });
 
-    // ── 5. KPIs ───────────────────────────────────────────────────────────────
+    // KPIs
     const activeHours  = hourlyActivity.filter(h => h.avgCheckIns !== null);
     const busiestHour  = activeHours.length > 0
       ? activeHours.reduce((max, h) => h.avgCheckIns > max.avgCheckIns ? h : max)
@@ -691,14 +667,14 @@ router.get('/peak-hours', auth, authorize('admin'), async (req, res) => {
 
     const totalCheckInsInPeriod = dailyRaw.reduce((s, d) => s + d.totalCheckIns, 0);
 
-    // ── 6. Daily trend shape ──────────────────────────────────────────────────
+    // Daily trend
     const dailyTrend = dailyRaw.map(d => ({
       date:          d._id,
       totalCheckIns: d.totalCheckIns
     }));
 
-    // ── 7. Respond ────────────────────────────────────────────────────────────
-    const insufficient = totalRecords < 10; // < 10 queue records is not enough to be meaningful
+    // Fewer than 10 records isn't enough to be meaningful
+    const insufficient = totalRecords < 10;
 
     return res.json({
       success: true,
@@ -731,7 +707,7 @@ router.get('/peak-hours', auth, authorize('admin'), async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Server error computing peak hours analytics.',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -739,7 +715,7 @@ router.get('/peak-hours', auth, authorize('admin'), async (req, res) => {
 
 // @desc    Log report generation event
 // @route   POST /api/reports/log
-// @access  Private (Manager)
+// @access  Private (Admin)
 router.post('/log', auth, authorize('admin'), async (req, res) => {
   try {
     const { reportType, dateRange, filters, generatedBy } = req.body;
@@ -762,7 +738,7 @@ router.post('/log', auth, authorize('admin'), async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });

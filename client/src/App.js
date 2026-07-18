@@ -37,7 +37,6 @@ import AvailabilityManagement from './pages/doctor/AvailabilityManagement';
 import StaffDashboard from './pages/staff/DashboardFull';
 import PatientVerification from './pages/staff/PatientVerification';
 
-// Manager Pages
 // Receptionist Pages
 import ReceptionistDashboard from './pages/receptionist/ReceptionistDashboard';
 

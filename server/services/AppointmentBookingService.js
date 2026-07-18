@@ -5,7 +5,6 @@
 
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
-const DoctorSlot = require('../models/DoctorSlot');
 
 class AppointmentBookingService {
 

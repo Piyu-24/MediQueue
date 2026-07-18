@@ -82,7 +82,6 @@ const Login = () => {
           patient:      'Welcome back! Your dashboard is ready.',
           doctor:       'Welcome back, Doctor! Your patient queue awaits.',
           staff:        'Welcome back! Ready to manage today\'s OPD.',
-          manager:      'Welcome back! View today\'s reports and analytics.',
           receptionist: 'Welcome back! Ready to check in patients.',
           admin:        'Welcome back, Admin! System management awaits.'
         };
@@ -93,7 +92,6 @@ const Login = () => {
           patient:      '/dashboard',
           doctor:       '/doctor/dashboard',
           staff:        '/staff/dashboard',
-          manager:      '/manager/dashboard',
           receptionist: '/receptionist/dashboard',
           admin:        '/admin/dashboard'
         };

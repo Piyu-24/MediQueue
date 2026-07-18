@@ -22,8 +22,9 @@ import {
   PrinterIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
-import api, { authAPI, userAPI, medicalRecordsAPI, healthCardAPI, queueAPI, appointmentAPI, receptionAPI, departmentAPI, roomAPI } from '../../services/api';
+import api, { authAPI, userAPI, medicalRecordsAPI, healthCardAPI, queueAPI, appointmentAPI, receptionAPI, departmentAPI, roomAPI, documentAPI } from '../../services/api';
 import socketService from '../../services/socket';
+import { resolveFileUrl } from '../../utils/fileUrl';
 import toast from 'react-hot-toast';
 
 // Static fallback room list used only if API is unavailable
@@ -56,11 +57,18 @@ const selectBestAppointment = (appointments) => {
 
 // ── Queue slip print helper ──────────────────────────────────────────────────
 const printQueueSlip = (queueEntry, isWalkIn = false) => {
-  const { queueNumber, tokenType, patient, doctor, room, department, estimatedWaitMinutes, checkInTime, appointment } = queueEntry;
+  const { queueNumber, tokenType, patient, doctor, room, department, estimatedWaitMinutes, checkInTime, appointment, timeBlockId } = queueEntry;
   const patientName = `${patient?.firstName || ''} ${patient?.lastName || ''}`.trim();
   const doctorName = `Dr. ${doctor?.firstName || ''} ${doctor?.lastName || ''}`.trim();
   const time = new Date(checkInTime).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit' });
   const date = new Date().toLocaleDateString('en-LK');
+
+  // Time block label — printed above the token so identical tokens across blocks
+  // (e.g. A001 in Block 1 vs Block 6) can't be confused.
+  const tb = timeBlockId && typeof timeBlockId === 'object' ? timeBlockId : null;
+  const blockLabel = tb?.startTime
+    ? `${formatTime(tb.startTime)} - ${formatTime(tb.endTime)}${tb.sessionName ? ' ' + tb.sessionName : ''}`
+    : '';
 
   const tokenColor = tokenType === 'E' ? '#dc2626' : tokenType === 'W' ? '#d97706' : '#2563eb';
   const patientTypeLabel = tokenType === 'E' ? 'Emergency' : tokenType === 'W' ? 'Walk-in' : 'Appointment';
@@ -79,12 +87,14 @@ const printQueueSlip = (queueEntry, isWalkIn = false) => {
       .sub { font-size: 11px; color: #9ca3af; }
       .msg { font-size: 11px; color: #374151; margin-top: 8px; line-height: 1.4; border: 1px solid #e5e7eb; padding: 8px; border-radius: 4px; text-align: left; white-space: pre-line; }
       .badge { display: inline-block; background: ${tokenColor}20; color: ${tokenColor}; font-size: 11px; font-weight: bold; padding: 2px 10px; border-radius: 20px; margin-bottom: 4px; }
+      .block { font-size: 16px; font-weight: bold; color: #1f2937; margin-top: 6px; }
     </style></head>
     <body onload="window.print();window.close()">
       <div class="title">MediQueue OPD</div>
       <div class="sub">${date}</div>
       <div class="divider"></div>
       <div class="badge">${patientTypeLabel}</div>
+      ${blockLabel ? `<div class="block">${blockLabel}</div>` : ''}
       <div class="token-no">${queueNumber}</div>
       <div class="divider"></div>
       <div class="row"><span class="label">Patient:</span><span class="value">${patientName}</span></div>
@@ -178,6 +188,9 @@ const ReceptionistDashboard = () => {
 
   // ── Lab Upload tab state ──────────────────────────────────────────────────
   const [patientMedicalHistory, setPatientMedicalHistory] = useState([]);
+  // Documents fetched from the shared Document collection (same store patient
+  // self-uploads use, and the one the doctor's Documents tab reads).
+  const [patientDocuments, setPatientDocuments] = useState([]);
   const [selectedFiles, setSelectedFiles] = useState({});
   const [uploadLoading, setUploadLoading] = useState(false);
 
@@ -282,6 +295,7 @@ const ReceptionistDashboard = () => {
   useEffect(() => {
     if (selectedPatient && activeTab === 'records') {
       fetchPatientMedicalHistory(selectedPatient._id);
+      fetchPatientDocuments(selectedPatient._id);
     }
     if (selectedPatient && activeTab === 'verify') {
       if (selectedPatient.nicDocument) fetchNicImage(selectedPatient._id);
@@ -747,18 +761,42 @@ const ReceptionistDashboard = () => {
     setSelectedFiles(prev => ({ ...prev, [recordId]: [...(prev[recordId] || []), ...validFiles] }));
   };
 
+  // Fetch the patient's documents from the shared Document collection (the same
+  // store patient self-uploads use and the doctor's Documents tab reads from).
+  const fetchPatientDocuments = async (patientId) => {
+    try {
+      const res = await documentAPI.getPatientDocuments(patientId, { limit: 100 });
+      if (res.data.success) setPatientDocuments(res.data.data.documents || []);
+    } catch { setPatientDocuments([]); }
+  };
+
   const uploadDocuments = async (medicalRecordId) => {
     const recordFiles = selectedFiles[medicalRecordId] || [];
     if (recordFiles.length === 0) { toast.error('Select files first'); return; }
+    if (!selectedPatient?._id) { toast.error('No patient selected'); return; }
     try {
       setUploadLoading(true);
-      const formData = new FormData();
-      recordFiles.forEach(f => formData.append('documents', f));
-      const res = await medicalRecordsAPI.uploadDocument(medicalRecordId, formData);
-      if (res.data.success) {
-        toast.success('Documents uploaded!');
+      // Store each lab result in the shared Document collection tagged as a
+      // 'lab-report' and linked to the medical record. This is the SAME store
+      // patient self-uploads use, so the doctor sees it in their Documents tab
+      // under the patient's records. (POST /documents/upload takes one file at
+      // a time, so we upload sequentially.)
+      let uploaded = 0;
+      for (const file of recordFiles) {
+        const formData = new FormData();
+        formData.append('document', file);
+        formData.append('patientId', selectedPatient._id);
+        formData.append('title', file.name);
+        formData.append('description', 'Lab result scanned and attached at reception');
+        formData.append('documentType', 'lab-report');
+        formData.append('medicalRecordId', medicalRecordId);
+        const res = await documentAPI.uploadDocument(formData);
+        if (res.data.success) uploaded += 1;
+      }
+      if (uploaded > 0) {
+        toast.success(`${uploaded} lab document(s) uploaded — now visible to the doctor.`);
         setSelectedFiles(prev => { const u = { ...prev }; delete u[medicalRecordId]; return u; });
-        if (selectedPatient) fetchPatientMedicalHistory(selectedPatient._id);
+        fetchPatientDocuments(selectedPatient._id);
       }
     } catch (err) { toast.error(err.response?.data?.message || 'Upload failed'); }
     finally { setUploadLoading(false); }
@@ -962,6 +1000,12 @@ const ReceptionistDashboard = () => {
                         </div>
                         <div>
                           <p className="text-sm font-semibold text-green-700 mb-1">Check-in Successful!</p>
+                          {completedEntry.timeBlockId?.startTime && (
+                            <p className="text-sm font-bold text-green-700">
+                              {formatTime(completedEntry.timeBlockId.startTime)} - {formatTime(completedEntry.timeBlockId.endTime)}
+                              {completedEntry.timeBlockId.sessionName ? ` ${completedEntry.timeBlockId.sessionName}` : ''}
+                            </p>
+                          )}
                           <p className="text-4xl font-black text-green-800">{completedEntry.queueNumber}</p>
                           <p className="text-sm text-green-600 mt-1">
                             {completedEntry.patient?.firstName} {completedEntry.patient?.lastName} ·{' '}
@@ -1319,7 +1363,17 @@ const ReceptionistDashboard = () => {
                                     value={checkInForm.roomId}
                                     onChange={e => {
                                       const r = availableRooms.find(x => x._id === e.target.value);
-                                      setCheckInForm(p => ({ ...p, roomId: e.target.value, room: r?.roomNumber || '' }));
+                                      const apptDocs = (validatedData.todaysAppointments || []).filter(a => a.doctor?._id);
+                                      const roomDocs = r?.assignedDoctors || [];
+                                      // Room-first: auto-pick the doctor when the room has exactly one and
+                                      // there's no appointment doctor to honour; otherwise reset for a fresh pick.
+                                      setCheckInForm(p => ({
+                                        ...p,
+                                        roomId: e.target.value,
+                                        room:   r?.roomNumber || '',
+                                        doctorId: apptDocs.length === 0 && roomDocs.length === 1
+                                          ? roomDocs[0]._id : ''
+                                      }));
                                     }}
                                     className="flex-1 px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm"
                                   >
@@ -1372,6 +1426,38 @@ const ReceptionistDashboard = () => {
                                     </option>
                                   ))}
                                 </select>
+                              ) : deptIsMultiRoom ? (
+                                // Room-first: doctors are limited to those assigned to the chosen room
+                                !checkInForm.roomId ? (
+                                  <p className="text-sm text-gray-400 italic py-2">Select a room first to see its doctors</p>
+                                ) : (() => {
+                                    const selRoom  = availableRooms.find(r => r._id === checkInForm.roomId);
+                                    const roomDocs = selRoom?.assignedDoctors || [];
+                                    if (roomDocs.length === 0) {
+                                      return (
+                                        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                                          <ExclamationTriangleIcon className="w-4 h-4 text-red-500 flex-shrink-0" />
+                                          <p className="text-xs text-red-700 font-medium">
+                                            No doctors assigned to {selRoom?.roomNumber || 'this room'}. Ask an admin to assign one.
+                                          </p>
+                                        </div>
+                                      );
+                                    }
+                                    return (
+                                      <select
+                                        value={checkInForm.doctorId}
+                                        onChange={e => setCheckInForm(p => ({ ...p, doctorId: e.target.value }))}
+                                        className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                      >
+                                        <option value="">Select doctor</option>
+                                        {roomDocs.map(d => (
+                                          <option key={d._id} value={d._id}>
+                                            Dr. {d.firstName} {d.lastName}{d.specialization ? ` — ${d.specialization}` : ''}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    );
+                                  })()
                               ) : (
                                 <DoctorSearchInput
                                   value={checkInForm.doctorId}
@@ -2091,17 +2177,30 @@ const ReceptionistDashboard = () => {
                                   </button>
                                 )}
                               </div>
-                              {record.documents?.length > 0 && (
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                  {record.documents.map((doc, di) => (
-                                    <a key={di} href={`${process.env.REACT_APP_API_URL?.replace('/api', '')}${doc.fileUrl}`}
-                                      target="_blank" rel="noopener noreferrer"
-                                      className="text-xs px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg flex items-center space-x-1 hover:bg-green-100">
-                                      <DocumentTextIcon className="w-3 h-3" /><span>{doc.fileName}</span>
-                                    </a>
-                                  ))}
-                                </div>
-                              )}
+                              {(() => {
+                                // Combine legacy embedded attachments with the new
+                                // shared-collection uploads linked to this record.
+                                const attached = [
+                                  ...(record.documents || []).map(d => ({
+                                    url: d.fileUrl, name: d.fileName
+                                  })),
+                                  ...patientDocuments
+                                    .filter(d => String(d.medicalRecord) === String(record._id))
+                                    .map(d => ({ url: d.fileUrl, name: d.originalName || d.title }))
+                                ];
+                                if (attached.length === 0) return null;
+                                return (
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {attached.map((doc, di) => (
+                                      <a key={di} href={resolveFileUrl(doc.url)}
+                                        target="_blank" rel="noopener noreferrer"
+                                        className="text-xs px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg flex items-center space-x-1 hover:bg-green-100">
+                                        <DocumentTextIcon className="w-3 h-3" /><span>{doc.name}</span>
+                                      </a>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
                         ))}
@@ -2153,7 +2252,7 @@ const printHealthCardSlip = (p) => {
       .divider { border-top: 1px dashed #d1d5db; margin: 8px 0; }
       .footer { font-size: 10px; color: #9ca3af; text-align: center; margin-top: 8px; }
     </style></head>
-    <body onload="window.print();window.close()">
+    <body>
       <div class="card">
         <div class="header">
           <div class="title">MediQueue Health Card</div>
@@ -2173,6 +2272,32 @@ const printHealthCardSlip = (p) => {
         <div class="qr"><img src="${p.qrCode}" alt="QR" /></div>
         <div class="footer">Issued: ${new Date(p.issueDate).toLocaleDateString()} · Expires: ${new Date(p.expiryDate).toLocaleDateString()}<br/>Printed: ${new Date().toLocaleString()}</div>
       </div>
+      <script>
+        (function () {
+          // Print only AFTER the QR image has decoded. Calling window.print()
+          // before the data-URL image paints can stall the print preview and
+          // freeze the opener window, so gate on the image's load/error events.
+          var printed = false;
+          function doPrint() {
+            if (printed) return;
+            printed = true;
+            // Close once the print dialog is dismissed rather than racing it.
+            window.onafterprint = function () { window.close(); };
+            try { window.focus(); window.print(); } catch (e) { window.close(); }
+            // Safety net if onafterprint never fires (some browsers).
+            setTimeout(function () { window.close(); }, 60000);
+          }
+          var img = document.querySelector('img');
+          if (img && !img.complete) {
+            img.addEventListener('load', doPrint);
+            img.addEventListener('error', doPrint);
+            // Fallback in case neither event fires.
+            setTimeout(doPrint, 3000);
+          } else {
+            doPrint();
+          }
+        })();
+      </script>
     </body></html>`;
   const win = window.open('', '_blank', 'width=390,height=750');
   if (win) { win.document.write(html); win.document.close(); }
