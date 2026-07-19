@@ -44,6 +44,7 @@ const sendEmail = async (options) => {
     info = await transporter.sendMail({
       from:    `${process.env.FROM_NAME || 'MediQueue'} <${process.env.FROM_EMAIL || 'noreply@mediqueue.lk'}>`,
       to:      options.email,
+      replyTo: options.replyTo || undefined,
       subject: options.subject,
       text:    options.message,
       html:    htmlBody,
