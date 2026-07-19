@@ -6,6 +6,7 @@ import {
   ClockIcon 
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
+import { contactAPI, handleApiError } from '../services/api';
 
 const Contact = () => {
   const [formData, setFormData] = useState({
@@ -28,10 +29,10 @@ const Contact = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
-      toast.success('Message sent successfully! We\'ll get back to you soon.');
+
+    try {
+      const res = await contactAPI.sendMessage(formData);
+      toast.success(res.data?.message || 'Message sent successfully! We\'ll get back to you soon.');
       setFormData({
         name: '',
         email: '',
@@ -39,8 +40,11 @@ const Contact = () => {
         subject: '',
         message: ''
       });
+    } catch (error) {
+      handleApiError(error);
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -75,8 +79,8 @@ const Contact = () => {
             </div>
             <h3 className="text-xl font-bold text-gray-900 mb-2">Email</h3>
             <p className="text-gray-600 mb-2">Send us an email anytime</p>
-            <a href="mailto:support@mediqueue.lk" className="text-blue-600 font-semibold hover:underline">
-              support@mediqueue.lk
+            <a href="mailto:queuemedi@gmail.com" className="text-blue-600 font-semibold hover:underline">
+              queuemedi@gmail.com
             </a>
           </div>
 

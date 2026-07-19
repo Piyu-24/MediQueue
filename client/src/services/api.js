@@ -317,6 +317,11 @@ export const chatbotAPI = {
   checkEmergency: (messageData) => api.post('/chatbot/emergency-check', messageData),
 };
 
+// Contact form API endpoint
+export const contactAPI = {
+  sendMessage: (data) => api.post('/contact', data),
+};
+
 export const handleApiError = (error) => {
   if (error.response?.data?.message) {
     toast.error(error.response.data.message);

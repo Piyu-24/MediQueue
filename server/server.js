@@ -72,6 +72,7 @@ const prescriptionRoutes = require('./routes/prescriptions');
 const dispensaryRoutes = require('./routes/dispensary');
 const roomRoutes = require('./routes/rooms');
 const fileRoutes = require('./routes/files');
+const contactRoutes = require('./routes/contact');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -290,6 +291,7 @@ app.use('/api/prescriptions', prescriptionRoutes);
 app.use('/api/dispensary', dispensaryRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/files', fileRoutes);
+app.use('/api/contact', contactRoutes);
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
