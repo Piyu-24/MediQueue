@@ -107,6 +107,7 @@ export const adminAPI = {
 
 // Doctor API endpoints
 export const doctorAPI = {
+  getSchedule: () => api.get('/doctor/schedule'),
   updateAvailability: (availability) => api.put('/doctor/availability', availability),
 };
 

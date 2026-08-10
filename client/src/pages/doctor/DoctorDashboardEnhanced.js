@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CalendarIcon,
   UserIcon,
@@ -8,12 +8,12 @@ import {
   DocumentTextIcon,
   PlusIcon,
   ChartBarIcon,
-  BellIcon,
+  HomeIcon,
   ArrowPathIcon
 } from '@heroicons/react/24/outline';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { appointmentAPI, medicalRecordsAPI, queueAPI, doctorAPI, notificationAPI } from '../../services/api';
+import { appointmentAPI, medicalRecordsAPI, queueAPI, doctorAPI, roomAPI, timeBlockAPI, userAPI } from '../../services/api';
 import socketService from '../../services/socket';
 import ConsultationNoteModal from '../../components/doctor/ConsultationNoteModal';
 import toast from 'react-hot-toast';
@@ -32,11 +32,11 @@ const DoctorDashboardEnhanced = () => {
   const [selectedPatient, _setSelectedPatient] = useState(null);
   const [patientRecords, setPatientRecords] = useState([]);
   const [availability, setAvailability] = useState({});
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [showNotifPanel, setShowNotifPanel] = useState(false);
-  const [notifLoading, setNotifLoading] = useState(false);
-  const notifPanelRef = useRef(null);
+  const [assignedRoom, setAssignedRoom] = useState(null);
+  const [todayBlocks, setTodayBlocks] = useState([]);
+  const [blocksLoading, setBlocksLoading] = useState(false);
+  // Only OPD doctors (departments with admin-managed rooms) get the room badge.
+  const [isOpdDoctor, setIsOpdDoctor] = useState(false);
   const [stats, setStats] = useState({
     today: 0,
     pending: 0,
@@ -61,26 +61,38 @@ const DoctorDashboardEnhanced = () => {
   // Consultation note modal
   const [noteModalEntry, setNoteModalEntry] = useState(null);
 
-  const fetchNotifications = useCallback(async () => {
+  // Load the room this doctor is assigned to, then today's time blocks for that
+  // room's department (the same blocks the admin manages).
+  const fetchRoomAndBlocks = async () => {
+    if (!user?._id) return;
     try {
-      setNotifLoading(true);
-      const [notifRes, countRes] = await Promise.all([
-        notificationAPI.getNotifications({ limit: 20 }),
-        notificationAPI.getUnreadCount()
-      ]);
-      if (notifRes.data.success) setNotifications(notifRes.data.data.notifications || []);
-      if (countRes.data.success) setUnreadCount(countRes.data.data.count || 0);
+      setBlocksLoading(true);
+      const roomsRes = await roomAPI.getRooms();
+      const rooms = roomsRes.data.success ? (roomsRes.data.data || []) : [];
+      const myRoom = rooms.find(r =>
+        (r.assignedDoctors || []).some(d => (d._id || d) === user._id)
+      ) || null;
+      setAssignedRoom(myRoom);
+
+      const departmentId = myRoom?.department?._id || myRoom?.department;
+      if (departmentId) {
+        const today = new Date().toLocaleDateString('en-CA'); // local YYYY-MM-DD
+        const blocksRes = await timeBlockAPI.getBlocks({ departmentId, date: today, includeAll: 'true' });
+        setTodayBlocks(blocksRes.data.success ? (blocksRes.data.data || []) : []);
+      } else {
+        setTodayBlocks([]);
+      }
     } catch {
-      // Silent — not critical
+      // Non-critical: header just won't show a room / blocks
     } finally {
-      setNotifLoading(false);
+      setBlocksLoading(false);
     }
-  }, []);
+  };
 
   useEffect(() => {
     fetchDoctorData();
     fetchAvailability();
-    fetchNotifications();
+    fetchRoomAndBlocks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -88,17 +100,6 @@ const DoctorDashboardEnhanced = () => {
     if (activeTab === 'queue') fetchLiveQueue();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
-
-  // Close notification panel when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (notifPanelRef.current && !notifPanelRef.current.contains(e.target)) {
-        setShowNotifPanel(false);
-      }
-    };
-    if (showNotifPanel) document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showNotifPanel]);
 
   // Socket.io: real-time queue updates for this doctor
   useEffect(() => {
@@ -119,7 +120,6 @@ const DoctorDashboardEnhanced = () => {
             </div>
           </div>
         ), { duration: 6000 });
-        fetchNotifications();
       }
       // Always refresh if on queue tab
       if (activeTab === 'queue') fetchLiveQueue();
@@ -130,6 +130,9 @@ const DoctorDashboardEnhanced = () => {
       else if (activeTab === 'overview') fetchDoctorData();
     };
 
+    // Admin (re)assigned this doctor to/from a room — refresh the badge + blocks live.
+    const handleRoomAssignmentChanged = () => fetchRoomAndBlocks();
+
     socketService.on('queue:created', handleQueueCreated);
     socketService.on('queue:updated', handleQueueUpdated);
     socketService.on('queue:completed', handleQueueUpdated);
@@ -137,6 +140,7 @@ const DoctorDashboardEnhanced = () => {
     socketService.on('queue:recalculated', handleQueueUpdated);
     socketService.on('queue:paused', handleQueueUpdated);
     socketService.on('queue:resumed', handleQueueUpdated);
+    socketService.on('room:assignment-changed', handleRoomAssignmentChanged);
 
     return () => {
       socketService.off('queue:created', handleQueueCreated);
@@ -146,6 +150,7 @@ const DoctorDashboardEnhanced = () => {
       socketService.off('queue:recalculated', handleQueueUpdated);
       socketService.off('queue:paused', handleQueueUpdated);
       socketService.off('queue:resumed', handleQueueUpdated);
+      socketService.off('room:assignment-changed', handleRoomAssignmentChanged);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?._id, activeTab]);
@@ -270,23 +275,36 @@ const DoctorDashboardEnhanced = () => {
 
   const fetchAvailability = async () => {
     try {
-      // For now, use local storage or default availability
-      const savedAvailability = localStorage.getItem(`doctor_availability_${user._id}`);
-      if (savedAvailability) {
-        setAvailability(JSON.parse(savedAvailability));
-      } else {
-        // Set default availability
-        const defaultAvailability = {
-          monday: { enabled: true, startTime: '09:00', endTime: '17:00' },
-          tuesday: { enabled: true, startTime: '09:00', endTime: '17:00' },
-          wednesday: { enabled: true, startTime: '09:00', endTime: '17:00' },
-          thursday: { enabled: true, startTime: '09:00', endTime: '17:00' },
-          friday: { enabled: true, startTime: '09:00', endTime: '17:00' },
-          saturday: { enabled: false, startTime: '09:00', endTime: '13:00' },
-          sunday: { enabled: false, startTime: '09:00', endTime: '13:00' }
-        };
-        setAvailability(defaultAvailability);
-      }
+      // Load from DB first so DoctorAvailabilityService always has current data.
+      // Fall back to localStorage only when the DB has no availability set.
+      const defaultAvailability = {
+        monday:    { enabled: true,  startTime: '09:00', endTime: '17:00' },
+        tuesday:   { enabled: true,  startTime: '09:00', endTime: '17:00' },
+        wednesday: { enabled: true,  startTime: '09:00', endTime: '17:00' },
+        thursday:  { enabled: true,  startTime: '09:00', endTime: '17:00' },
+        friday:    { enabled: true,  startTime: '09:00', endTime: '17:00' },
+        saturday:  { enabled: false, startTime: '09:00', endTime: '13:00' },
+        sunday:    { enabled: false, startTime: '09:00', endTime: '13:00' }
+      };
+
+      try {
+        const res = await doctorAPI.getSchedule();
+        if (res.data.success && res.data.data?.availability) {
+          const dbAvailability = res.data.data.availability;
+          // Merge DB data with defaults so every day key is always present
+          const merged = {};
+          for (const day of Object.keys(defaultAvailability)) {
+            merged[day] = dbAvailability[day] ?? defaultAvailability[day];
+          }
+          setAvailability(merged);
+          localStorage.setItem(`doctor_availability_${user._id}`, JSON.stringify(merged));
+          return;
+        }
+      } catch { /* DB fetch failed — fall through to localStorage */ }
+
+      // Fall back to localStorage
+      const saved = localStorage.getItem(`doctor_availability_${user._id}`);
+      setAvailability(saved ? JSON.parse(saved) : defaultAvailability);
     } catch (error) {
       console.error('Error fetching availability:', error);
     }
@@ -294,13 +312,27 @@ const DoctorDashboardEnhanced = () => {
 
   const updateAvailability = async (newAvailability) => {
     try {
-      // Save to local storage for immediate UI update
+      // Keep localStorage in sync for instant UI feedback
       localStorage.setItem(`doctor_availability_${user._id}`, JSON.stringify(newAvailability));
       setAvailability(newAvailability);
-      
-      // Integrate with backend API
-      const response = await doctorAPI.updateAvailability(newAvailability);
-      if (response.data.success) {
+
+      // Derive workingDays from the enabled flags so both availability signals
+      // that DoctorAvailabilityService reads stay in agreement.
+      const DAY_NAMES = {
+        monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday',
+        thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday'
+      };
+      const workingDays = Object.entries(newAvailability)
+        .filter(([, cfg]) => cfg?.enabled)
+        .map(([day]) => DAY_NAMES[day] || day);
+
+      // Save availability to DB and sync workingDays in a single profile update
+      const [availRes] = await Promise.all([
+        doctorAPI.updateAvailability(newAvailability),
+        userAPI.updateProfile(user._id, { workingDays })
+      ]);
+
+      if (availRes.data.success) {
         toast.success('Availability updated successfully');
       }
     } catch (error) {
@@ -403,96 +435,25 @@ const DoctorDashboardEnhanced = () => {
                 <p className="text-gray-600">{user?.specialization || 'General Medicine'}</p>
               </div>
             </div>
+
+            {/* Assigned room — updates whenever an admin reassigns the doctor */}
+            <div className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-50 border border-blue-100">
+              <HomeIcon className="w-5 h-5 text-blue-600 flex-shrink-0" />
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-400">Assigned Room</p>
+                <p className="text-sm font-bold text-blue-800">
+                  {assignedRoom ? `${assignedRoom.roomNumber} — ${assignedRoom.displayName}` : 'Not assigned'}
+                </p>
+              </div>
+            </div>
+
             <div className="flex items-center space-x-3">
               <button
-                onClick={() => fetchDoctorData()}
+                onClick={() => { fetchDoctorData(); fetchRoomAndBlocks(); }}
                 className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <ArrowPathIcon className="w-5 h-5" />
               </button>
-
-              {/* Notification Bell */}
-              <div className="relative" ref={notifPanelRef}>
-                <button
-                  onClick={() => {
-                    const next = !showNotifPanel;
-                    setShowNotifPanel(next);
-                    if (next) fetchNotifications();
-                  }}
-                  className="relative p-2 text-gray-400 hover:text-gray-600 transition-colors"
-                  title="Notifications"
-                >
-                  <BellIcon className="w-5 h-5" />
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold leading-none">
-                      {unreadCount > 9 ? '9+' : unreadCount}
-                    </span>
-                  )}
-                </button>
-
-                {showNotifPanel && (
-                  <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50">
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                      <h3 className="font-semibold text-gray-900 text-sm">Notifications</h3>
-                      {unreadCount > 0 && (
-                        <button
-                          onClick={async () => {
-                            try { await notificationAPI.markAllAsRead(); fetchNotifications(); }
-                            catch { /* silent */ }
-                          }}
-                          className="text-xs text-blue-600 hover:underline"
-                        >
-                          Mark all read
-                        </button>
-                      )}
-                    </div>
-                    <div className="max-h-80 overflow-y-auto">
-                      {notifLoading ? (
-                        <div className="p-4 text-center text-gray-400 text-sm">Loading…</div>
-                      ) : notifications.length === 0 ? (
-                        <div className="p-6 text-center">
-                          <BellIcon className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                          <p className="text-gray-400 text-sm">No notifications</p>
-                        </div>
-                      ) : (
-                        notifications.map((n) => (
-                          <div
-                            key={n._id}
-                            className={`px-4 py-3 border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors ${!n.isRead ? 'bg-blue-50' : ''}`}
-                            onClick={async () => {
-                              if (!n.isRead) {
-                                try { await notificationAPI.markAsRead(n._id); fetchNotifications(); }
-                                catch { /* silent */ }
-                              }
-                            }}
-                          >
-                            <div className="flex items-start gap-2">
-                              {!n.isRead && (
-                                <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 flex-shrink-0" />
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-900 truncate">
-                                  {n.title || n.type || 'Notification'}
-                                </p>
-                                {(n.message || n.body) && (
-                                  <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
-                                    {n.message || n.body}
-                                  </p>
-                                )}
-                                <p className="text-xs text-gray-400 mt-1">
-                                  {new Date(n.createdAt).toLocaleDateString('en-LK', {
-                                    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
-                                  })}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
 
               <div className="text-right">
                 <p className="text-sm text-gray-500">Today</p>
@@ -845,6 +806,7 @@ const DoctorDashboardEnhanced = () => {
           <LiveQueueTab
             user={user}
             liveQueue={liveQueue}
+            queueSession={queueSession}
             queueLoading={queueLoading}
             onFetch={fetchLiveQueue}
             onAction={handleQueueAction}
@@ -988,60 +950,56 @@ const DoctorDashboardEnhanced = () => {
               </div>
             </div>
 
-            {/* Appointment Slots Preview */}
+            {/* Today's session time blocks — the same blocks the admin manages */}
             <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Available Time Slots (Today)</h3>
-              <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
-                {(() => {
-                  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-                  const todayAvailability = availability[today];
-                  
-                  if (!todayAvailability?.enabled) {
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Today's Session Time Blocks</h3>
+                {assignedRoom?.department?.name && (
+                  <span className="text-xs font-semibold text-gray-500">{assignedRoom.department.name}</span>
+                )}
+              </div>
+
+              {blocksLoading ? (
+                <div className="text-center py-8 text-gray-400 text-sm">Loading time blocks…</div>
+              ) : !assignedRoom ? (
+                <div className="text-center py-8 text-gray-500 text-sm">
+                  You are not assigned to a room yet. Ask an admin to assign you so your session blocks appear here.
+                </div>
+              ) : todayBlocks.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 text-sm">No time blocks scheduled for today.</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {todayBlocks.map(b => {
+                    const pct = b.appointmentCapacity > 0
+                      ? Math.round((b.bookedAppointmentCount / b.appointmentCapacity) * 100)
+                      : 0;
                     return (
-                      <div className="col-span-full text-center py-8 text-gray-500">
-                        No availability set for today
+                      <div key={b._id} className="border border-gray-200 rounded-xl p-3 bg-gray-50">
+                        <div className="flex items-center justify-between mb-1">
+                          <div>
+                            <p className="font-semibold text-sm text-gray-900">{b.sessionName || `${b.startTime} – ${b.endTime}`}</p>
+                            <p className="text-xs text-gray-500">{b.startTime} – {b.endTime}</p>
+                          </div>
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                            b.status === 'active' ? 'bg-green-100 text-green-700' :
+                            b.status === 'full'   ? 'bg-red-100 text-red-700' :
+                            b.status === 'closed' ? 'bg-gray-100 text-gray-600' :
+                            'bg-red-50 text-red-500'
+                          }`}>{b.status}</span>
+                        </div>
+                        <div className="text-[11px] text-gray-500 mb-1">
+                          Appt: {b.bookedAppointmentCount}/{b.appointmentCapacity} · Walk-in: {b.walkInCount}/{b.walkInCapacity} · Buffer: {b.emergencyBuffer}
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                          <div className={`h-full rounded-full ${pct >= 100 ? 'bg-red-500' : pct >= 75 ? 'bg-amber-500' : 'bg-blue-500'}`}
+                            style={{ width: `${Math.min(pct, 100)}%` }} />
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-0.5">{pct}% booked</p>
                       </div>
                     );
-                  }
-                  
-                  const slots = [];
-                  const startHour = parseInt(todayAvailability.startTime.split(':')[0]);
-                  const endHour = parseInt(todayAvailability.endTime.split(':')[0]);
-                  
-                  for (let hour = startHour; hour < endHour; hour++) {
-                    for (let minute = 0; minute < 60; minute += 15) {
-                      const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
-                      const isBooked = todayAppointments.some(apt => apt.appointmentTime === timeString);
-                      
-                      slots.push(
-                        <div
-                          key={timeString}
-                          className={`p-2 text-xs text-center rounded border ${
-                            isBooked 
-                              ? 'bg-red-100 border-red-300 text-red-700' 
-                              : 'bg-green-100 border-green-300 text-green-700'
-                          }`}
-                        >
-                          {timeString}
-                        </div>
-                      );
-                    }
-                  }
-                  
-                  return slots;
-                })()}
-              </div>
-              
-              <div className="mt-4 flex items-center space-x-6 text-sm">
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-green-100 border border-green-300 rounded"></div>
-                  <span className="text-gray-600">Available</span>
+                  })}
                 </div>
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-red-100 border border-red-300 rounded"></div>
-                  <span className="text-gray-600">Booked</span>
-                </div>
-              </div>
+              )}
             </div>
           </div>
         )}
@@ -1179,9 +1137,13 @@ const QueueCard = ({ entry, onAction, onNotes }) => {
   );
 };
 
-const LiveQueueTab = ({ user, liveQueue, queueLoading, onFetch, onAction, onNotes }) => {
+const LiveQueueTab = ({ user, liveQueue, queueSession, queueLoading, onFetch, onAction, onNotes }) => {
   const [pauseMsg, setPauseMsg] = React.useState('');
   const [showPauseBox, setShowPauseBox] = React.useState(false);
+
+  const sessionStatus = queueSession?.status || 'active';
+  const isPaused = sessionStatus === 'paused';
+  const isEnded  = sessionStatus === 'ended';
 
   const current    = liveQueue.filter(e => e.zone === 'CURRENT' || e.status === 'in_consultation');
   const ready      = liveQueue.filter(e => (e.zone === 'READY' || e.status === 'ready' || e.status === 'called') && e.status !== 'in_consultation');
@@ -1209,8 +1171,17 @@ const LiveQueueTab = ({ user, liveQueue, queueLoading, onFetch, onAction, onNote
           <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">{activeCount} active</span>
         </div>
         <div className="flex items-center gap-2">
-          {/* Pause / Resume */}
-          {showPauseBox ? (
+          {/* Pause / Resume — only the action valid for the current session state is shown */}
+          {isEnded ? (
+            <span className="px-3 py-1.5 bg-gray-100 text-gray-500 border border-gray-300 rounded-lg text-sm font-semibold">
+              Session ended
+            </span>
+          ) : isPaused ? (
+            <button onClick={() => onAction(null, 'resume')}
+              className="px-3 py-1.5 bg-green-100 text-green-700 border border-green-300 rounded-lg text-sm font-semibold hover:bg-green-200 transition-all">
+               Resume
+            </button>
+          ) : showPauseBox ? (
             <div className="flex items-center gap-2">
               <input
                 value={pauseMsg}
@@ -1232,10 +1203,6 @@ const LiveQueueTab = ({ user, liveQueue, queueLoading, onFetch, onAction, onNote
                Pause Queue
             </button>
           )}
-          <button onClick={() => onAction(null, 'resume')}
-            className="px-3 py-1.5 bg-green-100 text-green-700 border border-green-300 rounded-lg text-sm font-semibold hover:bg-green-200 transition-all">
-             Resume
-          </button>
           <button onClick={onFetch}
             className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 hover:text-blue-600 border border-gray-200 rounded-lg hover:border-blue-300 transition-all">
             <ArrowPathIcon className={`w-4 h-4 ${queueLoading ? 'animate-spin' : ''}`} />

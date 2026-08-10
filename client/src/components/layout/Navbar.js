@@ -131,10 +131,28 @@ const Navbar = () => {
       }
     };
 
+    // Generic in-app notifications (e.g. admin room-reassignment alerts)
+    const handleNotification = (payload) => {
+      if (payload?.title) toast(payload.title);
+      setUnreadCount((prev) => prev + 1);
+      if (notificationsOpen) {
+        (async () => {
+          try {
+            const res = await notificationAPI.getNotifications();
+            if (res.data.success) setNotifications(res.data.data.notifications || []);
+          } catch (err) {
+            // ignore
+          }
+        })();
+      }
+    };
+
     socketService.on('appointment:doctor-unavailable', handleAppointmentUnavailable);
+    socketService.on('notification', handleNotification);
 
     return () => {
       socketService.off('appointment:doctor-unavailable', handleAppointmentUnavailable);
+      socketService.off('notification', handleNotification);
     };
   }, [user, notificationsOpen]);
 
@@ -163,13 +181,15 @@ const Navbar = () => {
 
   const handleReschedule = (notification) => {
     const doctorId = notification.metadata?.doctorId;
+    const departmentId = notification.metadata?.departmentId;
     const appointmentId = notification.appointment?._id || notification.appointment;
     setNotificationsOpen(false);
-    if (doctorId) {
-      navigate(`/dashboard?tab=book-appointment&doctorId=${doctorId}${appointmentId ? `&appointmentId=${appointmentId}` : ''}`);
-    } else {
-      navigate('/dashboard?tab=book-appointment');
-    }
+    const params = new URLSearchParams({ tab: 'book-appointment' });
+    if (doctorId) params.set('doctorId', doctorId);
+    if (departmentId) params.set('departmentId', departmentId);
+    // Booking page reads `rescheduleFrom` to link the new booking to the old one.
+    if (appointmentId) params.set('rescheduleFrom', appointmentId);
+    navigate(`/dashboard?${params.toString()}`);
   };
 
   return (

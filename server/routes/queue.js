@@ -912,14 +912,26 @@ router.patch('/session/:doctorId/pause', auth, authorize('doctor', 'admin'), asy
     }
 
     const queueDate = localDateStr();
+    // Only an active session can be paused. The status filter makes this
+    // idempotent: re-pausing an already-paused (or ended) session won't match.
     const session = await DoctorQueueSession.findOneAndUpdate(
-      { doctor: doctorId, queueDate },
+      { doctor: doctorId, queueDate, status: 'active' },
       { status: 'paused', pausedAt: new Date(), delayMessage: req.body.message || 'Queue temporarily paused by doctor.' },
       { new: true }
     );
 
     if (!session) {
-      return res.status(404).json({ success: false, message: 'No active queue session found' });
+      const existing = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate }).lean();
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'No active queue session found' });
+      }
+      if (existing.status === 'paused') {
+        return res.status(409).json({ success: false, message: 'Queue is already paused.' });
+      }
+      if (existing.status === 'ended') {
+        return res.status(409).json({ success: false, message: 'Queue session has already ended.' });
+      }
+      return res.status(409).json({ success: false, message: `Cannot pause a ${existing.status} session.` });
     }
 
     await QueueEventLog.create({
@@ -951,14 +963,26 @@ router.patch('/session/:doctorId/resume', auth, authorize('doctor', 'admin'), as
     }
 
     const queueDate = localDateStr();
+    // Only a paused session can be resumed. The status filter keeps this
+    // idempotent: resuming an already-active (or ended) session won't match.
     const session = await DoctorQueueSession.findOneAndUpdate(
-      { doctor: doctorId, queueDate },
+      { doctor: doctorId, queueDate, status: 'paused' },
       { status: 'active', resumedAt: new Date(), delayMessage: null },
       { new: true }
     );
 
     if (!session) {
-      return res.status(404).json({ success: false, message: 'No queue session found' });
+      const existing = await DoctorQueueSession.findOne({ doctor: doctorId, queueDate }).lean();
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'No queue session found' });
+      }
+      if (existing.status === 'active') {
+        return res.status(409).json({ success: false, message: 'Queue is already running.' });
+      }
+      if (existing.status === 'ended') {
+        return res.status(409).json({ success: false, message: 'Queue session has already ended.' });
+      }
+      return res.status(409).json({ success: false, message: `Cannot resume a ${existing.status} session.` });
     }
 
     await QueueEventLog.create({

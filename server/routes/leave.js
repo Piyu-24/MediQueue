@@ -95,7 +95,7 @@ router.delete('/leave/:slotId', auth, authorize('doctor'), async (req, res) => {
       userAgent: req.get('User-Agent') || 'Unknown'
     };
 
-    const result = await LeaveNotificationService.cancelLeave(req.user.id, req.params.slotId, requestInfo);
+    const result = await LeaveNotificationService.cancelLeave(req.user.id, req.params.slotId, requestInfo, req.app.get('io'));
 
     return res.status(200).json({
       success: true,

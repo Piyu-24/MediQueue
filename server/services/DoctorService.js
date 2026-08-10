@@ -168,7 +168,7 @@ class DoctorService {
           digitalHealthCardId: 1,
           dateOfBirth: 1,
           gender: 1,
-          phone: 1,
+          phone: 2,
           bloodType: 1,
           allergies: 1,
           chronicConditions: 1,

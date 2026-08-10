@@ -219,81 +219,48 @@ const AppointmentDetails = () => {
               )}
             </div>
 
-            {/* Doctor/Patient Information */}
-            <div className="bg-white rounded-lg shadow p-4 sm:p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">
-                {user.role === 'patient' ? 'Doctor Information' : 'Patient Information'}
-              </h2>
-              
-              {user.role === 'patient' && appointment.doctor ? (
-                <div className="bg-gray-50 rounded-xl p-4 sm:p-6 border-2 border-gray-200 shadow-sm">
-                  <div className="flex items-start space-x-4">
-                    <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <UserIcon className="w-8 h-8 text-blue-600" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        Dr. {appointment.doctor.firstName} {appointment.doctor.lastName}
-                      </h3>
-                      <p className="text-blue-600 font-medium mb-4">{appointment.doctor.specialization}</p>
-                      
-                      <div className="space-y-3 mt-4">
-                        {appointment.doctor.email && (
-                          <div className="bg-white rounded-xl p-4 border-2 border-gray-300 shadow-sm">
-                            <div className="flex items-center space-x-3">
-                              <EnvelopeIcon className="w-5 h-5 text-blue-500 flex-shrink-0" />
-                              <span className="text-sm text-gray-900 font-semibold break-all min-w-0">{appointment.doctor.email}</span>
+            {/* Patient Information — visible to non-patient roles only */}
+            {user.role !== 'patient' && (
+              <div className="bg-white rounded-lg shadow p-4 sm:p-6">
+                <h2 className="text-xl font-bold text-gray-900 mb-6">Patient Information</h2>
+
+                {appointment.patient ? (
+                  <div className="bg-gray-50 rounded-xl p-4 sm:p-6 border-2 border-gray-200 shadow-sm">
+                    <div className="flex items-start space-x-4">
+                      <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <UserIcon className="w-8 h-8 text-green-600" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                          {appointment.patient.firstName} {appointment.patient.lastName}
+                        </h3>
+
+                        <div className="space-y-3 mt-4">
+                          {appointment.patient.email && (
+                            <div className="bg-white rounded-xl p-4 border-2 border-gray-300 shadow-sm">
+                              <div className="flex items-center space-x-3">
+                                <EnvelopeIcon className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                                <span className="text-sm text-gray-900 font-semibold break-all min-w-0">{appointment.patient.email}</span>
+                              </div>
                             </div>
-                          </div>
-                        )}
-                        {appointment.doctor.phone && (
-                          <div className="bg-white rounded-xl p-4 border-2 border-gray-300 shadow-sm">
-                            <div className="flex items-center space-x-3">
-                              <PhoneIcon className="w-5 h-5 text-green-500" />
-                              <span className="text-sm text-gray-900 font-semibold">{appointment.doctor.phone}</span>
+                          )}
+                          {appointment.patient.phone && (
+                            <div className="bg-white rounded-xl p-4 border-2 border-gray-300 shadow-sm">
+                              <div className="flex items-center space-x-3">
+                                <PhoneIcon className="w-5 h-5 text-green-500" />
+                                <span className="text-sm text-gray-900 font-semibold">{appointment.patient.phone}</span>
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ) : appointment.patient ? (
-                <div className="bg-gray-50 rounded-xl p-4 sm:p-6 border-2 border-gray-200 shadow-sm">
-                  <div className="flex items-start space-x-4">
-                    <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <UserIcon className="w-8 h-8 text-green-600" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                        {appointment.patient.firstName} {appointment.patient.lastName}
-                      </h3>
-                      
-                      <div className="space-y-3 mt-4">
-                        {appointment.patient.email && (
-                          <div className="bg-white rounded-xl p-4 border-2 border-gray-300 shadow-sm">
-                            <div className="flex items-center space-x-3">
-                              <EnvelopeIcon className="w-5 h-5 text-blue-500 flex-shrink-0" />
-                              <span className="text-sm text-gray-900 font-semibold break-all min-w-0">{appointment.patient.email}</span>
-                            </div>
-                          </div>
-                        )}
-                        {appointment.patient.phone && (
-                          <div className="bg-white rounded-xl p-4 border-2 border-gray-300 shadow-sm">
-                            <div className="flex items-center space-x-3">
-                              <PhoneIcon className="w-5 h-5 text-green-500" />
-                              <span className="text-sm text-gray-900 font-semibold">{appointment.patient.phone}</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-gray-500">Information not available</p>
-              )}
-            </div>
+                ) : (
+                  <p className="text-gray-500">Information not available</p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Sidebar */}

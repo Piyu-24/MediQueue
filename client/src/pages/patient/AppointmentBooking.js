@@ -62,10 +62,12 @@ const TokenCard = ({ result, onDone }) => {
             <span className="text-sm font-medium uppercase tracking-widest opacity-80">Your Appointment Token</span>
           </div>
           <div className="text-6xl font-black tracking-wider mb-4">{token.number}</div>
-          {token.reportingTime && (
+          {token.timeBlock?.startTime && token.timeBlock?.endTime && (
             <div className="bg-white/20 rounded-xl p-3">
-              <p className="text-sm opacity-80 mb-1">Please arrive by</p>
-              <p className="text-2xl font-bold">{fmt12(token.reportingTime)}</p>
+              <p className="text-sm opacity-80 mb-1">Visit within your time block</p>
+              <p className="text-2xl font-bold">
+                {fmt12(token.timeBlock.startTime)} – {fmt12(token.timeBlock.endTime)}
+              </p>
             </div>
           )}
         </div>
@@ -94,7 +96,7 @@ const TokenCard = ({ result, onDone }) => {
 
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 text-sm text-blue-800 text-left flex gap-3">
         <InformationCircleIcon className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
-        <p>{token?.patientMessage || 'Please arrive on time and check in at reception. Your token will be activated after check-in.'}</p>
+        <p>{token?.patientMessage || 'Please visit within your assigned time block and check in at reception. Your token will be activated after check-in.'}</p>
       </div>
 
       <button
@@ -286,6 +288,18 @@ const AppointmentBooking = () => {
       } catch { toast.error('Failed to load departments'); }
     })();
   }, []);
+
+  // Reschedule pre-fill: once departments are loaded, preselect the one from the
+  // cancelled appointment and jump straight to picking a new date/session.
+  useEffect(() => {
+    const deptId = new URLSearchParams(location.search).get('departmentId');
+    if (!deptId || selectedDepartment || departments.length === 0) return;
+    const match = departments.find(d => d._id === deptId);
+    if (match) {
+      setSelectedDepartment(match);
+      setStep(2);
+    }
+  }, [departments, location.search, selectedDepartment]);
 
   // Fetch dates already booked for selected department
   useEffect(() => {

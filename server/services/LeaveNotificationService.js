@@ -3,6 +3,41 @@ const DoctorSlot = require('../models/DoctorSlot');
 const Appointment = require('../models/Appointment');
 const Notification = require('../models/Notification');
 const AuditLog = require('../models/AuditLog');
+const Room = require('../models/Room');
+const User = require('../models/User');
+
+// Notify every admin that OPD rooms staffed by this doctor need attention
+// (either a replacement doctor, or a review once the doctor is back).
+const notifyAdminsAboutRooms = async (doctorId, doctorUser, io, { returning = false, dateLabel = '' } = {}) => {
+  const rooms = await Room.find({ assignedDoctors: doctorId, isAutoManaged: false })
+    .select('roomNumber displayName');
+  if (rooms.length === 0) return;
+
+  const admins = await User.find({ role: 'admin', isActive: true }).select('_id');
+  if (admins.length === 0) return;
+
+  const doctorName = `Dr. ${doctorUser.firstName || ''} ${doctorUser.lastName || ''}`.trim();
+  const roomList = rooms.map((r) => r.roomNumber).join(', ');
+  const title = returning ? 'Doctor available again – review rooms' : 'Room needs a replacement doctor';
+  const message = returning
+    ? `${doctorName} is available again${dateLabel ? ` (${dateLabel})` : ''}. Review the doctor assignments for room(s) ${roomList}.`
+    : `${doctorName} is on leave${dateLabel ? ` (${dateLabel})` : ''}. Room(s) ${roomList} need a replacement doctor before patients can be assigned.`;
+
+  for (const admin of admins) {
+    try {
+      await Notification.create({
+        recipient: admin._id,
+        type: 'system',
+        title,
+        message,
+        metadata: { doctorId, rooms: rooms.map((r) => r._id), returning }
+      });
+      if (io) io.to(admin._id.toString()).emit('notification', { type: 'system', title, message });
+    } catch (err) {
+      console.error('Admin room notification failed (non-fatal):', err.message);
+    }
+  }
+};
 
 const DEFAULT_STATUSES = ['scheduled', 'confirmed'];
 
@@ -236,6 +271,16 @@ class LeaveNotificationService {
         }
       }
 
+      // Alert admins that this doctor's OPD rooms need a replacement doctor.
+      try {
+        const dateLabel = leaveData.endDate && leaveData.endDate !== leaveData.startDate
+          ? `${leaveData.startDate} – ${leaveData.endDate}`
+          : leaveData.startDate;
+        await notifyAdminsAboutRooms(doctorId, doctorUser, io, { returning: false, dateLabel });
+      } catch (notifyErr) {
+        console.error('Admin room alert failed (non-fatal):', notifyErr.message);
+      }
+
       return {
         leaveId,
         affectedCount: appointments.length,
@@ -257,7 +302,7 @@ class LeaveNotificationService {
     }
   }
 
-  async cancelLeave(doctorId, slotId, requestInfo) {
+  async cancelLeave(doctorId, slotId, requestInfo, io = null) {
     const slot = await DoctorSlot.findOne({ _id: slotId, doctor: doctorId, status: 'BLOCKED' });
     if (!slot) {
       throw new Error('Leave slot not found');
@@ -266,6 +311,17 @@ class LeaveNotificationService {
     const leaveId = slot.blockingInfo?.leaveId;
 
     await DoctorSlot.deleteOne({ _id: slotId });
+
+    // Alert admins that this doctor is available again so room assignments can
+    // be reviewed. Runs even if there were no doctor-unavailable appointments.
+    try {
+      const doctorUser = await User.findById(doctorId).select('firstName lastName');
+      if (doctorUser) {
+        await notifyAdminsAboutRooms(doctorId, doctorUser, io, { returning: true });
+      }
+    } catch (notifyErr) {
+      console.error('Admin room return-alert failed (non-fatal):', notifyErr.message);
+    }
 
     if (!leaveId) {
       return { restored: 0 };

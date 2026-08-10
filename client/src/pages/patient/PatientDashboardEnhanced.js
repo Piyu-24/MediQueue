@@ -319,8 +319,10 @@ const PatientDashboardEnhanced = () => {
 
   const handleReschedule = (appointment) => {
     const doctorId = appointment.doctor?._id;
+    const departmentId = appointment.departmentId?._id || appointment.departmentId;
     const params = new URLSearchParams({ tab: 'book-appointment' });
     if (doctorId) params.set('doctorId', doctorId);
+    if (departmentId) params.set('departmentId', departmentId);
     if (appointment._id) params.set('rescheduleFrom', appointment._id);
     if (appointment.chiefComplaint) params.set('chiefComplaint', encodeURIComponent(appointment.chiefComplaint));
     if (appointment.appointmentType) params.set('appointmentType', appointment.appointmentType);
@@ -394,8 +396,14 @@ const PatientDashboardEnhanced = () => {
               <div>
                 <p className="text-sm font-semibold text-amber-900">Action Required</p>
                 <p className="text-sm text-amber-800">
-                  Dr. {unavailableAppointments[0]?.doctor?.firstName} {unavailableAppointments[0]?.doctor?.lastName}'s appointment on{' '}
-                  {formatDate(unavailableAppointments[0]?.appointmentDate)}{unavailableAppointments[0]?.appointmentTime ? ` at ${unavailableAppointments[0].appointmentTime}` : ''} needs rescheduling.
+                  {unavailableAppointments[0]?.doctor?.firstName
+                    ? `Dr. ${unavailableAppointments[0].doctor.firstName} ${unavailableAppointments[0].doctor.lastName}'s appointment`
+                    : `Your ${unavailableAppointments[0]?.department || ''} appointment`.replace(/\s+/g, ' ').trim()}
+                  {' '}on {formatDate(unavailableAppointments[0]?.appointmentDate)}
+                  {unavailableAppointments[0]?.timeBlockId?.startTime
+                    ? ` (${unavailableAppointments[0].timeBlockId.sessionName || unavailableAppointments[0].timeBlockId.startTime})`
+                    : (unavailableAppointments[0]?.appointmentTime ? ` at ${unavailableAppointments[0].appointmentTime}` : '')}
+                  {' '}needs rescheduling.
                 </p>
               </div>
             </div>
