@@ -1362,7 +1362,9 @@ const ReceptionistDashboard = () => {
                                     onChange={e => {
                                       const r = availableRooms.find(x => x._id === e.target.value);
                                       const apptDocs = (validatedData.todaysAppointments || []).filter(a => a.doctor?._id);
-                                      const roomDocs = r?.assignedDoctors || [];
+                                      // Exclude doctors who are on leave today.
+                                      const roomDocs = (r?.assignedDoctors || [])
+                                        .filter(d => !(r?.unavailableDoctorIds || []).includes(d._id));
                                       // Room-first: auto-pick the doctor when the room has exactly one and
                                       // there's no appointment doctor to honour; otherwise reset for a fresh pick.
                                       setCheckInForm(p => ({
@@ -1377,7 +1379,9 @@ const ReceptionistDashboard = () => {
                                   >
                                     <option value="">Select room</option>
                                     {availableRooms.map(r => (
-                                      <option key={r._id} value={r._id}>{r.roomNumber} — {r.displayName}</option>
+                                      <option key={r._id} value={r._id} disabled={r.needsReassignment}>
+                                        {r.roomNumber} — {r.displayName}{r.needsReassignment ? ' (doctor on leave — awaiting reassignment)' : ''}
+                                      </option>
                                     ))}
                                   </select>
                                   <button onClick={refreshRooms} title="Refresh room availability"
@@ -1430,13 +1434,19 @@ const ReceptionistDashboard = () => {
                                   <p className="text-sm text-gray-400 italic py-2">Select a room first to see its doctors</p>
                                 ) : (() => {
                                     const selRoom  = availableRooms.find(r => r._id === checkInForm.roomId);
-                                    const roomDocs = selRoom?.assignedDoctors || [];
+                                    const allRoomDocs = selRoom?.assignedDoctors || [];
+                                    const unavailIds  = selRoom?.unavailableDoctorIds || [];
+                                    // Doctors who are actually available to see patients today.
+                                    const roomDocs = allRoomDocs.filter(d => !unavailIds.includes(d._id));
                                     if (roomDocs.length === 0) {
+                                      const onLeave = allRoomDocs.length > 0; // assigned, but all on leave today
                                       return (
                                         <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
                                           <ExclamationTriangleIcon className="w-4 h-4 text-red-500 flex-shrink-0" />
                                           <p className="text-xs text-red-700 font-medium">
-                                            No doctors assigned to {selRoom?.roomNumber || 'this room'}. Ask an admin to assign one.
+                                            {onLeave
+                                              ? `The doctor assigned to ${selRoom?.roomNumber || 'this room'} is on leave today. Ask an admin to assign a replacement.`
+                                              : `No doctors assigned to ${selRoom?.roomNumber || 'this room'}. Ask an admin to assign one.`}
                                           </p>
                                         </div>
                                       );

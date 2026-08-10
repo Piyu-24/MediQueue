@@ -6,8 +6,14 @@ const authorize  = require('../middleware/authorize');
 const { getAppointmentEligibility, checkInAppointment, checkInWalkIn } = require('../services/CheckInService');
 const QueueEngine = require('../services/QueueEngine');
 const { localDateStr } = require('../services/TokenGenerator');
+const { isDoctorUnavailable } = require('../services/DoctorAvailabilityService');
 const Appointment = require('../models/Appointment');
 const DoctorQueueSession = require('../models/DoctorQueueSession');
+
+// The doctor is on leave today — patients must not be assigned to them until an
+// admin reassigns the room. Shared 409 message across the check-in routes.
+const DOCTOR_ON_LEAVE_MESSAGE =
+  'The selected doctor is on leave today. Please choose an available doctor or room, or ask an admin to reassign this room.';
 
 const router = express.Router();
 
@@ -121,6 +127,10 @@ router.post(
         });
       }
 
+      if (await isDoctorUnavailable(doctorId, queueDate)) {
+        return res.status(409).json({ success: false, message: DOCTOR_ON_LEAVE_MESSAGE, data: { doctorOnLeave: true } });
+      }
+
       const result = await checkInAppointment({
         appointmentId,
         patientId,
@@ -217,6 +227,10 @@ router.post(
         });
       }
 
+      if (await isDoctorUnavailable(doctorId, queueDate)) {
+        return res.status(409).json({ success: false, message: DOCTOR_ON_LEAVE_MESSAGE, data: { doctorOnLeave: true } });
+      }
+
       const result = await checkInAppointment({
         appointmentId:   appointment._id.toString(),
         patientId:       appointment.patient._id.toString(),
@@ -288,6 +302,9 @@ router.post(
             success: false,
             message: 'Walk-in registration is closed. The clinic session for this doctor has ended for today.'
           });
+        }
+        if (await isDoctorUnavailable(doctorId, queueDate)) {
+          return res.status(409).json({ success: false, message: DOCTOR_ON_LEAVE_MESSAGE, data: { doctorOnLeave: true } });
         }
       }
 

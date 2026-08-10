@@ -457,7 +457,7 @@ router.post('/', auth, authorize('patient', 'receptionist', 'staff', 'admin'), [
               sessionName: block.sessionName,
               date:        block.date
             },
-            patientMessage: `Your appointment token is ${appointment.appointmentToken}. You are booked for the ${block.sessionName || block.startTime + ' – ' + block.endTime} session on ${block.date}. Please arrive by ${appointment.reportingTime}. Your token will be activated after check-in at reception.`
+            patientMessage: `Your appointment token is ${appointment.appointmentToken}. You are booked for the ${block.sessionName || ''} session on ${block.date}. Please visit within your time block from ${block.startTime} to ${block.endTime}. Check in at reception — your token will be activated after check-in.`
           }
         }
       });

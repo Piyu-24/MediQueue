@@ -22,6 +22,7 @@ import {
   EyeIcon,
   EyeSlashIcon,
   ClipboardDocumentIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
 import { userAPI, adminAPI, queueAPI, departmentAPI, timeBlockAPI, roomAPI } from '../../services/api';
@@ -73,7 +74,6 @@ const AdminDashboard = () => {
     totalUsers: 0, patients: 0, doctors: 0, staff: 0,
     appointmentsToday: 0, pendingAppointments: 0, completedAppointments: 0, pendingReschedule: 0
   });
-  const [recentAppointments, setRecentAppointments] = useState([]);
   const [queueStats, setQueueStats]     = useState(null);
 
   // User management
@@ -82,7 +82,6 @@ const AdminDashboard = () => {
   const [selectedRole, setSelectedRole] = useState('all');
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [togglingUser, setTogglingUser] = useState(null);
-  const [verifyingUser, setVerifyingUser] = useState(null);
 
   // Create staff user modal
   const SPECIALIZATIONS = [
@@ -131,7 +130,6 @@ const AdminDashboard = () => {
             pendingAppointments:   d.pendingAppointments   || 0,
             completedAppointments: d.completedAppointments || 0,
           }));
-          setRecentAppointments(d.recentAppointments?.slice(0, 5) || []);
         }
       } catch {
         // fallback handled below with user list counts
@@ -147,7 +145,7 @@ const AdminDashboard = () => {
           totalUsers: all.length,
           patients:   all.filter(u => u.role === 'patient').length,
           doctors:    all.filter(u => u.role === 'doctor').length,
-          staff:      all.filter(u => ['staff', 'receptionist'].includes(u.role)).length,
+          staff:      all.filter(u => ['staff', 'receptionist', 'pharmacist'].includes(u.role)).length,
         }));
       }
 
@@ -220,27 +218,6 @@ const AdminDashboard = () => {
       toast.error(error.response?.data?.message || 'Failed to update user status');
     } finally {
       setTogglingUser(null);
-    }
-  };
-
-  const handleVerifyCredentials = async (userId, status) => {
-    if (status === 'rejected' &&
-        !window.confirm('Reject this account’s credentials? They will lose access to clinical features until re-verified.')) {
-      return;
-    }
-    try {
-      setVerifyingUser(userId);
-      const res = await adminAPI.verifyStaffCredentials(userId, status);
-      if (res.data.success) {
-        toast.success(res.data.message);
-        setUsers(prev =>
-          prev.map(u => u._id === userId ? { ...u, credentialVerificationStatus: status } : u)
-        );
-      }
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to update credentials');
-    } finally {
-      setVerifyingUser(null);
     }
   };
 
@@ -432,7 +409,7 @@ const AdminDashboard = () => {
                   { label: 'Total Users',        value: stats.totalUsers,          icon: UsersIcon,            color: 'text-blue-500' },
                   { label: 'Patients',           value: stats.patients,            icon: UsersIcon,            color: 'text-green-500' },
                   { label: 'Doctors',            value: stats.doctors,             icon: ShieldCheckIcon,      color: 'text-teal-500' },
-                  { label: 'Staff & Reception',  value: stats.staff,               icon: Cog6ToothIcon,        color: 'text-yellow-500' },
+                  { label: 'Support Staff',      value: stats.staff,               icon: Cog6ToothIcon,        color: 'text-yellow-500' },
                 ].map(s => {
                   const Icon = s.icon;
                   return (
@@ -463,86 +440,48 @@ const AdminDashboard = () => {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Recent appointments */}
-                <div className="bg-white rounded-lg shadow">
-                  <div className="p-5 border-b border-gray-200">
-                    <h2 className="text-lg font-bold text-gray-900">Recent Appointments</h2>
+                {/* System health */}
+                <div className="bg-white rounded-lg shadow p-5">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4">System Health</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Active Users</span>
+                      <span className="font-semibold text-green-600">{users.filter(u => u.isActive).length}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Verified Emails</span>
+                      <span className="font-semibold">{users.filter(u => u.isEmailVerified).length}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Inactive Accounts</span>
+                      <span className="font-semibold text-red-500">{users.filter(u => !u.isActive).length}</span>
+                    </div>
                   </div>
-                  <div className="p-5">
-                    {recentAppointments.length > 0 ? (
-                      <div className="space-y-4">
-                        {recentAppointments.map(appt => (
-                          <div key={appt._id} className="flex justify-between items-start border-b border-gray-100 pb-3 last:border-0">
-                            <div>
-                              <p className="font-medium text-gray-900 text-sm">
-                                {appt.patient?.firstName} {appt.patient?.lastName}
-                              </p>
-                              <p className="text-xs text-gray-500">
-                                Dr. {appt.doctor?.firstName} {appt.doctor?.lastName}
-                              </p>
-                              <p className="text-xs text-gray-400">
-                                {formatDate(appt.appointmentDate)} · {appt.appointmentTime}
-                              </p>
-                            </div>
-                            <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
-                              appt.status === 'completed' ? 'bg-green-100 text-green-800' :
-                              appt.status === 'confirmed' ? 'bg-blue-100 text-blue-800' :
-                              'bg-yellow-100 text-yellow-800'
-                            }`}>
-                              {appt.status}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-center text-gray-400 py-6">No recent appointments</p>
+                </div>
+
+                {/* Today's OPD queue */}
+                {queueStats && (
+                  <div className="bg-white rounded-lg shadow p-5">
+                    <h3 className="text-lg font-bold text-gray-900 mb-4">Today's OPD Queue</h3>
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { label: 'Waiting',        value: queueStats.waiting,        color: 'text-yellow-600' },
+                        { label: 'In Consult',     value: queueStats.inConsultation, color: 'text-purple-600' },
+                        { label: 'Completed',      value: queueStats.completed,      color: 'text-green-600' },
+                      ].map(s => (
+                        <div key={s.label} className="text-center">
+                          <p className={`text-2xl font-black ${s.color}`}>{s.value}</p>
+                          <p className="text-xs text-gray-500">{s.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {queueStats.avgWaitMinutes > 0 && (
+                      <p className="text-xs text-gray-500 mt-3 text-center">
+                        Avg wait: <strong>{queueStats.avgWaitMinutes} min</strong>
+                      </p>
                     )}
                   </div>
-                </div>
-
-                {/* System health + queue */}
-                <div className="space-y-6">
-                  <div className="bg-white rounded-lg shadow p-5">
-                    <h3 className="text-lg font-bold text-gray-900 mb-4">System Health</h3>
-                    <div className="space-y-3">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Active Users</span>
-                        <span className="font-semibold text-green-600">{users.filter(u => u.isActive).length}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Verified Emails</span>
-                        <span className="font-semibold">{users.filter(u => u.isEmailVerified).length}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Inactive Accounts</span>
-                        <span className="font-semibold text-red-500">{users.filter(u => !u.isActive).length}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {queueStats && (
-                    <div className="bg-white rounded-lg shadow p-5">
-                      <h3 className="text-lg font-bold text-gray-900 mb-4">Today's OPD Queue</h3>
-                      <div className="grid grid-cols-3 gap-3">
-                        {[
-                          { label: 'Waiting',        value: queueStats.waiting,        color: 'text-yellow-600' },
-                          { label: 'In Consult',     value: queueStats.inConsultation, color: 'text-purple-600' },
-                          { label: 'Completed',      value: queueStats.completed,      color: 'text-green-600' },
-                        ].map(s => (
-                          <div key={s.label} className="text-center">
-                            <p className={`text-2xl font-black ${s.color}`}>{s.value}</p>
-                            <p className="text-xs text-gray-500">{s.label}</p>
-                          </div>
-                        ))}
-                      </div>
-                      {queueStats.avgWaitMinutes > 0 && (
-                        <p className="text-xs text-gray-500 mt-3 text-center">
-                          Avg wait: <strong>{queueStats.avgWaitMinutes} min</strong>
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
             </>
           )}
@@ -649,24 +588,6 @@ const AdminDashboard = () => {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                               <div className="flex items-center gap-3">
-                                {CLINICAL_ROLES.includes(u.role) && u.credentialVerificationStatus !== 'verified' && (
-                                  <button
-                                    onClick={() => handleVerifyCredentials(u._id, 'verified')}
-                                    disabled={verifyingUser === u._id}
-                                    className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
-                                  >
-                                    {verifyingUser === u._id ? 'Saving…' : 'Verify'}
-                                  </button>
-                                )}
-                                {CLINICAL_ROLES.includes(u.role) && u.credentialVerificationStatus === 'verified' && (
-                                  <button
-                                    onClick={() => handleVerifyCredentials(u._id, 'rejected')}
-                                    disabled={verifyingUser === u._id}
-                                    className="text-amber-600 hover:text-amber-900 disabled:opacity-50"
-                                  >
-                                    {verifyingUser === u._id ? 'Saving…' : 'Revoke'}
-                                  </button>
-                                )}
                                 <button
                                   onClick={() => handleToggleUserStatus(u._id, u.isActive)}
                                   disabled={togglingUser === u._id}
@@ -676,7 +597,7 @@ const AdminDashboard = () => {
                                       : 'text-green-600 hover:text-green-900'
                                   } disabled:opacity-50`}
                                 >
-                                  {togglingUser === u._id ? 'Updating…' : u.isActive ? 'Deactivate' : 'Activate'}
+                                  {togglingUser === u._id ? 'Updating…' : u.isActive ? 'Disable' : 'Enable'}
                                 </button>
                               </div>
                             </td>
@@ -1156,6 +1077,18 @@ const CapacityTab = () => {
     return allDoctors.filter(d => (d.department || '').toLowerCase() === deptName);
   }, [allDoctors]);
 
+  // Map each already-assigned doctor to the room they belong to, so a doctor can
+  // only be assigned to one room at a time.
+  const doctorRoomMap = React.useMemo(() => {
+    const map = {};
+    for (const r of rooms) {
+      for (const d of (r.assignedDoctors || [])) {
+        map[d._id || d] = r;
+      }
+    }
+    return map;
+  }, [rooms]);
+
   const openAssignEditor = (room) => {
     setAssignRoomId(room._id);
     setAssignDraft((room.assignedDoctors || []).map(d => d._id || d));
@@ -1361,6 +1294,21 @@ const CapacityTab = () => {
       loadBlocks();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Delete failed');
+    }
+  };
+
+  const cancelBlock = async (block) => {
+    const booked = block.bookedAppointmentCount || 0;
+    const msg = booked > 0
+      ? `Cancel this session? ${booked} patient(s) with an appointment will be notified to reschedule.`
+      : 'Cancel this session? It will no longer accept bookings.';
+    if (!window.confirm(msg)) return;
+    try {
+      const res = await timeBlockAPI.updateBlock(block._id, { status: 'cancelled' });
+      toast.success(res.data?.message || 'Session cancelled');
+      loadBlocks();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Cancellation failed');
     }
   };
 
@@ -1616,6 +1564,15 @@ const CapacityTab = () => {
                         )}
                       </div>
                     </div>
+                    {/* Doctor-on-leave alert: room can't take patients until reassigned */}
+                    {room.needsReassignment && (
+                      <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2">
+                        <ExclamationTriangleIcon className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <p className="text-[11px] font-semibold text-amber-800 leading-snug">
+                          Assigned doctor on leave today — assign an available doctor so patients can be checked in.
+                        </p>
+                      </div>
+                    )}
                     {/* Assigned doctors (OPD/admin rooms only) */}
                     {!isAuto && (
                       <div className="border-t border-gray-200 pt-2.5">
@@ -1626,16 +1583,30 @@ const CapacityTab = () => {
                               <p className="text-xs text-gray-400 italic">No doctors in {room.department?.name || 'this department'}.</p>
                             ) : (
                               <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
-                                {doctorsForRoom(room).map(d => (
-                                  <label key={d._id} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
-                                    <input type="checkbox"
-                                      checked={assignDraft.includes(d._id)}
-                                      onChange={() => toggleDraftDoctor(d._id)}
-                                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                                    Dr. {d.firstName} {d.lastName}
-                                    <span className="text-gray-400">· {d.specialization || 'General'}</span>
-                                  </label>
-                                ))}
+                                {doctorsForRoom(room).map(d => {
+                                  const otherRoom = doctorRoomMap[d._id];
+                                  const assignedElsewhere = otherRoom && otherRoom._id !== room._id;
+                                  return (
+                                    <label key={d._id}
+                                      className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs ${
+                                        assignedElsewhere ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700 cursor-pointer'
+                                      }`}>
+                                      <input type="checkbox"
+                                        checked={assignDraft.includes(d._id)}
+                                        onChange={() => toggleDraftDoctor(d._id)}
+                                        disabled={assignedElsewhere}
+                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50" />
+                                      Dr. {d.firstName} {d.lastName}
+                                      {assignedElsewhere ? (
+                                        <span className="text-[10px] font-semibold text-amber-600">
+                                          Already assigned to room {otherRoom.roomNumber}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">· {d.specialization || 'General'}</span>
+                                      )}
+                                    </label>
+                                  );
+                                })}
                               </div>
                             )}
                             <div className="flex gap-2 pt-1">
@@ -1662,11 +1633,17 @@ const CapacityTab = () => {
                               <p className="text-xs text-gray-400 italic">None assigned</p>
                             ) : (
                               <div className="flex flex-wrap gap-1">
-                                {room.assignedDoctors.map(d => (
-                                  <span key={d._id} className="text-[11px] font-medium bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                                    Dr. {d.firstName} {d.lastName}
-                                  </span>
-                                ))}
+                                {room.assignedDoctors.map(d => {
+                                  const onLeave = (room.unavailableDoctorIds || []).includes(d._id);
+                                  return (
+                                    <span key={d._id}
+                                      className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                                        onLeave ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
+                                      }`}>
+                                      Dr. {d.firstName} {d.lastName}{onLeave ? ' · on leave' : ''}
+                                    </span>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
@@ -1887,6 +1864,13 @@ const CapacityTab = () => {
                               b.status === 'closed'    ? 'bg-gray-100 text-gray-600' :
                               'bg-red-50 text-red-500'
                             }`}>{b.status}</span>
+                            {b.status !== 'cancelled' && (
+                              <button onClick={() => cancelBlock(b)}
+                                className="px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 border border-amber-300 hover:bg-amber-50 rounded"
+                                title="Cancel this session and notify booked patients to reschedule">
+                                Cancel
+                              </button>
+                            )}
                             <button onClick={() => deleteBlock(b._id)}
                               disabled={b.bookedAppointmentCount > 0}
                               className="p-1 text-red-400 hover:bg-red-50 rounded disabled:opacity-30 disabled:cursor-not-allowed" title="Delete">

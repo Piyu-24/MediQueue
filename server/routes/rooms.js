@@ -3,6 +3,7 @@ const { body, param, validationResult } = require('express-validator');
 const Room       = require('../models/Room');
 const Department = require('../models/Department');
 const User       = require('../models/User');
+const { getUnavailableDoctorIds } = require('../services/DoctorAvailabilityService');
 const auth       = require('../middleware/auth');
 const authorize  = require('../middleware/authorize');
 
@@ -31,12 +32,29 @@ router.get('/', auth, async (req, res) => {
       .sort({ roomNumber: 1 })
       .lean();
 
-    const enriched = rooms.map(r => ({
-      ...r,
-      effectiveStatus: r.isAutoManaged
-        ? (r.department?.status === 'active' ? 'available' : 'unavailable')
-        : r.status
-    }));
+    // Which assigned doctors are on leave today? Used to flag OPD rooms that
+    // have lost their doctor and can't accept patients until reassigned.
+    const unavailableToday = await getUnavailableDoctorIds(new Date());
+
+    const enriched = rooms.map(r => {
+      const assignedIds = (r.assignedDoctors || []).map(d => String(d._id || d));
+      const unavailableDoctorIds = assignedIds.filter(id => unavailableToday.has(id));
+      const availableDoctorCount = assignedIds.length - unavailableDoctorIds.length;
+      // An OPD (admin-managed) room needs reassignment when it has doctors
+      // assigned but all of them are on leave today.
+      const needsReassignment =
+        !r.isAutoManaged && assignedIds.length > 0 && availableDoctorCount === 0;
+
+      return {
+        ...r,
+        effectiveStatus: r.isAutoManaged
+          ? (r.department?.status === 'active' ? 'available' : 'unavailable')
+          : r.status,
+        unavailableDoctorIds,
+        availableDoctorCount,
+        needsReassignment
+      };
+    });
 
     res.json({ success: true, data: enriched });
   } catch (err) {
@@ -146,9 +164,29 @@ router.patch('/:id',
               message: 'One or more assigned doctors are invalid or inactive.'
             });
           }
+
+          // Enforce one room per doctor: a doctor already assigned to another
+          // room must be removed from it before being assigned here.
+          const conflictingRoom = await Room.findOne({
+            _id: { $ne: req.params.id },
+            assignedDoctors: { $in: ids }
+          }).populate('assignedDoctors', 'firstName lastName');
+          if (conflictingRoom) {
+            const clashDoctor = conflictingRoom.assignedDoctors.find(d => ids.includes(String(d._id)));
+            const name = clashDoctor ? `Dr. ${clashDoctor.firstName} ${clashDoctor.lastName}` : 'A selected doctor';
+            return res.status(409).json({
+              success: false,
+              message: `${name} is already assigned to room ${conflictingRoom.roomNumber}. Remove them from that room first.`
+            });
+          }
         }
         updates.assignedDoctors = ids;
       }
+
+      // Snapshot the current doctors so we can notify anyone added OR removed.
+      const before = updates.assignedDoctors !== undefined
+        ? await Room.findById(req.params.id).select('assignedDoctors').lean()
+        : null;
 
       const room = await Room.findByIdAndUpdate(
         req.params.id,
@@ -159,6 +197,22 @@ router.patch('/:id',
         .populate('assignedDoctors', 'firstName lastName specialization');
 
       if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
+
+      // Live-update the assigned-room badge for every affected doctor.
+      if (before) {
+        const io = req.app.get('io');
+        if (io) {
+          const oldIds = (before.assignedDoctors || []).map(String);
+          const newIds = (room.assignedDoctors || []).map(d => String(d._id || d));
+          const affected = [...new Set([...oldIds, ...newIds])];
+          for (const doctorId of affected) {
+            io.to(doctorId).emit('room:assignment-changed', {
+              roomId: String(room._id),
+              roomNumber: room.roomNumber
+            });
+          }
+        }
+      }
 
       res.json({ success: true, data: room, message: 'Room updated' });
     } catch (err) {

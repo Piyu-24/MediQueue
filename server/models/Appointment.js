@@ -188,7 +188,7 @@ const appointmentSchema = new mongoose.Schema({
     reason: String,
     previousStatus: {
       type: String,
-      enum: ['scheduled', 'confirmed', 'in-progress', 'completed', 'cancelled', 'no-show', 'doctor-unavailable']
+      enum: ['booked', 'scheduled', 'confirmed', 'checked_in', 'in_queue', 'in-progress', 'completed', 'cancelled', 'no-show', 'doctor-unavailable']
     }
   },
   

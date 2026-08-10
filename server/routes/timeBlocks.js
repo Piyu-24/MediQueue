@@ -2,6 +2,7 @@ const express = require('express');
 const { body, query, param, validationResult } = require('express-validator');
 const TimeBlock = require('../models/TimeBlock');
 const { generateBlocksForRange, getAvailableBlocks, createBlock, updateBlock } = require('../services/TimeBlockService');
+const { cancelBlock } = require('../services/BlockCancellationService');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
 
@@ -234,6 +235,30 @@ router.patch(
       delete updates.bookedAppointmentCount;
       delete updates.walkInCount;
       delete updates.emergencyCount;
+
+      // Cancelling a session isn't just a status flip: every waiting patient in
+      // the block must be moved into the reschedule flow and notified.
+      if (updates.status === 'cancelled') {
+        const { block, affectedCount } = await cancelBlock({
+          blockId: req.params.id,
+          reason: updates.notes || req.body.reason,
+          actor: {
+            id: req.user.id,
+            role: req.user.role,
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent')
+          },
+          io: req.app.get('io')
+        });
+        return res.json({
+          success: true,
+          data: block,
+          affectedCount,
+          message: affectedCount > 0
+            ? `Session cancelled. ${affectedCount} patient(s) were notified to reschedule.`
+            : 'Session cancelled.'
+        });
+      }
 
       const block = await updateBlock(req.params.id, updates);
       res.json({ success: true, data: block, message: 'Time block updated successfully' });
