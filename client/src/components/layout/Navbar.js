@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { 
@@ -95,6 +95,40 @@ const Navbar = () => {
 
   const navigationLinks = getNavigationLinks();
 
+  const refreshNotifications = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await notificationAPI.getNotifications();
+      if (res.data.success) {
+        setNotifications(res.data.data.notifications || []);
+      }
+    } catch {
+      // Ignore panel load errors
+    }
+  }, [user]);
+
+  const addIncomingNotification = useCallback((payload) => {
+    if (!payload) return;
+
+    const notification = {
+      _id: payload._id || `${payload.type || 'notification'}-${Date.now()}-${Math.random()}`,
+      title: payload.title || 'New update',
+      message: payload.message || 'You have a new notification',
+      type: payload.type || 'system',
+      isRead: false,
+      metadata: payload.metadata || {},
+      appointment: payload.appointment || null,
+      createdAt: new Date().toISOString(),
+    };
+
+    setNotifications((prev) => {
+      const exists = prev.some((item) => item._id === notification._id);
+      if (exists) return prev;
+      return [notification, ...prev];
+    });
+    setUnreadCount((prev) => prev + 1);
+  }, []);
+
   useEffect(() => {
     if (!user) return;
     const loadUnread = async () => {
@@ -107,9 +141,9 @@ const Navbar = () => {
     };
 
     loadUnread();
-    // Join personal room and subscribe to notification events
+    // Join personal room and role-based rooms so admin/doctor/patient alerts arrive instantly.
     try {
-      socketService.joinRoom(user._id);
+      socketService.joinRoom(user._id || user.id, user.role);
     } catch (e) {
       // ignore socket join errors
     }
@@ -117,33 +151,29 @@ const Navbar = () => {
     const handleAppointmentUnavailable = (payload) => {
       // Show a small toast and increment badge
       toast.error('Your appointment was affected by doctor unavailability');
-      setUnreadCount((prev) => prev + 1);
-      // If panel is open, refresh notifications
+      addIncomingNotification({
+        type: 'doctor-unavailable',
+        title: 'Appointment update',
+        message: 'Your appointment was affected by doctor unavailability',
+        metadata: payload || {},
+        appointment: payload?.appointmentId ? { _id: payload.appointmentId } : null,
+      });
       if (notificationsOpen) {
-        (async () => {
-          try {
-            const res = await notificationAPI.getNotifications();
-            if (res.data.success) setNotifications(res.data.data.notifications || []);
-          } catch (err) {
-            // ignore
-          }
-        })();
+        refreshNotifications();
       }
     };
 
     // Generic in-app notifications (e.g. admin room-reassignment alerts)
     const handleNotification = (payload) => {
-      if (payload?.title) toast(payload.title);
-      setUnreadCount((prev) => prev + 1);
+      // Don't show a generic toast if it's the specialized room-reassignment alert,
+      // as the Admin Dashboard handles showing a custom interactive toast for it.
+      const isRoomReassignment = payload?.type === 'system' && payload?.metadata?.rooms;
+      if (payload?.title && !isRoomReassignment) {
+        toast(payload.title);
+      }
+      addIncomingNotification(payload);
       if (notificationsOpen) {
-        (async () => {
-          try {
-            const res = await notificationAPI.getNotifications();
-            if (res.data.success) setNotifications(res.data.data.notifications || []);
-          } catch (err) {
-            // ignore
-          }
-        })();
+        refreshNotifications();
       }
     };
 
@@ -154,17 +184,12 @@ const Navbar = () => {
       socketService.off('appointment:doctor-unavailable', handleAppointmentUnavailable);
       socketService.off('notification', handleNotification);
     };
-  }, [user, notificationsOpen]);
+  }, [user, notificationsOpen, refreshNotifications, addIncomingNotification]);
 
   const openNotifications = async () => {
     if (!user) return;
     setNotificationsOpen(true);
-    try {
-      const res = await notificationAPI.getNotifications();
-      if (res.data.success) setNotifications(res.data.data.notifications || []);
-    } catch {
-      // Ignore panel load errors
-    }
+    await refreshNotifications();
   };
 
   const markNotificationRead = async (notification) => {

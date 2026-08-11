@@ -47,6 +47,15 @@ const generateBlocksForRange = async ({
   const created = [];
   let skipped = 0;
 
+  for (const tpl of blockTemplates) {
+    if (tpl.startTime && tpl.endTime && tpl.endTime <= tpl.startTime) {
+      throw Object.assign(
+        new Error(`Invalid block template timing (${tpl.sessionName || tpl.startTime}): End time (${tpl.endTime}) must be after start time (${tpl.startTime})`),
+        { statusCode: 400 }
+      );
+    }
+  }
+
   const current = new Date(start);
   while (current <= end) {
     const date = current.toISOString().slice(0, 10);
@@ -182,6 +191,12 @@ const getAvailableBlocks = async (departmentId, date, doctorId = null, patientId
 
 // Create a single time block, working out the capacity splits
 const createBlock = async (data) => {
+  if (data.startTime && data.endTime && data.endTime <= data.startTime) {
+    throw Object.assign(
+      new Error(`End time (${data.endTime}) must be after start time (${data.startTime})`),
+      { statusCode: 400 }
+    );
+  }
   const policy = data.policy || await QueuePolicy.resolveFor(null, data.departmentId);
   const { appointmentCapacity, walkInCapacity, emergencyBuffer, operationalBuffer } =
     splitCapacity(data.totalCapacity, policy);
@@ -200,6 +215,15 @@ const createBlock = async (data) => {
 const updateBlock = async (blockId, updates) => {
   const block = await TimeBlock.findById(blockId);
   if (!block) throw Object.assign(new Error('Time block not found'), { statusCode: 404 });
+
+  const newStartTime = updates.startTime || block.startTime;
+  const newEndTime   = updates.endTime   || block.endTime;
+  if (newStartTime && newEndTime && newEndTime <= newStartTime) {
+    throw Object.assign(
+      new Error(`End time (${newEndTime}) must be after start time (${newStartTime})`),
+      { statusCode: 400 }
+    );
+  }
 
   if (updates.appointmentCapacity !== undefined &&
       updates.appointmentCapacity < block.bookedAppointmentCount) {

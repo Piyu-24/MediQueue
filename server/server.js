@@ -301,6 +301,14 @@ io.on('connection', (socket) => {
     console.log(`User ${userId} joined their room`);
   });
 
+  socket.on('join-role', (role) => {
+    if (!role) return;
+    const normalizedRole = String(role).toLowerCase();
+    socket.join(normalizedRole);
+    socket.join(`role:${normalizedRole}`);
+    console.log(`Socket ${socket.id} joined role room: ${normalizedRole}`);
+  });
+
   // Handle appointment notifications
   socket.on('appointment-update', (data) => {
     // Emit to specific user

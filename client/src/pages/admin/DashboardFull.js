@@ -26,6 +26,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
 import { userAPI, adminAPI, queueAPI, departmentAPI, timeBlockAPI, roomAPI } from '../../services/api';
+import socketService from '../../services/socket';
 import ReportsDashboard from '../../components/Reports/ReportsDashboard';
 import PeakHoursChartDashboard from '../../components/Analytics/PeakHoursChartDashboard';
 import PatientRecordViewer from '../../components/Admin/PatientRecordViewer';
@@ -201,6 +202,54 @@ const AdminDashboard = () => {
     }
     setFilteredUsers(filtered);
   }, [users, searchQuery, selectedRole]);
+
+  // Listen for critical real-time doctor leave notifications
+  useEffect(() => {
+    const handleNotification = (data) => {
+      // Look specifically for room reassignment alerts
+      if (data.type === 'system' && data.metadata?.rooms?.length > 0 && !data.metadata.returning) {
+        toast.custom((t) => (
+          <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-white shadow-xl rounded-xl border border-amber-100 pointer-events-auto flex overflow-hidden`}>
+            <div className="flex-1 w-0 p-4">
+              <div className="flex items-start">
+                <div className="flex-shrink-0 pt-0.5">
+                  <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+                    <ExclamationTriangleIcon className="h-6 w-6 text-amber-600" />
+                  </div>
+                </div>
+                <div className="ml-3 flex-1">
+                  <p className="text-sm font-bold text-gray-900">{data.title}</p>
+                  <p className="mt-1 text-sm text-gray-600 leading-snug">{data.message}</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex border-l border-gray-200 bg-gray-50">
+              <button
+                onClick={() => {
+                  setActiveTab('capacity');
+                  toast.dismiss(t.id);
+                  // Optional: if you want to scroll directly to the rooms section
+                  setTimeout(() => {
+                    document.getElementById('rooms-management-section')?.scrollIntoView({ behavior: 'smooth' });
+                  }, 100);
+                }}
+                className="w-full px-4 flex flex-col items-center justify-center text-sm font-bold text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors"
+              >
+                <span>Go to</span>
+                <span>Rooms</span>
+              </button>
+            </div>
+          </div>
+        ), { id: data._id || `room-reassign-${data.metadata?.doctorId || 'alert'}`, duration: Infinity }); // stays on screen until dismissed/clicked
+        
+        // Refresh dashboard data to immediately reflect the `needsReassignment` status
+        fetchDashboardData();
+      }
+    };
+    
+    socketService.on('notification', handleNotification);
+    return () => socketService.off('notification', handleNotification);
+  }, [fetchDashboardData]);
 
   // actions
 
@@ -391,9 +440,6 @@ const AdminDashboard = () => {
           <div className="flex items-center space-x-3">
             <button onClick={fetchDashboardData} className="text-sm text-blue-600 hover:text-blue-800 font-medium">
               Refresh
-            </button>
-            <button className="p-2 rounded-lg hover:bg-gray-100 relative">
-              <BellIcon className="w-5 h-5 text-gray-600" />
             </button>
           </div>
         </div>
@@ -1071,6 +1117,28 @@ const CapacityTab = () => {
     if (section === 'rooms') { loadRooms(); loadDoctors(); }
   }, [section, loadRooms, loadDoctors]);
 
+  // Listen for socket notifications to reload rooms dynamically whenever leave/reassignment events arrive.
+  React.useEffect(() => {
+    const handleRealtimeRoomUpdate = (data) => {
+      const isRelevantRoomSignal =
+        (data?.type === 'system' && data?.metadata?.rooms?.length > 0) ||
+        data?.type === 'doctor-leave' ||
+        data?.type === 'doctor-available' ||
+        data?.type === 'doctor:leave-status-changed';
+
+      if (isRelevantRoomSignal) {
+        loadRooms();
+      }
+    };
+
+    socketService.on('notification', handleRealtimeRoomUpdate);
+    socketService.on('doctor:leave-status-changed', handleRealtimeRoomUpdate);
+    return () => {
+      socketService.off('notification', handleRealtimeRoomUpdate);
+      socketService.off('doctor:leave-status-changed', handleRealtimeRoomUpdate);
+    };
+  }, [loadRooms]);
+
   // Doctors selectable for a room = active doctors in the room's department
   const doctorsForRoom = React.useCallback((room) => {
     const deptName = (room.department?.name || '').toLowerCase();
@@ -1161,6 +1229,15 @@ const CapacityTab = () => {
   const [existingBlocks, setExistingBlocks]   = React.useState([]);
   const [blocksLoading, setBlocksLoading]     = React.useState(false);
   const [previewDate, setPreviewDate]         = React.useState('');
+
+  // Session-cancellation confirmation modal: { block, reason } while open, null when closed.
+  const [cancelTarget, setCancelTarget]       = React.useState(null);
+  const [cancelReason, setCancelReason]       = React.useState('');
+  const [cancelling, setCancelling]           = React.useState(false);
+
+  // Session-deletion confirmation modal: block object while open, null when closed.
+  const [deleteTarget, setDeleteTarget]       = React.useState(null);
+  const [deletingBlock, setDeletingBlock]     = React.useState(false);
 
   // Load departments
   const loadDepts = React.useCallback(async () => {
@@ -1253,6 +1330,12 @@ const CapacityTab = () => {
     const invalidTemplate = blockTemplates.find(t => !t.startTime || !t.endTime || !t.totalCapacity || t.totalCapacity < 1);
     if (invalidTemplate) { toast.error('All block templates must have start time, end time, and capacity ≥ 1'); return; }
 
+    const invalidTimingTemplate = blockTemplates.find(t => t.startTime && t.endTime && t.endTime <= t.startTime);
+    if (invalidTimingTemplate) {
+      toast.error(`Session end time (${invalidTimingTemplate.endTime}) must be after start time (${invalidTimingTemplate.startTime})`);
+      return;
+    }
+
     setGenerating(true);
     try {
       const res = await timeBlockAPI.generateBlocks({
@@ -1286,29 +1369,80 @@ const CapacityTab = () => {
   const updateTemplate = (i, field, value) =>
     setBlockTemplates(prev => prev.map((t, idx) => idx === i ? { ...t, [field]: value } : t));
 
-  const deleteBlock = async (blockId) => {
-    if (!window.confirm('Delete this time block? This cannot be undone.')) return;
+  const promptDeleteBlock = (block) => {
+    if (block.bookedAppointmentCount > 0) {
+      toast.error('Cannot delete a session with booked appointments.');
+      return;
+    }
+    setDeleteTarget(block);
+  };
+
+  const confirmDeleteBlock = async () => {
+    if (!deleteTarget) return;
+    setDeletingBlock(true);
     try {
-      await timeBlockAPI.deleteBlock(blockId);
-      toast.success('Block deleted');
+      await timeBlockAPI.deleteBlock(deleteTarget._id);
+      toast.success('Time block deleted successfully');
+      setDeleteTarget(null);
       loadBlocks();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Delete failed');
+    } finally {
+      setDeletingBlock(false);
     }
   };
 
-  const cancelBlock = async (block) => {
-    const booked = block.bookedAppointmentCount || 0;
-    const msg = booked > 0
-      ? `Cancel this session? ${booked} patient(s) with an appointment will be notified to reschedule.`
-      : 'Cancel this session? It will no longer accept bookings.';
-    if (!window.confirm(msg)) return;
+  // Helper to determine if a block can be cancelled (only future sessions that have not started yet)
+  const isBlockCancellable = (block) => {
+    if (!block || block.status === 'cancelled') return false;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const today = `${y}-${m}-${d}`;
+    if (block.date < today) return false;
+    if (block.date === today) {
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const currentTime = `${hh}:${mm}`;
+      if (block.startTime <= currentTime) return false;
+    }
+    return true;
+  };
+
+  // Open the confirmation modal for a session; the actual cancellation happens
+  // in confirmCancelBlock once the admin confirms (and optionally gives a reason).
+  const cancelBlock = (block) => {
+    if (!isBlockCancellable(block)) {
+      toast.error('Cannot cancel a session that has already started or is in the past');
+      return;
+    }
+    setCancelReason('');
+    setCancelTarget(block);
+  };
+
+  const confirmCancelBlock = async () => {
+    if (!cancelTarget) return;
+    if (!isBlockCancellable(cancelTarget)) {
+      toast.error('Cannot cancel a session that has already started or is in the past');
+      setCancelTarget(null);
+      return;
+    }
+    setCancelling(true);
     try {
-      const res = await timeBlockAPI.updateBlock(block._id, { status: 'cancelled' });
+      const reason = cancelReason.trim();
+      const res = await timeBlockAPI.updateBlock(cancelTarget._id, {
+        status: 'cancelled',
+        ...(reason ? { reason, notes: reason } : {})
+      });
       toast.success(res.data?.message || 'Session cancelled');
+      setCancelTarget(null);
+      setCancelReason('');
       loadBlocks();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Cancellation failed');
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -1321,14 +1455,213 @@ const CapacityTab = () => {
     return { appt, walkIn, emerg, op };
   };
 
+  // Format date for the cancel modal — append T00:00:00 so a YYYY-MM-DD string
+  // is treated as local midnight instead of UTC midnight (avoids off-by-one day).
+  const fmtBlockDate = (dateStr) => {
+    try {
+      const d = dateStr && dateStr.length === 10 ? new Date(`${dateStr}T00:00:00`) : new Date(dateStr);
+      return d.toLocaleDateString('en-US', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+      });
+    } catch { return dateStr; }
+  };
+
+  // Check if this block is TODAY
+  const todayStr = new Date().toLocaleDateString('en-CA'); // local YYYY-MM-DD
+  const cancelTargetIsToday = cancelTarget?.date === todayStr;
+
   // Render
   return (
     <div className="space-y-6">
+
+      {/* ── Session-Cancellation Confirmation Modal ── */}
+      {cancelTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-fade-in">
+            {/* Header */}
+            <div className={`px-6 py-5 ${cancelTargetIsToday ? 'bg-red-700' : 'bg-red-600'}`}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <ExclamationTriangleIcon className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Cancel Session?</h3>
+                  <p className="text-sm text-white/80">
+                    {cancelTargetIsToday
+                      ? 'This session is currently live — patients may already be in the queue'
+                      : 'Booked patients will be notified to reschedule'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Session details */}
+            <div className="px-6 py-5 space-y-4">
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Session</span>
+                  <span className="text-sm font-bold text-gray-900">
+                    {cancelTarget.sessionName || `${fmt12(cancelTarget.startTime)} – ${fmt12(cancelTarget.endTime)}`}
+                  </span>
+                </div>
+                {cancelTarget.sessionName && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Time</span>
+                    <span className="text-sm text-gray-700">{fmt12(cancelTarget.startTime)} – {fmt12(cancelTarget.endTime)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</span>
+                  <span className="text-sm text-gray-700">{fmtBlockDate(cancelTarget.date)}</span>
+                </div>
+                <div className="flex justify-between items-center border-t border-gray-200 pt-2 mt-2">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Booked Appointments</span>
+                  <span className={`text-sm font-bold ${cancelTarget.bookedAppointmentCount > 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                    {cancelTarget.bookedAppointmentCount || 0}
+                    {cancelTarget.bookedAppointmentCount > 0 && ' (will be notified)'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Reason */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                  Reason 
+                </label>
+                <textarea
+                  value={cancelReason}
+                  onChange={e => setCancelReason(e.target.value)}
+                  placeholder="e.g. Doctor emergency, facility maintenance…"
+                  rows={2}
+                  maxLength={200}
+                  className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-red-400 focus:border-transparent resize-none"
+                />
+              </div>
+
+              {/* TODAY warning — session is live right now */}
+              {cancelTargetIsToday && (
+                <div className="bg-red-50 border-2 border-red-300 rounded-xl p-3 flex gap-2 text-sm text-red-800">
+                  <ExclamationTriangleIcon className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Live session:</strong> This session is happening today. Any patients who have already checked in or are in the queue will also be affected and notified. Completed consultations are not affected.
+                  </span>
+                </div>
+              )}
+
+              {cancelTarget.bookedAppointmentCount > 0 && !cancelTargetIsToday && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-2 text-sm text-amber-800">
+                  <ExclamationTriangleIcon className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <span>
+                    {cancelTarget.bookedAppointmentCount} patient{cancelTarget.bookedAppointmentCount !== 1 ? 's' : ''} will receive a notification and be prompted to reschedule their appointment.
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="px-6 pb-6 flex gap-3">
+              <button
+                onClick={() => { setCancelTarget(null); setCancelReason(''); }}
+                disabled={cancelling}
+                className="flex-1 py-2.5 border-2 border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                Keep Session
+              </button>
+              <button
+                onClick={confirmCancelBlock}
+                disabled={cancelling}
+                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-bold hover:bg-red-700 disabled:opacity-60 flex items-center justify-center gap-2 shadow-md transition-colors"
+              >
+                {cancelling
+                  ? <><ArrowPathIcon className="w-4 h-4 animate-spin" /><span>Cancelling…</span></>
+                  : <><XMarkIcon className="w-4 h-4" /><span>Cancel Session</span></>
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Time Block Deletion System Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full overflow-hidden shadow-2xl border border-gray-100 animate-in fade-in zoom-in duration-200">
+            {/* Header */}
+            <div className="p-6 bg-red-50 border-b border-red-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center text-red-600 shrink-0">
+                  <ExclamationTriangleIcon className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 text-lg">Delete Time Block</h3>
+              </div>
+              </div>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="p-1 text-gray-400 hover:text-gray-600 rounded-lg transition-colors"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-4 text-left">
+              <p className="text-sm text-gray-700 leading-relaxed">
+                Delete this time block? <strong>This cannot be undone.</strong>
+              </p>
+
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-500 font-medium">Session Name:</span>
+                  <span className="font-bold text-gray-900">{deleteTarget.sessionName || `${fmt12(deleteTarget.startTime)} – ${fmt12(deleteTarget.endTime)}`}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500 font-medium">Date:</span>
+                  <span className="font-semibold text-gray-800">{deleteTarget.date}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500 font-medium">Timing:</span>
+                  <span className="font-semibold text-gray-800">{fmt12(deleteTarget.startTime)} – {fmt12(deleteTarget.endTime)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="px-6 pb-6 flex gap-3">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deletingBlock}
+                className="flex-1 py-2.5 border-2 border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteBlock}
+                disabled={deletingBlock}
+                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-bold hover:bg-red-700 disabled:opacity-60 flex items-center justify-center gap-2 shadow-md transition-colors"
+              >
+                {deletingBlock ? (
+                  <>
+                    <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                    <span>Deleting…</span>
+                  </>
+                ) : (
+                  <>
+                    <TrashIcon className="w-4 h-4" />
+                    <span>Delete Block</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sub-navigation */}
       <div className="flex gap-2 border-b border-gray-200 pb-0">
         {[
           { id: 'departments', label: 'Departments',          icon: BuildingOffice2Icon },
-          { id: 'rooms',       label: 'OPD Rooms',           icon: HomeIcon },
+          { id: 'rooms',       label: 'Rooms',           icon: HomeIcon },
           { id: 'blocks',      label: 'Time Block Generator', icon: CalendarDaysIcon }
         ].map(s => (
           <button key={s.id} onClick={() => setSection(s.id)}
@@ -1854,8 +2187,8 @@ const CapacityTab = () => {
                       <div key={b._id} className="border border-gray-200 rounded-xl p-3 bg-gray-50">
                         <div className="flex items-center justify-between mb-2">
                           <div>
-                            <p className="font-semibold text-sm text-gray-900">{b.sessionName || `${b.startTime} – ${b.endTime}`}</p>
-                            <p className="text-xs text-gray-500">{b.startTime} – {b.endTime}</p>
+                            <p className="font-semibold text-sm text-gray-900">{b.sessionName || `${fmt12(b.startTime)} – ${fmt12(b.endTime)}`}</p>
+                            <p className="text-xs text-gray-500">{fmt12(b.startTime)} – {fmt12(b.endTime)}</p>
                           </div>
                           <div className="flex items-center gap-2">
                             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
@@ -1866,12 +2199,21 @@ const CapacityTab = () => {
                             }`}>{b.status}</span>
                             {b.status !== 'cancelled' && (
                               <button onClick={() => cancelBlock(b)}
-                                className="px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 border border-amber-300 hover:bg-amber-50 rounded"
-                                title="Cancel this session and notify booked patients to reschedule">
+                                disabled={!isBlockCancellable(b)}
+                                className={`px-1.5 py-0.5 text-[10px] font-semibold rounded border ${
+                                  isBlockCancellable(b)
+                                    ? 'text-amber-700 border-amber-300 hover:bg-amber-50 cursor-pointer'
+                                    : 'text-gray-400 border-gray-200 bg-gray-100 cursor-not-allowed opacity-60'
+                                }`}
+                                title={
+                                  isBlockCancellable(b)
+                                    ? 'Cancel this session and notify booked patients to reschedule'
+                                    : 'Cannot cancel: session has already started or is in the past'
+                                }>
                                 Cancel
                               </button>
                             )}
-                            <button onClick={() => deleteBlock(b._id)}
+                            <button onClick={() => promptDeleteBlock(b)}
                               disabled={b.bookedAppointmentCount > 0}
                               className="p-1 text-red-400 hover:bg-red-50 rounded disabled:opacity-30 disabled:cursor-not-allowed" title="Delete">
                               <TrashIcon className="w-3.5 h-3.5" />

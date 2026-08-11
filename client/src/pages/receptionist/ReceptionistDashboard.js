@@ -60,7 +60,7 @@ const printQueueSlip = (queueEntry, isWalkIn = false) => {
   const { queueNumber, tokenType, patient, doctor, room, department, estimatedWaitMinutes, checkInTime, appointment, timeBlockId } = queueEntry;
   const patientName = `${patient?.firstName || ''} ${patient?.lastName || ''}`.trim();
   const doctorName = `Dr. ${doctor?.firstName || ''} ${doctor?.lastName || ''}`.trim();
-  const time = new Date(checkInTime).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit' });
+  const time = new Date(checkInTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   const date = new Date().toLocaleDateString('en-LK');
 
   // Time block label — printed above the token so identical tokens across blocks
@@ -642,11 +642,50 @@ const ReceptionistDashboard = () => {
       if (res.data.success) {
         setApptLookupResults(res.data.data || []);
         if ((res.data.data || []).length === 0) {
-          toast.info('No matching appointments found for today');
+          // Build a specific "no results" message based on what was searched
+          const { token: t, reference: r, name: n, phone: p } = apptLookupQuery;
+          let noResultMsg;
+          if (r?.trim()) {
+            noResultMsg = "No appointment found for the entered reference number in today's appointments. Please check the reference number or search on the correct appointment date.";
+          } else if (t?.trim()) {
+            noResultMsg = `No appointment found with token "${t.trim().toUpperCase()}" for today. Please check the token.`;
+          } else if (n?.trim()) {
+            noResultMsg = `No appointment found for patient "${n.trim()}" today. Please check the name spelling.`;
+          } else if (p?.trim()) {
+            noResultMsg = `No appointment found for phone number "${p.trim()}" today. Please verify the number.`;
+          } else {
+            noResultMsg = 'No matching appointments found for today.';
+          }
+          toast.info(noResultMsg, { duration: 6000 });
         }
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Lookup failed');
+      const status = err.response?.status;
+      const serverMsg = err.response?.data?.message;
+      const { token: t, reference: r, name: n, phone: p } = apptLookupQuery;
+
+      // Build a receptionist-friendly message prioritizing specific queries searched
+      let friendlyMsg;
+      if (r?.trim()) {
+        friendlyMsg = "No appointment found for the entered reference number in today's appointments. Please check the reference number or search on the correct appointment date.";
+      } else if (t?.trim()) {
+        friendlyMsg = `No appointment found with token "${t.trim().toUpperCase()}" for today. Please check the token number.`;
+      } else if (!err.response) {
+        friendlyMsg = 'Could not perform search right now. Please try clicking "Search Today\'s Appointments" again.';
+      } else if (status === 400) {
+        friendlyMsg = serverMsg || 'Please check the entered search details and try again.';
+      } else if (status >= 500) {
+        friendlyMsg = 'Unable to complete search at the moment. Please try again in a few seconds.';
+      } else {
+        const searched = n?.trim()
+          ? `patient name "${n.trim()}"`
+          : p?.trim()
+          ? `phone number "${p.trim()}"`
+          : 'the entered details';
+        friendlyMsg = serverMsg || `No matching appointment found for ${searched}. Please check the booking details or register as a walk-in.`;
+      }
+
+      toast.error(friendlyMsg, { duration: 6000 });
     } finally {
       setApptLookupLoading(false);
     }
@@ -1560,6 +1599,7 @@ const ReceptionistDashboard = () => {
                       <label className="block text-xs font-semibold text-gray-600 mb-1">Appointment Reference</label>
                       <input value={apptLookupQuery.reference}
                         onChange={e => setApptLookupQuery(p => ({ ...p, reference: e.target.value }))}
+                        onKeyPress={e => e.key === 'Enter' && handleAppointmentLookup()}
                         placeholder="e.g. MQ-20240115-7A3B"
                         className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-400 focus:border-transparent text-sm font-mono uppercase" />
                     </div>
@@ -1907,7 +1947,7 @@ const ReceptionistDashboard = () => {
                                 {entry.isLate && <span className="ml-2 text-orange-600 text-xs font-bold"> Late</span>}
                               </p>
                               <p className="text-sm text-gray-500">
-                                Dr. {entry.doctor?.firstName} {entry.doctor?.lastName} · {entry.room} · Check-in: {entry.checkInTime ? new Date(entry.checkInTime).toLocaleTimeString('en-LK', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                                Dr. {entry.doctor?.firstName} {entry.doctor?.lastName} · {entry.room} · Check-in: {entry.checkInTime ? new Date(entry.checkInTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '—'}
                               </p>
                             </div>
                           </div>

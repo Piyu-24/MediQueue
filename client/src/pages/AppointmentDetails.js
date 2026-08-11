@@ -17,6 +17,18 @@ import { useAuth } from '../hooks/useAuth';
 import { appointmentAPI } from '../services/api';
 import toast from 'react-hot-toast';
 
+const fmt12 = (hhmm) => {
+  if (!hhmm) return '';
+  const parts = hhmm.split(':');
+  if (parts.length < 2) return hhmm;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return hhmm;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const displayHour = h % 12 || 12;
+  return `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
+};
+
 const AppointmentDetails = () => {
   // Enhanced with card layouts
   const { id } = useParams();
@@ -185,7 +197,7 @@ const AppointmentDetails = () => {
                   <ClockIcon className="w-6 h-6 text-green-500" />
                   <div>
                     <p className="text-sm text-gray-600">Time</p>
-                    <p className="font-semibold text-gray-900">{appointment.appointmentTime || 'Time TBD'}</p>
+                    <p className="font-semibold text-gray-900">{fmt12(appointment.appointmentTime) || 'Time TBD'}</p>
                   </div>
                 </div>
                 

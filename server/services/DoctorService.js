@@ -2,6 +2,8 @@ const User = require('../models/User');
 const MedicalRecord = require('../models/MedicalRecord');
 const AuditLog = require('../models/AuditLog');
 const Appointment = require('../models/Appointment');
+const Notification = require('../models/Notification');
+const Room = require('../models/Room');
 const mongoose = require('mongoose');
 const { signFileUrl } = require('../utils/signedFileUrl');
 
@@ -711,7 +713,7 @@ class DoctorService {
   }
 
   // Update the doctor's availability
-  async updateAvailability(doctorId, availabilityData, requestInfo) {
+  async updateAvailability(doctorId, availabilityData, requestInfo, io = null) {
     try {
       const originalDoctor = await User.findById(doctorId);
       
@@ -737,6 +739,53 @@ class DoctorService {
         },
         description: 'Updated availability schedule'
       });
+
+      // Notify all admins in database & real-time socket
+      try {
+        const rooms = await Room.find({ assignedDoctors: doctorId }).select('_id roomNumber displayName');
+        const admins = await User.find({ role: 'admin', isActive: true }).select('_id');
+        const doctorName = `Dr. ${updatedDoctor.firstName || ''} ${updatedDoctor.lastName || ''}`.trim();
+        const roomList = rooms.map(r => r.roomNumber).join(', ');
+
+        const title = rooms.length > 0 ? 'Doctor room availability updated' : 'Doctor availability updated';
+        const message = rooms.length > 0
+          ? `${doctorName} updated availability schedule for room(s) ${roomList}.`
+          : `${doctorName} updated their availability schedule.`;
+
+        for (const admin of admins) {
+          const newNotif = await Notification.create({
+            recipient: admin._id,
+            type: 'system',
+            title,
+            message,
+            metadata: {
+              doctorId: doctorId.toString(),
+              rooms: rooms.map(r => r._id.toString()),
+              availability: availabilityData
+            }
+          });
+
+          if (io) {
+            const payload = {
+              _id: newNotif._id.toString(),
+              type: 'system',
+              title,
+              message,
+              metadata: {
+                doctorId: doctorId.toString(),
+                rooms: rooms.map(r => r._id.toString()),
+                availability: availabilityData
+              },
+              createdAt: newNotif.createdAt || new Date().toISOString()
+            };
+
+            const adminRoomId = admin._id.toString();
+            io.to(adminRoomId).emit('notification', payload);
+          }
+        }
+      } catch (notifyErr) {
+        console.error('Failed to notify admins of doctor availability update:', notifyErr.message);
+      }
 
       return {
         success: true,

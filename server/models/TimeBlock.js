@@ -123,6 +123,16 @@ const timeBlockSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+// Validation hook: ensure endTime > startTime
+timeBlockSchema.pre('validate', function (next) {
+  if (this.startTime && this.endTime) {
+    if (this.endTime <= this.startTime) {
+      this.invalidate('endTime', `End time (${this.endTime}) must be after start time (${this.startTime})`);
+    }
+  }
+  next();
+});
+
 // Virtuals
 
 // Remaining appointment slots available for booking

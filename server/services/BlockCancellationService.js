@@ -19,10 +19,44 @@ const ACTIVE_QUEUE_STATUSES = ['waiting', 'ready', 'called', 'emergency_waiting'
 //
 // This is what bridges the block-based OPD model into the existing
 // doctor-unavailable → reschedule chain (patient dashboard banner + booking page).
+// Returns local YYYY-MM-DD for a date object (avoids UTC midnight shift problems)
+const localDateString = (d = new Date()) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+};
+
+// Returns local HH:MM for a date object
+const localTimeString = (d = new Date()) => {
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+};
+
 async function cancelBlock({ blockId, reason, actor, io }) {
   const block = await TimeBlock.findById(blockId);
   if (!block) {
     throw Object.assign(new Error('Time block not found'), { statusCode: 404 });
+  }
+
+  // Prevent cancelling sessions that have already started or are in the past.
+  // A session can only be cancelled if its scheduled date/time has not started yet.
+  const today = localDateString();
+  const nowTime = localTimeString();
+
+  if (block.date < today) {
+    throw Object.assign(
+      new Error('Cannot cancel a session from a past date. The session has already ended.'),
+      { statusCode: 400 }
+    );
+  }
+
+  if (block.date === today && block.startTime <= nowTime) {
+    throw Object.assign(
+      new Error('Cannot cancel a session that has already started or is currently underway. Only future sessions (before start time) can be cancelled.'),
+      { statusCode: 400 }
+    );
   }
 
   const wasAlreadyCancelled = block.status === 'cancelled';

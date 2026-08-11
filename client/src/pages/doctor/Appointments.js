@@ -15,6 +15,18 @@ import { useAuth } from '../../hooks/useAuth';
 import { appointmentAPI } from '../../services/api';
 import toast from 'react-hot-toast';
 
+const fmt12 = (hhmm) => {
+  if (!hhmm) return '';
+  const parts = hhmm.split(':');
+  if (parts.length < 2) return hhmm;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return hhmm;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const displayHour = h % 12 || 12;
+  return `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
+};
+
 const Appointments = () => {
   const { user } = useAuth();
   const [dateFilter, setDateFilter] = useState('all'); // 'all', 'today', 'week', 'specific'
@@ -301,7 +313,7 @@ const Appointments = () => {
                             <div className="flex items-center space-x-2">
                               <ClockIcon className="w-4 h-4 text-gray-500" />
                               <span className="text-sm text-gray-600">
-                                {new Date(appointment.appointmentDate).toLocaleDateString()} at {appointment.appointmentTime}
+                                {new Date(appointment.appointmentDate).toLocaleDateString()} at {fmt12(appointment.appointmentTime)}
                               </span>
                             </div>
                             <div className="flex items-center space-x-2">

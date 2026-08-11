@@ -13,15 +13,135 @@ import {
   CheckCircleIcon,
   XCircleIcon,
   ClipboardDocumentListIcon,
-  ArrowDownTrayIcon
+  ArrowDownTrayIcon,
+  ClockIcon,
+  BellAlertIcon
 } from '@heroicons/react/24/outline';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { medicalRecordsAPI, documentAPI } from '../../services/api';
+import { medicalRecordsAPI, documentAPI, appointmentAPI } from '../../services/api';
 import { resolveFileUrl } from '../../utils/fileUrl';
+import socketService from '../../services/socket';
 import toast from 'react-hot-toast';
+
+// ─── DocumentCard ───────────────────────────────────────────────────────────
+// Shows a patient's uploaded document with its review status, doctor's note,
+// and a "Request Follow-up Appointment" button when the doctor recommends one.
+const REVIEW_STATUS_CONFIG = {
+  UPLOADED: { label: 'Uploaded', icon: ClockIcon, className: 'bg-gray-100 text-gray-500' },
+  VIEWED:   { label: 'Viewed by Doctor', icon: EyeIcon, className: 'bg-amber-100 text-amber-700' },
+  REVIEWED: { label: 'Reviewed', icon: CheckCircleIcon, className: 'bg-emerald-100 text-emerald-700' },
+};
+
+const DocumentCard = ({ doc, onRequestFollowUp }) => {
+  const status = doc.reviewStatus || 'UPLOADED';
+  const cfg   = REVIEW_STATUS_CONFIG[status] || REVIEW_STATUS_CONFIG.UPLOADED;
+  const StatusIcon = cfg.icon;
+
+  return (
+    <div className={`border-2 rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-lg ${
+      status === 'REVIEWED' ? 'border-emerald-200' :
+      status === 'VIEWED'   ? 'border-amber-200'   : 'border-gray-200'
+    }`}>
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 sm:p-5 bg-gray-50 border-b border-gray-100">
+        <div className="flex items-center space-x-3 min-w-0">
+          <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <DocumentTextIcon className="w-5 h-5 text-blue-600" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="font-semibold text-gray-900 truncate">{doc.title}</h3>
+            <p className="text-xs text-gray-500">
+              {doc.documentType?.replace(/-/g, ' ').toUpperCase() || 'DOCUMENT'} · {(doc.fileSize / 1024).toFixed(1)} KB · {new Date(doc.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </p>
+          </div>
+        </div>
+        {/* Review Status Badge */}
+        <span id={`status-badge-${doc._id}`} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold flex-shrink-0 ${cfg.className}`}>
+          <StatusIcon className="w-3.5 h-3.5" />
+          {cfg.label}
+        </span>
+      </div>
+
+      {/* Body */}
+      <div className="p-4 sm:p-5 space-y-4">
+        {/* View file link */}
+        {doc.fileUrl && (
+          <a
+            href={resolveFileUrl(doc.fileUrl)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm rounded-xl hover:bg-blue-700 transition-colors font-medium"
+          >
+            <EyeIcon className="w-4 h-4" />
+            {doc.mimeType?.startsWith('image/') ? 'View Image' : 'View Document'}
+          </a>
+        )}
+
+        {/* Doctor's review note — shown only when REVIEWED */}
+        {status === 'REVIEWED' && (
+          <div className="border-t border-dashed border-gray-200 pt-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <CheckCircleIcon className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+              <span className="text-sm font-semibold text-emerald-700">Doctor's Review</span>
+              {doc.reviewNote?.reviewedAt && (
+                <span className="text-xs text-gray-400 ml-auto">
+                  {new Date(doc.reviewNote.reviewedAt).toLocaleString()}
+                </span>
+              )}
+            </div>
+
+            {doc.reviewNote?.text ? (
+              <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+                <p className="text-xs font-medium text-emerald-700 mb-1">Doctor's Note:</p>
+                <p className="text-sm text-gray-700 whitespace-pre-wrap">{doc.reviewNote.text}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 italic">No note was left by the doctor.</p>
+            )}
+
+            {/* Follow-up CTA */}
+            {doc.reviewNote?.followUpRequired && (
+              <button
+                id={`followup-btn-${doc._id}`}
+                onClick={onRequestFollowUp}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-sm rounded-xl hover:from-emerald-700 hover:to-teal-700 transition-all duration-200 font-semibold shadow-md hover:shadow-lg"
+              >
+                <BellAlertIcon className="w-4 h-4" />
+                Request Follow-up Appointment
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Hint when viewed but not yet reviewed */}
+        {status === 'VIEWED' && (
+          <div className="border-t border-dashed border-gray-100 pt-3">
+            <p className="text-xs text-amber-600 text-center">Your doctor has opened this document — a review is pending.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+// ────────────────────────────────────────────────────────────────────────────
+
+const fmt12 = (hhmm) => {
+  if (!hhmm) return '';
+  const parts = hhmm.split(':');
+  if (parts.length < 2) return hhmm;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return hhmm;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const displayHour = h % 12 || 12;
+  return `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
+};
 
 const MedicalRecords = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
+
 
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState([]);
@@ -35,12 +155,14 @@ const MedicalRecords = () => {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showAllDocumentsModal, setShowAllDocumentsModal] = useState(false);
   const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [patientAppointments, setPatientAppointments] = useState([]);
   const [uploadForm, setUploadForm] = useState({
     title: '',
     description: '',
     category: 'lab-report',
     file: null,
-    previewUrl: null
+    previewUrl: null,
+    linkedAppointmentId: '' // empty = no link
   });
 
   useEffect(() => {
@@ -48,6 +170,39 @@ const MedicalRecords = () => {
     fetchUploadedDocuments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Real-time socket: update document reviewStatus without page reload
+  useEffect(() => {
+    if (!user?._id && !user?.id) return;
+    const userId = user._id || user.id;
+    socketService.joinRoom(userId);
+
+    const handleDocReviewed = (data) => {
+      setUploadedDocuments(prev => prev.map(d =>
+        d._id === data.documentId
+          ? {
+              ...d,
+              reviewStatus: 'REVIEWED',
+              reviewNote: { text: data.noteText, followUpRequired: data.followUpRequired, reviewedAt: data.reviewedAt }
+            }
+          : d
+      ));
+    };
+
+    const handleDocViewed = (data) => {
+      setUploadedDocuments(prev => prev.map(d =>
+        d._id === data.documentId ? { ...d, reviewStatus: 'VIEWED' } : d
+      ));
+    };
+
+    socketService.on('notification:document-reviewed', handleDocReviewed);
+    socketService.on('notification:document-viewed', handleDocViewed);
+    return () => {
+      socketService.off('notification:document-reviewed', handleDocReviewed);
+      socketService.off('notification:document-viewed', handleDocViewed);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?._id, user?.id]);
 
   useEffect(() => {
     filterRecords();
@@ -123,6 +278,29 @@ const MedicalRecords = () => {
     setSelectedCategory('all');
   };
 
+  const openUploadModal = async () => {
+    setShowUploadModal(true);
+    try {
+      const patientId = user._id || user.id;
+      const res = await appointmentAPI.getPatientAppointments(patientId, {
+        limit: 20,
+        sort: '-appointmentDate'
+      });
+      const appts = res.data?.data?.appointments || [];
+      // Only show appointments where a specific doctor was assigned
+      setPatientAppointments(appts.filter(a => a.doctor));
+    } catch {
+      setPatientAppointments([]);
+    }
+  };
+
+  const closeUploadModal = () => {
+    setShowUploadModal(false);
+    setPatientAppointments([]);
+    if (uploadForm.previewUrl) URL.revokeObjectURL(uploadForm.previewUrl);
+    setUploadForm({ title: '', description: '', category: 'lab-report', file: null, previewUrl: null, linkedAppointmentId: '' });
+  };
+
   const handleUploadDocument = async () => {
     if (!uploadForm.title.trim()) {
       toast.error('Please enter a document title');
@@ -142,15 +320,14 @@ const MedicalRecords = () => {
       formData.append('category', uploadForm.category);
       formData.append('uploadedBy', 'patient');
       formData.append('status', 'approved'); // Auto-approved for patient uploads
+      if (uploadForm.linkedAppointmentId) {
+        formData.append('appointmentId', uploadForm.linkedAppointmentId);
+      }
 
       const response = await documentAPI.uploadDocument(formData);
       if (response.data.success) {
         toast.success('Document uploaded successfully!');
-        setShowUploadModal(false);
-        if (uploadForm.previewUrl) {
-          URL.revokeObjectURL(uploadForm.previewUrl);
-        }
-        setUploadForm({ title: '', description: '', category: 'lab-report', file: null, previewUrl: null });
+        closeUploadModal();
         fetchUploadedDocuments();
       } else {
         throw new Error(response.data.message || 'Upload failed');
@@ -257,7 +434,7 @@ const MedicalRecords = () => {
                 <p className="text-blue-100 text-sm sm:text-lg">View your health history from hospital visits</p>
               </div>
               <button
-                onClick={() => setShowUploadModal(true)}
+                onClick={openUploadModal}
                 className="flex items-center justify-center space-x-2 px-6 py-3 bg-white text-blue-600 rounded-xl hover:bg-blue-50 transition-all duration-200 shadow-lg font-semibold w-full sm:w-auto flex-shrink-0"
               >
                 <CloudArrowUpIcon className="w-5 h-5" />
@@ -341,43 +518,11 @@ const MedicalRecords = () => {
             ) : uploadedDocuments.length > 0 ? (
               <div className="space-y-4">
                 {uploadedDocuments.slice(0, 2).map((doc) => (
-                  <div key={doc._id} className="border-2 border-gray-200 rounded-xl p-4 sm:p-6 hover:shadow-md transition-all duration-300">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-start space-x-4 flex-1 min-w-0">
-                        <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                          <DocumentTextIcon className="w-6 h-6 text-blue-600" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-lg font-semibold text-gray-900 mb-1">{doc.title}</h3>
-                          {doc.description && (
-                            <p className="text-gray-600 text-sm mb-3">{doc.description}</p>
-                          )}
-                          <div className="flex flex-wrap gap-4 text-sm text-gray-500">
-                            <div className="flex items-center space-x-1">
-                              <CalendarIcon className="w-4 h-4" />
-                              <span>{formatDate(doc.uploadedAt || doc.createdAt)}</span>
-                            </div>
-                            <div className="flex items-center space-x-1">
-                              <DocumentTextIcon className="w-4 h-4" />
-                              <span>{doc.documentType?.replace(/-/g, ' ').toUpperCase() || 'N/A'}</span>
-                            </div>
-                            <span className="font-medium">{(doc.fileSize / 1024).toFixed(1)} KB</span>
-                          </div>
-                        </div>
-                      </div>
-                      {doc.fileUrl && (
-                        <a
-                          href={resolveFileUrl(doc.fileUrl)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="View Document"
-                        >
-                          <EyeIcon className="w-5 h-5" />
-                        </a>
-                      )}
-                    </div>
-                  </div>
+                  <DocumentCard
+                    key={doc._id}
+                    doc={doc}
+                    onRequestFollowUp={() => navigate('/patient/dashboard?tab=book-appointment')}
+                  />
                 ))}
               </div>
             ) : (
@@ -386,7 +531,7 @@ const MedicalRecords = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">No Documents Uploaded Yet</h3>
                 <p className="text-gray-600 mb-4">Upload your own medical documents to keep them alongside your records.</p>
                 <button
-                  onClick={() => setShowUploadModal(true)}
+                  onClick={openUploadModal}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-semibold"
                 >
                   Upload Document
@@ -787,7 +932,7 @@ const MedicalRecords = () => {
                 <h3 className="text-2xl font-bold text-gray-900">Upload Medical Document</h3>
                 <p className="text-sm text-gray-600 mt-1">Documents are saved directly to your records</p>
               </div>
-              <button onClick={() => setShowUploadModal(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={closeUploadModal} className="text-gray-400 hover:text-gray-600">
                 <XCircleIcon className="w-7 h-7" />
               </button>
             </div>
@@ -799,8 +944,7 @@ const MedicalRecords = () => {
                   <div>
                     <h4 className="font-semibold text-blue-900 mb-1">Upload Information</h4>
                     <ul className="text-sm text-blue-800 space-y-1">
-                      <li>• Documents appear immediately in your uploaded documents list</li>
-                      <li>• Supported formats: PDF, JPEG, PNG (Max 10MB)</li>
+                      <li>• Documents appear immediately in your uploaded documents list(Max 10MB)</li>
                     </ul>
                   </div>
                 </div>
@@ -852,6 +996,82 @@ const MedicalRecords = () => {
                 />
               </div>
 
+              {/* ── Link to Appointment (optional) ──────────────────────── */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Related to a previous consultation?
+                  <span className="ml-1 text-gray-400 font-normal text-xs">(optional)</span>
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Linking to an appointment lets the doctor know this document is for them.
+                </p>
+
+                {patientAppointments.length > 0 ? (
+                  <select
+                    id="linked-appointment-select"
+                    value={uploadForm.linkedAppointmentId}
+                    onChange={(e) => setUploadForm({ ...uploadForm, linkedAppointmentId: e.target.value })}
+                    className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  >
+                    <option value="">No specific appointment</option>
+                    {patientAppointments.map((appt) => {
+                      const apptDate = new Date(appt.appointmentDate);
+                      const isToday  = apptDate.toDateString() === new Date().toDateString();
+                      const isYesterday = apptDate.toDateString() === new Date(Date.now() - 86400000).toDateString();
+                      const label = isToday
+                        ? 'Today'
+                        : isYesterday
+                        ? 'Yesterday'
+                        : apptDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+                      const time = appt.appointmentTime || '';
+                      const doctorName = appt.doctor
+                        ? `Dr. ${appt.doctor.firstName} ${appt.doctor.lastName}`
+                        : 'Doctor TBA';
+                        
+                      // Try to use department, fallback to specialization, or just use doctor's name alone if neither exists
+                      let docLabel = '';
+                      if (appt.doctor?.department?.name || appt.doctor?.department) {
+                         const deptName = appt.doctor.department.name || appt.doctor.department;
+                         docLabel = `${deptName} (${doctorName})`;
+                      } else if (appt.doctor?.specialization) {
+                         docLabel = `${appt.doctor.specialization} (${doctorName})`;
+                      } else {
+                         docLabel = doctorName;
+                      }
+
+                      const fmt12 = (timeStr) => {
+                        const [hours, minutes] = timeStr.split(':');
+                        const h = parseInt(hours, 10);
+                        const ampm = h >= 12 ? 'PM' : 'AM';
+                        const h12 = h % 12 || 12;
+                        return `${h12}:${minutes} ${ampm}`;
+                      };
+
+                      return (
+                        <option key={appt._id} value={appt._id}>
+                          {label}{time ? ` ${fmt12(time)}` : ''} — {docLabel}
+                        </option>
+                      );
+                    })}
+                  </select>
+                ) : (
+                  <p className="text-xs text-gray-400 italic py-2">
+                    No previous appointments found — this document will be saved to your records only.
+                  </p>
+                )}
+
+                {uploadForm.linkedAppointmentId && (
+                  <button
+                    type="button"
+                    onClick={() => setUploadForm({ ...uploadForm, linkedAppointmentId: '' })}
+                    className="mt-1.5 text-xs text-gray-400 hover:text-gray-600 underline"
+                  >
+                    Clear selection
+                  </button>
+                )}
+              </div>
+              {/* ──────────────────────────────────────────────────────────── */}
+
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Upload File *</label>
                 <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-blue-500 transition-colors">
@@ -902,7 +1122,7 @@ const MedicalRecords = () => {
                         <p className="text-sm text-gray-600 mb-1">
                           <span className="text-blue-600 font-semibold">Click to upload</span> or drag and drop
                         </p>
-                        <p className="text-xs text-gray-500">PDF, JPEG, PNG up to 10MB</p>
+                        <p className="text-xs text-gray-500">JPEG, PNG up to 10MB</p>
                       </div>
                     )}
                   </label>
@@ -912,7 +1132,7 @@ const MedicalRecords = () => {
 
             <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 p-6 flex justify-end space-x-3 rounded-b-2xl">
               <button
-                onClick={() => setShowUploadModal(false)}
+                onClick={closeUploadModal}
                 disabled={uploadingDocument}
                 className="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors font-semibold"
               >

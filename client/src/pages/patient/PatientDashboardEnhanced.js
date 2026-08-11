@@ -142,8 +142,29 @@ const PatientDashboardEnhanced = () => {
     };
 
     const handleDoctorUnavailable = () => {
-      toast.error('Your doctor is unavailable. Please reschedule your appointment.');
+      toast.error('Your session has been cancelled. Please reschedule your appointment.');
       fetchDashboardData();
+    };
+
+    const handleDocumentReviewed = (data) => {
+      // Real-time toast when doctor reviews a patient's uploaded document
+      const notePreview = data.noteText ? ` Note: "${data.noteText.slice(0, 60)}${data.noteText.length > 60 ? '...' : ''}"` : '';
+      toast.success(
+        `${data.doctorName} has reviewed your document "${data.documentTitle}".${notePreview}`,
+        { duration: 10000, icon: '📋' }
+      );
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('MediQueue — Document Reviewed', {
+          body: `${data.doctorName} has reviewed: ${data.documentTitle}`,
+          icon: '/logo192.png',
+        });
+      }
+      // If patient is on the documents tab, they'll get live updates via MedicalRecords socket
+    };
+
+    const handleDocumentViewed = (data) => {
+      // Subtle silent update — doctor opened the doc; no toast needed (status badge updates via MedicalRecords)
+      console.log('[Socket] Doctor viewed document:', data.documentId);
     };
 
     socketService.on('queue:yourTurn', handleYourTurn);
@@ -154,6 +175,8 @@ const PatientDashboardEnhanced = () => {
     socketService.on('queue:paused', handleQueueUpdated);
     socketService.on('queue:resumed', handleQueueUpdated);
     socketService.on('appointment:doctor-unavailable', handleDoctorUnavailable);
+    socketService.on('notification:document-reviewed', handleDocumentReviewed);
+    socketService.on('notification:document-viewed', handleDocumentViewed);
 
     return () => {
       socketService.off('queue:yourTurn', handleYourTurn);
@@ -164,6 +187,8 @@ const PatientDashboardEnhanced = () => {
       socketService.off('queue:paused', handleQueueUpdated);
       socketService.off('queue:resumed', handleQueueUpdated);
       socketService.off('appointment:doctor-unavailable', handleDoctorUnavailable);
+      socketService.off('notification:document-reviewed', handleDocumentReviewed);
+      socketService.off('notification:document-viewed', handleDocumentViewed);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?._id]);
@@ -660,7 +685,7 @@ const PatientDashboardEnhanced = () => {
                                   {appointment.appointmentTime && (
                                     <div className="flex items-center space-x-1">
                                       <ClockIcon className="w-3.5 h-3.5 text-gray-400" />
-                                      <span className="text-sm text-gray-600 font-medium">{appointment.appointmentTime}</span>
+                                      <span className="text-sm text-gray-600 font-medium">{fmt12(appointment.appointmentTime)}</span>
                                     </div>
                                   )}
                                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${cfg.badge}`}>
@@ -768,7 +793,7 @@ const PatientDashboardEnhanced = () => {
                                 ) : appointment.appointmentTime ? (
                                   <div className="flex items-center space-x-2">
                                     <ClockIcon className="w-4 h-4 text-gray-500" />
-                                    <span className="text-sm text-gray-600">{appointment.appointmentTime}</span>
+                                    <span className="text-sm text-gray-600">{fmt12(appointment.appointmentTime)}</span>
                                   </div>
                                 ) : null}
                               </div>
@@ -802,7 +827,7 @@ const PatientDashboardEnhanced = () => {
                                 {/* Reporting time for block-based appointments */}
                                 {appointment.reportingTime && appointment.status === 'booked' && (
                                   <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                                    Arrive by {appointment.reportingTime}
+                                    Arrive by {fmt12(appointment.reportingTime)}
                                   </span>
                                 )}
 

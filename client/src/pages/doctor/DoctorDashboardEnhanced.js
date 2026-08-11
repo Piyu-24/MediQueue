@@ -133,6 +133,17 @@ const DoctorDashboardEnhanced = () => {
     // Admin (re)assigned this doctor to/from a room — refresh the badge + blocks live.
     const handleRoomAssignmentChanged = () => fetchRoomAndBlocks();
 
+    // Patient uploaded a document linked to one of this doctor's appointments
+    const handleDocumentUploaded = (data) => {
+      const apptDate = data.appointmentDate
+        ? new Date(data.appointmentDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+        : null;
+      toast.success(
+        `${data.patientName} uploaded "${data.documentTitle}"${apptDate ? ` (appt. ${apptDate})` : ''}.`,
+        { duration: 9000, icon: '📄' }
+      );
+    };
+
     socketService.on('queue:created', handleQueueCreated);
     socketService.on('queue:updated', handleQueueUpdated);
     socketService.on('queue:completed', handleQueueUpdated);
@@ -141,6 +152,7 @@ const DoctorDashboardEnhanced = () => {
     socketService.on('queue:paused', handleQueueUpdated);
     socketService.on('queue:resumed', handleQueueUpdated);
     socketService.on('room:assignment-changed', handleRoomAssignmentChanged);
+    socketService.on('notification:document-uploaded', handleDocumentUploaded);
 
     return () => {
       socketService.off('queue:created', handleQueueCreated);
@@ -151,9 +163,11 @@ const DoctorDashboardEnhanced = () => {
       socketService.off('queue:paused', handleQueueUpdated);
       socketService.off('queue:resumed', handleQueueUpdated);
       socketService.off('room:assignment-changed', handleRoomAssignmentChanged);
+      socketService.off('notification:document-uploaded', handleDocumentUploaded);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?._id, activeTab]);
+
 
   const fetchLiveQueue = async () => {
     if (!user?._id) return;
@@ -162,15 +176,16 @@ const DoctorDashboardEnhanced = () => {
       const res = await queueAPI.getActiveQueue(user._id);
       if (res.data.success) {
         const view = res.data.data;
-        // Flatten into a single list ordered: current → ready → waiting → skipped/away
+        // Flatten into a single list ordered: current → emergency → ready → waiting → skipped/away
         const ordered = [
-          ...(view.current || []),
-          ...(view.ready || []),
-          ...(view.waiting || []),
-          ...(view.skipped || []),
-          ...(view.away || []),
+          ...(view.current   || []),
+          ...(view.emergency || []),   // emergency patients jump ahead of the ready zone
+          ...(view.ready     || []),
+          ...(view.waiting   || []),
+          ...(view.skipped   || []),
+          ...(view.away      || []),
           ...(view.completed || []),
-          ...(view.noShow || [])
+          ...(view.noShow    || [])
         ];
         setLiveQueue(ordered);
         setQueueSession(view.session || null);
@@ -977,8 +992,8 @@ const DoctorDashboardEnhanced = () => {
                       <div key={b._id} className="border border-gray-200 rounded-xl p-3 bg-gray-50">
                         <div className="flex items-center justify-between mb-1">
                           <div>
-                            <p className="font-semibold text-sm text-gray-900">{b.sessionName || `${b.startTime} – ${b.endTime}`}</p>
-                            <p className="text-xs text-gray-500">{b.startTime} – {b.endTime}</p>
+                            <p className="font-semibold text-sm text-gray-900">{b.sessionName || `${formatTime(b.startTime)} – ${formatTime(b.endTime)}`}</p>
+                            <p className="text-xs text-gray-500">{formatTime(b.startTime)} – {formatTime(b.endTime)}</p>
                           </div>
                           <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                             b.status === 'active' ? 'bg-green-100 text-green-700' :
@@ -1064,10 +1079,10 @@ const QueueCard = ({ entry, onAction, onNotes }) => {
             {entry.appointment?.timeBlockId?.sessionName
               ? ` · ${entry.appointment.timeBlockId.sessionName}`
               : entry.appointmentTime
-              ? ` · Appt: ${entry.appointmentTime}`
+              ? ` · Appt: ${formatTime(entry.appointmentTime)}`
               : ''}
             {' · '}Check-in: {entry.checkInTime
-              ? new Date(entry.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              ? new Date(entry.checkInTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
               : '—'}
             {isActive && entry.estimatedWaitMinutes > 0 && ` · ~${entry.estimatedWaitMinutes} min wait`}
           </p>
