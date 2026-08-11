@@ -1,6 +1,18 @@
 import React from 'react';
 import { XMarkIcon, BellIcon } from '@heroicons/react/24/outline';
 
+const fmt12 = (hhmm) => {
+  if (!hhmm) return '';
+  const parts = hhmm.split(':');
+  if (parts.length < 2) return hhmm;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return hhmm;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const displayHour = h % 12 || 12;
+  return `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
+};
+
 const NotificationPanel = ({
   isOpen,
   onClose,
@@ -46,7 +58,7 @@ const NotificationPanel = ({
                   <p className="text-sm text-gray-600 mt-1">{notification.message}</p>
                   {notification.metadata?.appointmentDate && (
                     <p className="text-xs text-gray-500 mt-2">
-                      {notification.metadata.appointmentDate} at {notification.metadata.appointmentTime}
+                      {notification.metadata.appointmentDate} at {fmt12(notification.metadata.appointmentTime)}
                     </p>
                   )}
                 </div>

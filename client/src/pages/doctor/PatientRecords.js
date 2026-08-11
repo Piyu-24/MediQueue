@@ -11,11 +11,26 @@ import {
   EnvelopeIcon,
   ArrowLeftIcon,
   BeakerIcon,
-  DocumentDuplicateIcon
+  DocumentDuplicateIcon,
+  CheckCircleIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
 import { resolveFileUrl } from '../../utils/fileUrl';
+import { documentAPI } from '../../services/api';
 import toast from 'react-hot-toast';
+
+const fmt12 = (hhmm) => {
+  if (!hhmm) return '';
+  const parts = hhmm.split(':');
+  if (parts.length < 2) return hhmm;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return hhmm;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const displayHour = h % 12 || 12;
+  return `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
+};
 
 const PatientRecords = () => {
   const { user } = useAuth();
@@ -53,6 +68,8 @@ const PatientRecords = () => {
     priority: 'normal'
   });
   const [formErrors, setFormErrors] = useState({});
+  // Document review state: { [docId]: { noteText, followUpRequired, submitting } }
+  const [reviewForms, setReviewForms] = useState({});
   
   const patientId = searchParams.get('patientId');
 
@@ -898,7 +915,7 @@ const PatientRecords = () => {
                                 {new Date(appointment.appointmentDate).toLocaleDateString()}
                               </p>
                               <p className="text-sm text-blue-700">
-                                {appointment.appointmentType} - {appointment.appointmentTime}
+                                {appointment.appointmentType} - {fmt12(appointment.appointmentTime)}
                               </p>
                             </div>
                             <span className="px-2 py-1 bg-blue-200 text-blue-800 text-xs rounded-full">
@@ -919,141 +936,201 @@ const PatientRecords = () => {
                 <div className="flex items-center justify-between">
                   <h3 className="text-xl font-bold text-gray-900">Patient Documents</h3>
                   <span className="text-sm text-gray-500">
-                    {documents?.length || 0} documents
+                    {documents?.length || 0} document{documents?.length !== 1 ? 's' : ''}
                   </span>
                 </div>
-                
+
                 {documents && documents.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {documents.map((doc) => (
-                      <div key={doc._id} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
-                        {/* Image Preview Section */}
-                        {doc.mimeType && doc.mimeType.startsWith('image/') ? (
-                          <div className="h-48 bg-gray-100 relative">
-                            <img
-                              src={resolveFileUrl(doc.fileUrl)}
-                              alt={doc.title}
-                              className="w-full h-full object-cover"
-                              onLoad={(e) => {
-                                console.log('Image loaded successfully:', doc.fileUrl);
-                              }}
-                              onError={(e) => {
-                                console.error('Image failed to load:', doc.fileUrl);
-                                e.target.style.display = 'none';
-                                e.target.nextSibling.style.display = 'flex';
-                              }}
-                              crossOrigin="anonymous"
-                            />
-                            <div className="hidden w-full h-full flex items-center justify-center bg-gray-100">
-                              <div className="text-center">
-                                <DocumentTextIcon className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                                <p className="text-xs text-gray-500">Preview not available</p>
+                  <div className="space-y-4">
+                    {documents.map((doc) => {
+                      const form = reviewForms[doc._id] || { noteText: '', followUpRequired: false, submitting: false };
+                      const isReviewed = doc.reviewStatus === 'REVIEWED';
+
+                      const handleViewDocument = async () => {
+                        const fullUrl = resolveFileUrl(doc.fileUrl);
+                        window.open(fullUrl, '_blank');
+                        // Bump status to VIEWED if still UPLOADED
+                        if (doc.reviewStatus === 'UPLOADED') {
+                          try {
+                            await documentAPI.markViewed(doc._id);
+                            setDocuments(prev => prev.map(d =>
+                              d._id === doc._id ? { ...d, reviewStatus: 'VIEWED' } : d
+                            ));
+                          } catch (e) {
+                            // silent — non-critical
+                          }
+                        }
+                      };
+
+                      const handleSubmitReview = async () => {
+                        setReviewForms(prev => ({
+                          ...prev,
+                          [doc._id]: { ...form, submitting: true }
+                        }));
+                        try {
+                          await documentAPI.reviewDocument(doc._id, {
+                            noteText: form.noteText,
+                            followUpRequired: form.followUpRequired
+                          });
+                          setDocuments(prev => prev.map(d =>
+                            d._id === doc._id
+                              ? {
+                                  ...d,
+                                  reviewStatus: 'REVIEWED',
+                                  reviewNote: {
+                                    text: form.noteText,
+                                    followUpRequired: form.followUpRequired,
+                                    reviewedAt: new Date().toISOString()
+                                  }
+                                }
+                              : d
+                          ));
+                          toast.success('Document reviewed — patient notified');
+                        } catch (err) {
+                          toast.error('Failed to save review. Please try again.');
+                        } finally {
+                          setReviewForms(prev => ({
+                            ...prev,
+                            [doc._id]: { ...form, submitting: false }
+                          }));
+                        }
+                      };
+
+                      return (
+                        <div key={doc._id} className="border border-gray-200 rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300">
+                          {/* Header row */}
+                          <div className="flex items-center justify-between p-4 bg-gray-50 border-b border-gray-100">
+                            <div className="flex items-center space-x-3">
+                              {/* Doc type icon */}
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                                doc.documentType === 'lab-report' ? 'bg-blue-100' :
+                                doc.documentType === 'blood-test' ? 'bg-red-100' :
+                                doc.documentType === 'x-ray' ? 'bg-gray-100' :
+                                doc.documentType === 'prescription' ? 'bg-green-100' :
+                                'bg-teal-100'
+                              }`}>
+                                <BeakerIcon className={`w-5 h-5 ${
+                                  doc.documentType === 'lab-report' ? 'text-blue-600' :
+                                  doc.documentType === 'blood-test' ? 'text-red-600' :
+                                  'text-gray-600'
+                                }`} />
+                              </div>
+                              <div>
+                                <p className="font-semibold text-gray-900 text-sm">{doc.title}</p>
+                                <p className="text-xs text-gray-500">
+                                  {doc.originalName} · {(doc.fileSize / 1024).toFixed(1)} KB · Uploaded {new Date(doc.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                </p>
                               </div>
                             </div>
-                            {/* Image overlay with document type */}
-                            <div className="absolute top-2 left-2">
-                              <span className={`px-2 py-1 text-xs rounded-full font-medium ${
-                                doc.documentType === 'lab-report' ? 'bg-blue-100 text-blue-800' :
-                                doc.documentType === 'blood-test' ? 'bg-red-100 text-red-800' :
-                                doc.documentType === 'x-ray' ? 'bg-gray-100 text-gray-800' :
-                                doc.documentType === 'prescription' ? 'bg-green-100 text-green-800' :
-                                'bg-teal-100 text-teal-800'
-                              }`}>
-                                {doc.documentType.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                              </span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="h-32 bg-gray-50 flex items-center justify-center border-b border-gray-200">
-                            <div className="text-center">
-                              {doc.documentType === 'lab-report' ? (
-                                <BeakerIcon className="w-12 h-12 text-blue-600 mx-auto mb-2" />
-                              ) : doc.documentType === 'blood-test' ? (
-                                <BeakerIcon className="w-12 h-12 text-red-600 mx-auto mb-2" />
-                              ) : doc.documentType === 'x-ray' ? (
-                                <svg className="w-12 h-12 text-gray-600 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
+
+                            {/* Review Status Badge */}
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+                              doc.reviewStatus === 'REVIEWED'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : doc.reviewStatus === 'VIEWED'
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {doc.reviewStatus === 'REVIEWED' ? (
+                                <><CheckCircleIcon className="w-3.5 h-3.5" /> Reviewed</>
+                              ) : doc.reviewStatus === 'VIEWED' ? (
+                                <><EyeIcon className="w-3.5 h-3.5" /> Viewed</>  
                               ) : (
-                                <DocumentTextIcon className="w-12 h-12 text-gray-600 mx-auto mb-2" />
+                                <><ClockIcon className="w-3.5 h-3.5" /> Uploaded</>
                               )}
-                              <span className={`px-2 py-1 text-xs rounded-full font-medium ${
-                                doc.documentType === 'lab-report' ? 'bg-blue-100 text-blue-800' :
-                                doc.documentType === 'blood-test' ? 'bg-red-100 text-red-800' :
-                                doc.documentType === 'x-ray' ? 'bg-gray-100 text-gray-800' :
-                                doc.documentType === 'prescription' ? 'bg-green-100 text-green-800' :
-                                'bg-teal-100 text-teal-800'
-                              }`}>
-                                {doc.documentType.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                              </span>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Document Info Section */}
-                        <div className="p-4">
-                          <div className="mb-3">
-                            <p className="font-semibold text-gray-900 text-sm mb-1">
-                              {doc.title}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {new Date(doc.createdAt).toLocaleDateString()}
-                            </p>
+                            </span>
                           </div>
 
-                          {/* Description */}
-                          {doc.description && (
-                            <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-                              {doc.description}
-                            </p>
-                          )}
-
-                          {/* File Info */}
-                          <div className="text-xs text-gray-500 mb-3">
-                            <p>File: {doc.originalName}</p>
-                            <p>Size: {(doc.fileSize / 1024).toFixed(1)} KB</p>
-                            <p>Type: {doc.mimeType}</p>
-                          </div>
-
-                          {/* Action Buttons */}
-                          <div className="flex items-center space-x-2">
+                          {/* Body */}
+                          <div className="p-4 space-y-4">
+                            {/* View Button */}
                             <button
-                              onClick={() => {
-                                console.log('Document details:', doc);
-                                console.log('File type:', doc.mimeType);
-                                console.log('File URL:', doc.fileUrl);
-                                
-                                // For images, try direct URL first (should work with CORS fixed)
-                                const fullUrl = resolveFileUrl(doc.fileUrl);
-                                console.log('Opening file URL:', fullUrl);
-                                window.open(fullUrl, '_blank');
-                              }}
-                              className="w-full px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center space-x-1"
+                              id={`view-doc-${doc._id}`}
+                              onClick={handleViewDocument}
+                              className="w-full px-3 py-2.5 bg-blue-600 text-white text-sm rounded-xl hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2 font-medium"
                             >
                               <EyeIcon className="w-4 h-4" />
-                              <span>{doc.mimeType && doc.mimeType.startsWith('image/') ? 'View Image' : 'View Document'}</span>
+                              <span>{doc.mimeType?.startsWith('image/') ? 'View Image' : 'View Document'}</span>
                             </button>
-                          </div>
 
-                          {/* Linked Records */}
-                          {(doc.appointment || doc.medicalRecord) && (
-                            <div className="mt-3 pt-3 border-t border-gray-200">
-                              <p className="text-xs text-gray-500 mb-1">Linked to:</p>
-                              {doc.appointment && (
-                                <span className="inline-block px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded mr-2">
-                                  Appointment
-                                </span>
-                              )}
-                              {doc.medicalRecord && (
-                                <span className="inline-block px-2 py-1 bg-green-50 text-green-700 text-xs rounded">
-                                  Medical Record
-                                </span>
+                            {/* Divider */}
+                            <div className="border-t border-dashed border-gray-200 pt-4">
+                              {isReviewed ? (
+                                /* ── Read-only reviewed state ── */
+                                <div className="space-y-3">
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircleIcon className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                                    <span className="text-sm font-semibold text-emerald-700">Review Saved</span>
+                                    {doc.reviewNote?.reviewedAt && (
+                                      <span className="text-xs text-gray-400 ml-auto">
+                                        {new Date(doc.reviewNote.reviewedAt).toLocaleString()}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {doc.reviewNote?.text ? (
+                                    <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+                                      <p className="text-xs font-medium text-emerald-700 mb-1">Doctor's Note (visible to patient):</p>
+                                      <p className="text-sm text-gray-700 whitespace-pre-wrap">{doc.reviewNote.text}</p>
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-gray-400 italic">No note was added.</p>
+                                  )}
+                                  {doc.reviewNote?.followUpRequired && (
+                                    <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
+                                      <CalendarIcon className="w-4 h-4" />
+                                      Follow-up appointment recommended
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                /* ── Review form ── */
+                                <div className="space-y-3">
+                                  <label className="block text-sm font-medium text-gray-700">Doctor's Note <span className="text-gray-400 font-normal">(optional — visible to patient)</span></label>
+                                  <textarea
+                                    id={`note-${doc._id}`}
+                                    rows={3}
+                                    value={form.noteText}
+                                    onChange={(e) => setReviewForms(prev => ({
+                                      ...prev,
+                                      [doc._id]: { ...form, noteText: e.target.value }
+                                    }))}
+                                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 resize-none placeholder-gray-400 transition"
+                                    placeholder="e.g. Report reviewed. Please schedule a follow-up consultation."
+                                  />
+
+                                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      id={`followup-${doc._id}`}
+                                      checked={form.followUpRequired}
+                                      onChange={(e) => setReviewForms(prev => ({
+                                        ...prev,
+                                        [doc._id]: { ...form, followUpRequired: e.target.checked }
+                                      }))}
+                                      className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                                    />
+                                    <span className="text-sm text-gray-600">Recommend a follow-up appointment</span>
+                                  </label>
+
+                                  <button
+                                    id={`review-btn-${doc._id}`}
+                                    onClick={handleSubmitReview}
+                                    disabled={form.submitting}
+                                    className="w-full px-3 py-2.5 bg-emerald-600 text-white text-sm rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors flex items-center justify-center space-x-2 font-medium"
+                                  >
+                                    {form.submitting ? (
+                                      <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> <span>Saving...</span></>
+                                    ) : (
+                                      <><CheckCircleIcon className="w-4 h-4" /> <span>Mark as Reviewed &amp; Save Note</span></>
+                                    )}
+                                  </button>
+                                </div>
                               )}
                             </div>
-                          )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="text-center py-12">

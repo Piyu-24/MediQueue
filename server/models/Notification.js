@@ -9,7 +9,7 @@ const notificationSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['doctor-unavailable', 'appointment-reminder', 'system'],
+    enum: ['doctor-unavailable', 'appointment-reminder', 'document-reviewed', 'system'],
     required: true,
     index: true
   },
@@ -26,6 +26,10 @@ const notificationSchema = new mongoose.Schema({
   appointment: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Appointment'
+  },
+  document: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Document'
   },
   isRead: {
     type: Boolean,

@@ -271,7 +271,11 @@ export const documentAPI = {
   shareDocument: (documentId, shareData) => api.post(`/documents/${documentId}/share`, shareData),
   deleteDocument: (documentId) => api.delete(`/documents/${documentId}`),
   getDocumentTypes: () => api.get('/documents/meta/types'),
+  // Review workflow
+  markViewed: (documentId) => api.patch(`/documents/${documentId}/viewed`),
+  reviewDocument: (documentId, data) => api.patch(`/documents/${documentId}/review`, data),
 };
+
 
 // Report API endpoints
 export const reportAPI = {

@@ -138,7 +138,13 @@ router.post(
     body('departmentId').isMongoId().withMessage('Valid departmentId is required'),
     body('date').matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('date must be YYYY-MM-DD'),
     body('startTime').matches(/^([01]\d|2[0-3]):[0-5]\d$/).withMessage('startTime must be HH:MM'),
-    body('endTime').matches(/^([01]\d|2[0-3]):[0-5]\d$/).withMessage('endTime must be HH:MM'),
+    body('endTime').matches(/^([01]\d|2[0-3]):[0-5]\d$/).withMessage('endTime must be HH:MM')
+      .custom((value, { req }) => {
+        if (req.body.startTime && value <= req.body.startTime) {
+          throw new Error(`End time (${value}) must be after start time (${req.body.startTime})`);
+        }
+        return true;
+      }),
     body('totalCapacity').isInt({ min: 1 }).withMessage('totalCapacity must be a positive integer'),
     body('sessionName').optional().trim().isLength({ max: 60 }),
     body('doctorId').optional().isMongoId(),
@@ -173,7 +179,15 @@ router.post(
     body('departmentId').isMongoId().withMessage('Valid departmentId is required'),
     body('startDate').matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('startDate must be YYYY-MM-DD'),
     body('endDate').matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('endDate must be YYYY-MM-DD'),
-    body('blockTemplates').isArray({ min: 1 }).withMessage('blockTemplates must be a non-empty array'),
+    body('blockTemplates').isArray({ min: 1 }).withMessage('blockTemplates must be a non-empty array')
+      .custom((templates) => {
+        for (const tpl of templates) {
+          if (tpl.startTime && tpl.endTime && tpl.endTime <= tpl.startTime) {
+            throw new Error(`Block end time (${tpl.endTime}) must be after start time (${tpl.startTime})`);
+          }
+        }
+        return true;
+      }),
     body('blockTemplates.*.startTime').matches(/^([01]\d|2[0-3]):[0-5]\d$/).withMessage('startTime must be HH:MM'),
     body('blockTemplates.*.endTime').matches(/^([01]\d|2[0-3]):[0-5]\d$/).withMessage('endTime must be HH:MM'),
     body('blockTemplates.*.totalCapacity').isInt({ min: 1 }).withMessage('totalCapacity must be a positive integer'),

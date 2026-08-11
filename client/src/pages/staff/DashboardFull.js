@@ -10,6 +10,18 @@ import { useAuth } from '../../hooks/useAuth';
 import { appointmentAPI } from '../../services/api';
 import toast from 'react-hot-toast';
 
+const fmt12 = (hhmm) => {
+  if (!hhmm) return '';
+  const parts = hhmm.split(':');
+  if (parts.length < 2) return hhmm;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return hhmm;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const displayHour = h % 12 || 12;
+  return `${displayHour}:${String(m).padStart(2, '0')} ${period}`;
+};
+
 const StaffDashboard = () => {
   const { user } = useAuth();
 
@@ -172,7 +184,7 @@ const StaffDashboard = () => {
                             )}
                           </p>
                           <p className="text-sm text-gray-500">
-                            {appointment.appointmentTime} • {appointment.appointmentType}
+                            {fmt12(appointment.appointmentTime)} • {appointment.appointmentType}
                           </p>
                           <div className="mt-2">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${

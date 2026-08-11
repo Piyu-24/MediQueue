@@ -4,6 +4,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const Document = require('../models/Document');
+const Notification = require('../models/Notification');
+const User = require('../models/User');
 const auth = require('../middleware/auth');
 const { signFileUrl } = require('../utils/signedFileUrl');
 const { saveUpload, deleteUpload, isCloudinaryRef } = require('../utils/fileStorage');
@@ -112,6 +114,48 @@ router.post('/upload', auth, upload.single('document'), async (req, res) => {
       { path: 'uploadedBy', select: 'firstName lastName role' }
     ]);
 
+    // ── Notify doctor if document is linked to an appointment ──────────────
+    if (appointmentId) {
+      try {
+        const Appointment = require('../models/Appointment');
+        const appt = await Appointment.findById(appointmentId)
+          .populate('doctor', 'firstName lastName');
+
+        if (appt?.doctor?._id) {
+          const doctorId   = appt.doctor._id.toString();
+          const patientName = `${document.patient.firstName} ${document.patient.lastName}`;
+          const apptDate    = new Date(appt.appointmentDate).toLocaleDateString('en-GB', {
+            day: 'numeric', month: 'short', year: 'numeric'
+          });
+
+          // Persist notification in DB for the doctor's notification bell
+          await Notification.create({
+            recipient: doctorId,
+            type:    'system',
+            title:   'New document uploaded',
+            message: `${patientName} uploaded "${document.title}" linked to your appointment on ${apptDate}.`,
+            document: document._id,
+          });
+
+          // Real-time push to the doctor's socket room
+          const io = req.app.get('io');
+          if (io) {
+            io.to(doctorId).emit('notification:document-uploaded', {
+              documentId:      document._id,
+              documentTitle:   document.title,
+              patientName,
+              appointmentId:   appt._id,
+              appointmentDate: appt.appointmentDate,
+            });
+          }
+        }
+      } catch (notifyErr) {
+        // Non-fatal — upload succeeded; just log and continue
+        console.error('Doctor notification after upload failed:', notifyErr.message);
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     res.status(201).json({
       success: true,
       message: 'Document uploaded successfully',
@@ -215,6 +259,27 @@ router.get('/:id', auth, async (req, res) => {
     // Log access
     await document.logAccess(req.user.id, 'view', req.ip);
 
+    // Auto-upgrade reviewStatus from UPLOADED → VIEWED when a doctor/staff opens the document
+    if (
+      ['doctor', 'staff', 'admin'].includes(req.user.role) &&
+      document.reviewStatus === 'UPLOADED'
+    ) {
+      document.reviewStatus = 'VIEWED';
+      await document.save();
+
+      // Emit a lightweight socket update to the patient so their UI refreshes
+      const io = req.app.get('io');
+      if (io) {
+        const patientId = document.patient._id
+          ? document.patient._id.toString()
+          : document.patient.toString();
+        io.to(patientId).emit('notification:document-viewed', {
+          documentId: document._id,
+          reviewStatus: 'VIEWED'
+        });
+      }
+    }
+
     res.json({
       success: true,
       data: { document: withSignedUrl(document) }
@@ -275,10 +340,118 @@ router.get('/:id/download', auth, async (req, res) => {
   }
 });
 
+// @desc    Mark document as VIEWED (called explicitly if needed; also triggered auto in GET /:id)
+// @route   PATCH /api/documents/:id/viewed
+// @access  Private (Doctor, Staff, Admin)
+router.patch('/:id/viewed', auth, async (req, res) => {
+  try {
+    if (!['doctor', 'staff', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Only doctors/staff can mark documents as viewed' });
+    }
+
+    const document = await Document.findById(req.params.id);
+    if (!document) return res.status(404).json({ success: false, message: 'Document not found' });
+
+    // Only advance from UPLOADED → VIEWED (not from REVIEWED back)
+    if (document.reviewStatus === 'UPLOADED') {
+      document.reviewStatus = 'VIEWED';
+      await document.save();
+
+      const io = req.app.get('io');
+      if (io) {
+        const patientId = document.patient.toString();
+        io.to(patientId).emit('notification:document-viewed', {
+          documentId: document._id,
+          reviewStatus: 'VIEWED'
+        });
+      }
+    }
+
+    res.json({ success: true, data: { reviewStatus: document.reviewStatus } });
+  } catch (error) {
+    console.error('Mark viewed error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @desc    Doctor reviews document — saves note, marks REVIEWED, notifies patient
+// @route   PATCH /api/documents/:id/review
+// @access  Private (Doctor only)
+router.patch('/:id/review', auth, async (req, res) => {
+  try {
+    if (!['doctor', 'staff', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Only doctors can review documents' });
+    }
+
+    const { noteText, followUpRequired = false } = req.body;
+
+    const document = await Document.findById(req.params.id)
+      .populate('patient', 'firstName lastName email');
+
+    if (!document) return res.status(404).json({ success: false, message: 'Document not found' });
+
+    // Save the review note and upgrade status to REVIEWED
+    document.reviewStatus = 'REVIEWED';
+    document.reviewNote = {
+      text: noteText || '',
+      reviewedBy: req.user.id,
+      reviewedAt: new Date(),
+      followUpRequired: !!followUpRequired
+    };
+    await document.save();
+
+    // Fetch the reviewing doctor's name
+    const doctor = await User.findById(req.user.id).select('firstName lastName');
+    const doctorName = `Dr. ${doctor?.firstName || ''} ${doctor?.lastName || ''}`.trim();
+
+    // Persist notification in DB
+    const notification = await Notification.create({
+      recipient: document.patient._id,
+      type: 'document-reviewed',
+      title: 'Your document has been reviewed',
+      message: `${doctorName} has reviewed your document "${document.title}".${followUpRequired ? ' A follow-up consultation has been recommended.' : ''}`,
+      document: document._id,
+      metadata: {
+        doctorId: req.user.id,
+        doctorName,
+        documentId: document._id,
+        documentTitle: document.title,
+        followUpRequired: !!followUpRequired,
+        noteText: noteText || ''
+      }
+    });
+
+    // Push real-time Socket.io notification to the patient
+    const io = req.app.get('io');
+    if (io) {
+      const patientId = document.patient._id.toString();
+      io.to(patientId).emit('notification:document-reviewed', {
+        notificationId: notification._id,
+        documentId: document._id,
+        documentTitle: document.title,
+        doctorName,
+        noteText: noteText || '',
+        followUpRequired: !!followUpRequired,
+        reviewedAt: document.reviewNote.reviewedAt
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Document reviewed successfully',
+      data: { reviewStatus: document.reviewStatus, reviewNote: document.reviewNote }
+    });
+  } catch (error) {
+    console.error('Review document error:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
+  }
+});
+
 // @desc    Share document with user
 // @route   POST /api/documents/:id/share
 // @access  Private (Patient own docs, Staff, Admin)
 router.post('/:id/share', auth, async (req, res) => {
+
   try {
     const { userId, permissions = 'view' } = req.body;
 

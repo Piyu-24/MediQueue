@@ -13,6 +13,18 @@ const SOCKET_URL =
   process.env.REACT_APP_SOCKET_URL || 'http://localhost:5000';
 
 let socket = null;
+const joinedRooms = new Set();
+const trackedUserIds = new Set();
+
+const rejoinTrackedRooms = (s) => {
+  if (!s) return;
+  trackedUserIds.forEach((userId) => {
+    if (userId && !joinedRooms.has(userId)) {
+      s.emit('join', userId);
+      joinedRooms.add(userId);
+    }
+  });
+};
 
 const createSocket = () => {
   if (socket && socket.connected) return socket;
@@ -28,6 +40,7 @@ const createSocket = () => {
 
   socket.on('connect', () => {
     console.log(`[Socket] Connected: ${socket.id}`);
+    rejoinTrackedRooms(socket);
   });
 
   socket.on('disconnect', (reason) => {
@@ -49,10 +62,24 @@ const socketService = {
   },
 
   /** Connect and join a user's personal room (for patient push notifications) */
-  joinRoom(userId) {
+  joinRoom(userId, role = null) {
     const s = this.getSocket();
     if (userId) {
-      s.emit('join', userId);
+      const normalizedId = String(userId);
+      trackedUserIds.add(normalizedId);
+      if (s.connected) {
+        s.emit('join', normalizedId);
+        joinedRooms.add(normalizedId);
+      }
+    }
+
+    if (role) {
+      const normalizedRole = String(role).toLowerCase();
+      if (s.connected) {
+        s.emit('join-role', normalizedRole);
+        joinedRooms.add(normalizedRole);
+        joinedRooms.add(`role:${normalizedRole}`);
+      }
     }
   },
 

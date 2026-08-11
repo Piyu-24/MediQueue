@@ -261,7 +261,7 @@ class DoctorController {
         userAgent: req.get('User-Agent') || 'Unknown'
       };
 
-      const result = await DoctorService.updateAvailability(doctorId, availabilityData, requestInfo);
+      const result = await DoctorService.updateAvailability(doctorId, availabilityData, requestInfo, req.app.get('io'));
       
       res.status(200).json(result);
 

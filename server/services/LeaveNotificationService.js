@@ -6,33 +6,58 @@ const AuditLog = require('../models/AuditLog');
 const Room = require('../models/Room');
 const User = require('../models/User');
 
-// Notify every admin that OPD rooms staffed by this doctor need attention
-// (either a replacement doctor, or a review once the doctor is back).
+// Notify every admin when a doctor is on leave or returns to duty.
 const notifyAdminsAboutRooms = async (doctorId, doctorUser, io, { returning = false, dateLabel = '' } = {}) => {
-  const rooms = await Room.find({ assignedDoctors: doctorId, isAutoManaged: false })
+  const rooms = await Room.find({ assignedDoctors: doctorId })
     .select('roomNumber displayName');
-  if (rooms.length === 0) return;
 
   const admins = await User.find({ role: 'admin', isActive: true }).select('_id');
   if (admins.length === 0) return;
 
   const doctorName = `Dr. ${doctorUser.firstName || ''} ${doctorUser.lastName || ''}`.trim();
   const roomList = rooms.map((r) => r.roomNumber).join(', ');
-  const title = returning ? 'Doctor available again – review rooms' : 'Room needs a replacement doctor';
+  
+  const title = returning
+    ? 'Doctor available again – review rooms'
+    : (rooms.length > 0 ? 'Room needs a replacement doctor' : 'Doctor on leave alert');
+    
   const message = returning
-    ? `${doctorName} is available again${dateLabel ? ` (${dateLabel})` : ''}. Review the doctor assignments for room(s) ${roomList}.`
-    : `${doctorName} is on leave${dateLabel ? ` (${dateLabel})` : ''}. Room(s) ${roomList} need a replacement doctor before patients can be assigned.`;
+    ? `${doctorName} is available again${dateLabel ? ` (${dateLabel})` : ''}.${rooms.length > 0 ? ` Review the doctor assignments for room(s) ${roomList}.` : ''}`
+    : (rooms.length > 0
+        ? `${doctorName} is on leave${dateLabel ? ` (${dateLabel})` : ''}. Room(s) ${roomList} need a replacement doctor before patients can be checked in.`
+        : `${doctorName} is on leave${dateLabel ? ` (${dateLabel})` : ''}.`);
 
   for (const admin of admins) {
     try {
-      await Notification.create({
+      const newNotif = await Notification.create({
         recipient: admin._id,
         type: 'system',
         title,
         message,
-        metadata: { doctorId, rooms: rooms.map((r) => r._id), returning }
+        metadata: {
+          doctorId: doctorId.toString(),
+          rooms: rooms.map((r) => r._id.toString()),
+          returning
+        }
       });
-      if (io) io.to(admin._id.toString()).emit('notification', { type: 'system', title, message });
+
+      if (io) {
+        const payload = {
+          _id: newNotif._id.toString(),
+          type: 'system',
+          title,
+          message,
+          metadata: {
+            doctorId: doctorId.toString(),
+            rooms: rooms.map((r) => r._id.toString()),
+            returning
+          },
+          createdAt: newNotif.createdAt || new Date().toISOString()
+        };
+
+        const adminRoomId = admin._id.toString();
+        io.to(adminRoomId).emit('notification', payload);
+      }
     } catch (err) {
       console.error('Admin room notification failed (non-fatal):', err.message);
     }

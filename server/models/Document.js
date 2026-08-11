@@ -130,6 +130,29 @@ const documentSchema = new mongoose.Schema({
     enum: ['active', 'archived', 'deleted'],
     default: 'active'
   },
+  // Review workflow: UPLOADED → VIEWED → REVIEWED (forward-only)
+  reviewStatus: {
+    type: String,
+    enum: ['UPLOADED', 'VIEWED', 'REVIEWED'],
+    default: 'UPLOADED',
+    index: true
+  },
+  reviewNote: {
+    text: {
+      type: String,
+      trim: true,
+      maxlength: 1000
+    },
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    reviewedAt: Date,
+    followUpRequired: {
+      type: Boolean,
+      default: false
+    }
+  },
   virusScanResult: {
     scanned: {
       type: Boolean,
@@ -147,6 +170,7 @@ const documentSchema = new mongoose.Schema({
 documentSchema.index({ patient: 1, createdAt: -1 });
 documentSchema.index({ documentType: 1 });
 documentSchema.index({ status: 1 });
+documentSchema.index({ reviewStatus: 1 });
 documentSchema.index({ 'shareSettings.isShared': 1 });
 
 // Log document access

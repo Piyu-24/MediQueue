@@ -90,13 +90,21 @@ const TokenCard = ({ result, onDone }) => {
                 {fmt12(token.timeBlock.startTime)} – {fmt12(token.timeBlock.endTime)}
               </span>
             </div>
+            {(token.reportingTime || token.timeBlock.reportingTime) && (
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Check-in Starts From</span>
+                <span className="font-semibold text-blue-700">
+                  {fmt12(token.reportingTime || token.timeBlock.reportingTime)}
+                </span>
+              </div>
+            )}
           </>
         )}
       </div>
 
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 text-sm text-blue-800 text-left flex gap-3">
         <InformationCircleIcon className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
-        <p>{token?.patientMessage || 'Please visit within your assigned time block and check in at reception. Your token will be activated after check-in.'}</p>
+        <p>{token?.patientMessage || `Please visit within your assigned time block and check in at reception starting from ${fmt12(token?.reportingTime || token?.timeBlock?.reportingTime || token?.timeBlock?.startTime)}. Your token will be activated after check-in.`}</p>
       </div>
 
       <button
