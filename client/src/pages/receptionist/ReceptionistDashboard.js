@@ -170,6 +170,7 @@ const ReceptionistDashboard = () => {
   const [apptLookupResults, setApptLookupResults] = useState([]);
   const [apptLookupLoading, setApptLookupLoading] = useState(false);
   const [eligibility, setEligibility] = useState(null); // result for selected appointment
+  const [deptDoctors, setDeptDoctors] = useState([]);
 
   // Patient Search tab state
   const [searchQuery, setSearchQuery] = useState('');
@@ -200,7 +201,7 @@ const ReceptionistDashboard = () => {
     { id: 'queue', name: "Today's Queue", icon: ClipboardDocumentListIcon },
     { id: 'search', name: 'Patient Search', icon: MagnifyingGlassIcon },
     { id: 'verify', name: 'Verify Identity', icon: ShieldCheckIcon },
-    { id: 'records', name: 'Upload Lab Tests', icon: DocumentArrowUpIcon }
+    // { id: 'records', name: 'Upload Lab Tests', icon: DocumentArrowUpIcon }
   ];
 
   // Load departments once on mount
@@ -215,10 +216,24 @@ const ReceptionistDashboard = () => {
   // whether to show a dropdown (multi-room, e.g. OPD) or auto-assign (single room).
   // Does NOT rely on hasMultipleRooms field which may not be set in existing DB records.
   const handleDepartmentChange = async (deptId, deptName) => {
-    setCheckInForm(p => ({ ...p, department: deptName, departmentId: deptId, room: '', roomId: '' }));
+    setCheckInForm(p => ({ ...p, department: deptName, departmentId: deptId, room: '', roomId: '', doctorId: '' }));
     setAvailableRooms([]);
+    setDeptDoctors([]);
     setDeptIsMultiRoom(false);
     if (!deptId) return;
+
+    // Fetch available doctors for this department
+    receptionAPI.getAvailableDoctors({ departmentId: deptId, department: deptName })
+      .then(res => {
+        if (res.data.success) {
+          const docs = res.data.data || [];
+          setDeptDoctors(docs);
+          if (docs.length === 1) {
+            setCheckInForm(p => ({ ...p, doctorId: p.doctorId || docs[0]._id }));
+          }
+        }
+      })
+      .catch(() => {});
 
     const dept = deptList.find(d => d._id === deptId);
     setRoomsLoading(true);
@@ -239,7 +254,10 @@ const ReceptionistDashboard = () => {
         if (autoRoom.effectiveStatus === 'unavailable') {
           toast.error(`${autoRoom.displayName} is currently unavailable (department inactive).`);
         } else {
-          setCheckInForm(p => ({ ...p, room: autoRoom.roomNumber, roomId: autoRoom._id }));
+          const unavail = autoRoom.unavailableDoctorIds || [];
+          const availDocs = (autoRoom.assignedDoctors || []).filter(d => !unavail.includes(d._id));
+          const autoDocId = availDocs.length === 1 ? availDocs[0]._id : '';
+          setCheckInForm(p => ({ ...p, room: autoRoom.roomNumber, roomId: autoRoom._id, doctorId: p.doctorId || autoDocId }));
         }
       } else {
         // No rooms in DB yet — derive fallback code from dept code
@@ -438,6 +456,10 @@ const ReceptionistDashboard = () => {
       setQrLoading(true);
       setValidatedData(null);
       setCompletedEntry(null);
+      setAvailableRooms([]);
+      setDeptIsMultiRoom(false);
+      setDeptDoctors([]);
+      setCheckInForm({ room: '', roomId: '', department: '', departmentId: '', doctorId: '', appointmentId: '', isWalkIn: false, notes: '', priority: 'normal' });
       let payload = { cardNumber: normalizedCardValue.toUpperCase() };
       if (normalizedCardValue.startsWith('{') || normalizedCardValue.includes('"cardNumber"')) {
         try {
@@ -568,7 +590,7 @@ const ReceptionistDashboard = () => {
 
     try {
       setCheckInLoading(true);
-      const hasAppointment = !!checkInForm.appointmentId;
+      const hasAppointment = !!checkInForm.appointmentId && (validatedData?.todaysAppointments || []).some(a => a._id === checkInForm.appointmentId);
       let res;
 
       if (hasAppointment) {
@@ -696,7 +718,7 @@ const ReceptionistDashboard = () => {
       const res = await queueAPI.getCheckInEligibility(appointment._id, appointment.patient._id);
       setEligibility({ ...res.data.data, appointment });
 
-      // Pre-fill department so the room section activates immediately
+      // Pre-fill department and doctor details so the check-in form activates immediately
       const deptName  = appointment.departmentId?.name || appointment.doctor?.department || '';
       const rawDeptId = typeof appointment.departmentId === 'object'
         ? appointment.departmentId?._id
@@ -705,6 +727,31 @@ const ReceptionistDashboard = () => {
         ? null
         : deptList.find(d => d.name === deptName || d.name.toLowerCase() === deptName.toLowerCase());
       const resolvedDeptId = rawDeptId || matchedDept?._id || '';
+
+      const docId = appointment.doctor?._id || (typeof appointment.doctor === 'string' ? appointment.doctor : '');
+      setCheckInForm(p => ({
+        ...p,
+        appointmentId: appointment._id,
+        doctorId: docId,
+        department: deptName,
+        departmentId: resolvedDeptId
+      }));
+
+      // Fetch available doctors for the department if appointment doctor is unassigned
+      if (resolvedDeptId || deptName) {
+        receptionAPI.getAvailableDoctors({ departmentId: resolvedDeptId, department: deptName })
+          .then(r => {
+            if (r.data.success) {
+              const docs = r.data.data || [];
+              setDeptDoctors(docs);
+              if (!docId && docs.length === 1) {
+                setCheckInForm(p => ({ ...p, doctorId: docs[0]._id }));
+              }
+            }
+          })
+          .catch(() => {});
+      }
+
       if (resolvedDeptId) handleDepartmentChange(resolvedDeptId, deptName);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Could not check eligibility');
@@ -1709,7 +1756,7 @@ const ReceptionistDashboard = () => {
                     </div>
 
                     {eligibility.eligible && (
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3">
                         <div>
                           <label className="block text-xs font-semibold text-gray-600 mb-1">Department *</label>
                           <select
@@ -1734,7 +1781,14 @@ const ReceptionistDashboard = () => {
                               <select value={checkInForm.roomId}
                                 onChange={e => {
                                   const r = availableRooms.find(x => x._id === e.target.value);
-                                  setCheckInForm(p => ({ ...p, roomId: e.target.value, room: r?.roomNumber || '' }));
+                                  const roomDocs = (r?.assignedDoctors || []).filter(d => !(r?.unavailableDoctorIds || []).includes(d._id));
+                                  const autoDocId = eligibility.appointment?.doctor?._id || (roomDocs.length === 1 ? roomDocs[0]._id : '');
+                                  setCheckInForm(p => ({
+                                    ...p,
+                                    roomId: e.target.value,
+                                    room: r?.roomNumber || '',
+                                    doctorId: p.doctorId || autoDocId
+                                  }));
                                 }}
                                 className="flex-1 px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400">
                                 <option value="">Select room</option>
@@ -1756,22 +1810,54 @@ const ReceptionistDashboard = () => {
                           ) : <p className="text-xs text-gray-400 italic py-2">Will be auto-assigned</p>}
                         </div>
                         <div>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Doctor *</label>
+                          {eligibility.appointment?.doctor ? (
+                            <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
+                              <UserIcon className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                              <span className="text-sm font-semibold text-blue-900 truncate">
+                                Dr. {eligibility.appointment.doctor.firstName} {eligibility.appointment.doctor.lastName}
+                              </span>
+                            </div>
+                          ) : (
+                            <select
+                              value={checkInForm.doctorId}
+                              onChange={e => setCheckInForm(p => ({ ...p, doctorId: e.target.value }))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400"
+                            >
+                              <option value="">Select Doctor</option>
+                              {(() => {
+                                const selRoom = availableRooms.find(r => r._id === checkInForm.roomId);
+                                const roomDocs = (selRoom?.assignedDoctors || []).filter(d => !(selRoom?.unavailableDoctorIds || []).includes(d._id));
+                                const list = roomDocs.length > 0 ? roomDocs : deptDoctors;
+                                return list.map(d => (
+                                  <option key={d._id} value={d._id}>
+                                    Dr. {d.firstName} {d.lastName}{d.specialization ? ` (${d.specialization})` : ''}
+                                  </option>
+                                ));
+                              })()}
+                            </select>
+                          )}
+                        </div>
+                        <div>
                           <label className="block text-xs font-semibold text-gray-600 mb-1">Notes</label>
                           <input value={checkInForm.notes} onChange={e => setCheckInForm(p => ({ ...p, notes: e.target.value }))}
                             placeholder="Optional notes"
                             className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent" />
                         </div>
-                        <div className="md:col-span-3 flex gap-2">
+                        <div className="md:col-span-4 flex gap-2">
                           <button
-                            disabled={checkInLoading || !checkInForm.room || !checkInForm.department}
+                            disabled={checkInLoading || !checkInForm.room || !checkInForm.department || !checkInForm.doctorId}
                             onClick={async () => {
                               try {
                                 setCheckInLoading(true);
                                 const appt = eligibility.appointment;
+                                const patientId = appt.patient?._id || (typeof appt.patient === 'string' ? appt.patient : undefined);
+                                const doctorId = checkInForm.doctorId || appt.doctor?._id || (typeof appt.doctor === 'string' ? appt.doctor : undefined);
+
                                 const res = await queueAPI.checkInAppointment({
                                   appointmentId: appt._id,
-                                  patientId:    appt.patient._id || appt.patient,
-                                  doctorId:     appt.doctor._id  || appt.doctor,
+                                  patientId,
+                                  doctorId,
                                   room:         checkInForm.room,
                                   department:   checkInForm.department,
                                   departmentId: checkInForm.departmentId || undefined,
@@ -1790,7 +1876,7 @@ const ReceptionistDashboard = () => {
                                   setCheckInForm({ room: '', roomId: '', department: '', departmentId: '', doctorId: '', appointmentId: '', isWalkIn: false, notes: '', priority: 'normal' });
                                 }
                               } catch (err) {
-                                toast.error(err.response?.data?.message || 'Check-in failed');
+                                toast.error(err.response?.data?.message || err.message || 'Check-in failed');
                               } finally {
                                 setCheckInLoading(false);
                               }
