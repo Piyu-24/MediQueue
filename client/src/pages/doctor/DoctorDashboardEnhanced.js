@@ -18,6 +18,16 @@ import socketService from '../../services/socket';
 import ConsultationNoteModal from '../../components/doctor/ConsultationNoteModal';
 import toast from 'react-hot-toast';
 
+const formatTime = (timeString) => {
+  if (!timeString) return '';
+  const [hours, minutes] = timeString.split(':');
+  const hour = parseInt(hours, 10);
+  if (isNaN(hour)) return timeString;
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${minutes} ${ampm}`;
+};
+
 const DoctorDashboardEnhanced = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -400,14 +410,6 @@ const DoctorDashboardEnhanced = () => {
       case 'no-show':      return 'bg-orange-100 text-orange-800';
       default:             return 'bg-gray-100 text-gray-800';
     }
-  };
-  
-  const formatTime = (timeString) => {
-    const [hours, minutes] = timeString.split(':');
-    const hour = parseInt(hours);
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    const displayHour = hour % 12 || 12;
-    return `${displayHour}:${minutes} ${ampm}`;
   };
 
   if (loading) {
